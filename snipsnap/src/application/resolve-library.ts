@@ -1,4 +1,4 @@
-import { access, copyFile, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { access, copyFile, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -65,8 +65,25 @@ export interface ResolveProjectRef {
 }
 
 export function defaultResolveRoot(): string {
-  return process.env.SNIPSNAP_RESOLVE_ROOT
-    ?? path.join(os.homedir(), 'Library', 'Application Support', 'SnipSnap', 'resolve');
+  return defaultResolveRoots()[0] as string;
+}
+
+/**
+ * Where the export script writes. Run from inside the sandboxed App Store
+ * build, its idea of the home folder is the container, so look in both.
+ */
+export function defaultResolveRoots(): string[] {
+  if (process.env.SNIPSNAP_RESOLVE_ROOT) {
+    return process.env.SNIPSNAP_RESOLVE_ROOT.split(path.delimiter).filter(Boolean);
+  }
+  const home = os.homedir();
+  const containers = ['com.blackmagic-design.DaVinciResolveLite', 'com.blackmagic-design.DaVinciResolve'];
+  return [
+    path.join(home, 'Library', 'Application Support', 'SnipSnap', 'resolve'),
+    ...containers.map((bundle) => path.join(
+      home, 'Library', 'Containers', bundle, 'Data', 'Library', 'Application Support', 'SnipSnap', 'resolve',
+    )),
+  ];
 }
 
 const PROJECT_LIBRARY_TAILS = [
@@ -99,6 +116,51 @@ export function commonExportRoots(): string[] {
   if (process.env.SNIPSNAP_RESOLVE_SCAN) return process.env.SNIPSNAP_RESOLVE_SCAN.split(path.delimiter).filter(Boolean);
   const home = os.homedir();
   return ['Documents', 'Desktop', 'Movies', 'Downloads'].map((folder) => path.join(home, folder));
+}
+
+/**
+ * Where Resolve looks for scripts it runs itself. Builds that refuse external
+ * scripting still run these, so installing here is the way in on the App Store
+ * version.
+ */
+export function resolveScriptFolders(): string[] {
+  if (process.env.SNIPSNAP_RESOLVE_SCRIPTS) {
+    return process.env.SNIPSNAP_RESOLVE_SCRIPTS.split(path.delimiter).filter(Boolean);
+  }
+  const home = os.homedir();
+  const containers = ['com.blackmagic-design.DaVinciResolveLite', 'com.blackmagic-design.DaVinciResolve'];
+  return [
+    path.join(home, 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve', 'Fusion', 'Scripts', 'Utility'),
+    ...containers.map((bundle) => path.join(
+      home, 'Library', 'Containers', bundle, 'Data', 'Library', 'Application Support', 'Fusion', 'Scripts', 'Utility',
+    )),
+    path.join(home, 'Library', 'Application Support', 'Fusion', 'Scripts', 'Utility'),
+  ];
+}
+
+/**
+ * Copy the export script into Resolve's Scripts menu. Only folders whose
+ * Scripts directory already exists are used, so nothing is scattered around a
+ * machine that has no Resolve on it.
+ */
+export async function installResolveScript(scriptPath: string): Promise<string[]> {
+  const installed: string[] = [];
+  for (const folder of resolveScriptFolders()) {
+    try {
+      await access(path.dirname(folder));
+    } catch {
+      continue;
+    }
+    try {
+      await mkdir(folder, { recursive: true });
+      const target = path.join(folder, path.basename(scriptPath));
+      await copyFile(scriptPath, target);
+      installed.push(target);
+    } catch {
+      // A folder we cannot write to is simply not one of the install targets.
+    }
+  }
+  return installed;
 }
 
 export function resolveDatabaseProjectId(folder: string): string {

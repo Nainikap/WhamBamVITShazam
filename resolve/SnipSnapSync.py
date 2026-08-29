@@ -52,7 +52,30 @@ MODULE_CANDIDATES = [
 
 
 def connect():
-    """Return the Resolve application object, or None when it is not running."""
+    """Return the Resolve application object, or None when it is not running.
+
+    Run from Resolve's own Scripts menu the application is already in scope,
+    which is the only way in on builds that block external scripting.
+    """
+    injected = globals().get("resolve")
+    if injected is not None:
+        return injected
+    try:
+        import bmd  # type: ignore  # Provided by Resolve to scripts it runs itself.
+
+        application = bmd.scriptapp("Resolve")
+        if application is not None:
+            return application
+    except Exception:
+        pass
+    try:
+        import fusionscript as script_module  # type: ignore  # In-process on some builds.
+
+        application = script_module.scriptapp("Resolve")
+        if application is not None:
+            return application
+    except Exception:
+        pass
     # The bundled module looks for fusionscript.so under a path that does not
     # match every install, so point it at the copy that is actually here.
     if not os.environ.get("RESOLVE_SCRIPT_LIB"):

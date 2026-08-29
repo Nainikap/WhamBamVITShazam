@@ -22,7 +22,7 @@ import {
   type PreviewMediaAvailability,
   type TimelineDiff,
 } from '../preview';
-import { ResolveLibrary, defaultResolveRoot, type ResolveProjectRef } from './resolve-library';
+import { ResolveLibrary, defaultResolveRoots, type ResolveProjectRef } from './resolve-library';
 import { atomicWriteJson, readJson } from './storage';
 import {
   PendingSyncSchema,
@@ -885,7 +885,7 @@ export class ProjectService {
   async resolveRoots(): Promise<string[]> {
     const value = await this.readOptionalJson(this.resolveRootsPath());
     const extra = value === undefined ? [] : z.array(z.string().min(1)).parse(value);
-    return [...new Set([defaultResolveRoot(), ...extra.map((entry) => path.resolve(entry))])];
+    return [...new Set([...defaultResolveRoots(), ...extra.map((entry) => path.resolve(entry))])];
   }
 
   async addResolveRoot(folder: string): Promise<string[]> {

@@ -6,7 +6,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import started from 'electron-squirrel-startup';
-import { ProjectService, SourceWatchService, atomicWriteText } from './application';
+import { ProjectService, SourceWatchService, atomicWriteText, installResolveScript } from './application';
 import { channels } from './ipc';
 
 if (started) app.quit();
@@ -174,19 +174,38 @@ function registerIpc(): void {
   });
   ipcMain.handle(channels.exportFromResolve, async () => {
     const script = resolveScriptPath();
+    let output = '';
     try {
-      const { stdout } = await runFile('python3', [script, '--all'], { timeout: 120_000 });
-      const summary = stdout.trim().split('\n').filter(Boolean).at(-2) ?? 'Export finished.';
-      return { ok: !stdout.includes('0 project(s)'), message: summary };
+      const result = await runFile('python3', [script, '--all'], { timeout: 120_000 });
+      output = result.stdout;
+      if (!output.includes('Could not reach DaVinci Resolve')) {
+        const summary = output.trim().split('\n').filter(Boolean).at(-2) ?? 'Export finished.';
+        return { ok: !output.includes('0 project(s)'), message: summary };
+      }
     } catch (error) {
-      const output = error instanceof Error && 'stdout' in error ? String((error as { stdout: unknown }).stdout) : '';
-      const reason = output.includes('Could not reach DaVinci Resolve')
-        ? 'DaVinci Resolve is not answering. Open it and set Preferences \u203a System \u203a General \u203a '
-          + 'External scripting using to Local. The Mac App Store build blocks scripting entirely \u2014 with '
-          + 'that one, use File \u203a Export \u203a Timeline and save an .otio beside the project instead.'
-        : (error instanceof Error ? error.message : String(error));
-      return { ok: false, message: reason };
+      output = error instanceof Error && 'stdout' in error ? String((error as { stdout: unknown }).stdout) : '';
+      if (!output.includes('Could not reach DaVinci Resolve')) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
     }
+
+    // Resolve will not answer from outside, which the App Store build never
+    // does. Put the script where Resolve runs it itself and say so.
+    const installed = await installResolveScript(script);
+    if (installed.length === 0) {
+      return {
+        ok: false,
+        message: 'DaVinci Resolve is not answering, and its Scripts folder could not be found. '
+          + 'Export the timeline from Resolve with File \u203a Export \u203a Timeline, then use Add folder here.',
+      };
+    }
+    return {
+      ok: false,
+      installed: true,
+      message: `Resolve does not accept outside scripting, so SnipSnapSync has been installed into its `
+        + `Scripts menu (${installed.length} location${installed.length === 1 ? '' : 's'}). In Resolve choose `
+        + 'Workspace \u203a Scripts \u203a SnipSnapSync, then press Refresh here.',
+    };
   });
   ipcMain.handle(channels.addResolveFolder, async () => {
     const selection = await dialog.showOpenDialog({

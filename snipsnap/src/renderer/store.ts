@@ -182,7 +182,8 @@ export const useAppStore = create<AppStore>((set, get) => {
       const result = await window.snipsnap.exportFromResolve();
       const overviews = await window.snipsnap.listOverviews();
       set({ overviews });
-      if (result.ok) set({ notice: result.message });
+      // Installing the script into Resolve is guidance, not a failure.
+      if (result.ok || result.installed) set({ notice: result.message });
       else set({ error: result.message });
     }),
 

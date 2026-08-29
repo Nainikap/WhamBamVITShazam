@@ -50,7 +50,7 @@ export interface SnipSnapApi {
   openProject(projectId: string): Promise<ProjectStatus>;
   addResolveFolder(): Promise<string[] | null>;
   addResolveProjectFile(): Promise<string[] | null>;
-  exportFromResolve(): Promise<{ ok: boolean; message: string }>;
+  exportFromResolve(): Promise<{ ok: boolean; installed?: boolean; message: string }>;
   resolveRoots(): Promise<string[]>;
   status(projectId: string): Promise<ProjectStatus>;
   connectOtioSource(projectId: string, expectedVersion: number): Promise<SourceScanResult | null>;
