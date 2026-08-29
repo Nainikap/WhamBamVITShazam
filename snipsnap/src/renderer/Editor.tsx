@@ -9,8 +9,8 @@ import { useAppStore } from './store';
 
 function HunkRow({ hunk, actionLabel, onAction, fps }: {
   hunk: SemanticHunk;
-  actionLabel: string;
-  onAction(): void;
+  actionLabel?: string;
+  onAction?(): void;
   fps: number;
 }) {
   const range = hunk.affectedFrameRange;
@@ -23,7 +23,7 @@ function HunkRow({ hunk, actionLabel, onAction, fps }: {
         {range ? ` · ${framesToTimecode(range.start, fps)} → ${framesToTimecode(range.start + range.duration, fps)}` : ''}
       </small>
     </div>
-    <button className="small-button" onClick={onAction}>{actionLabel}</button>
+    {actionLabel && onAction && <button className="small-button" onClick={onAction}>{actionLabel}</button>}
   </article>;
 }
 
@@ -53,6 +53,8 @@ export function Editor() {
   const dirty = status.staged.length > 0 || status.unstaged.length > 0 || Boolean(status.source.pending);
   const canCommit = status.staged.length > 0;
   const canDiff = status.history.length > 1;
+  const resolveSyncActive = status.source.mode === 'resolve'
+    && ['starting', 'waiting-for-resolve', 'watching'].includes(status.source.state);
 
   function guardedCheckout(branch: string): void {
     if (!status || branch === status.branch) return;
@@ -154,15 +156,27 @@ export function Editor() {
           <section className={`source-strip source-${status.source.state}`}>
             <span className={`status-pill ${status.source.state}`}>{status.source.state.replace('-', ' ')}</span>
             <div className="source-body">
-              <strong>{status.source.connected ? status.source.fileName : 'No Resolve export connected'}</strong>
+              <strong>{status.source.mode === 'resolve'
+                ? `${status.source.resolveProjectName ?? 'DaVinci Resolve'} · ${status.source.resolveTimelineName ?? 'active timeline'}`
+                : status.source.connected ? status.source.fileName : 'Connect SnipSnap to DaVinci Resolve'}</strong>
               <small title={status.source.filePath}>
-                {status.source.error ?? status.source.filePath
-                  ?? 'Connect the OTIO file Resolve overwrites when you export the active timeline.'}
+                {status.source.error ?? (status.source.mode === 'resolve'
+                  ? status.source.lastSavedAt
+                    ? `Last saved timeline received ${absoluteTime(status.source.lastSavedAt)}. Latest save is WORKING.`
+                    : 'Open Resolve, select the timeline, and save the project.'
+                  : status.source.filePath
+                    ?? 'Save sync exports internally once per Resolve save; no repeated OTIO filenames.')}
               </small>
             </div>
-            {status.source.connected
-              ? <button onClick={() => void store.scanSource()}>Check now</button>
-              : <button className="primary" onClick={() => void store.connectSource()}>Connect OTIO</button>}
+            <div className="source-buttons">
+              {status.source.mode === 'file' && <button onClick={() => void store.scanSource()}>Check file</button>}
+              {resolveSyncActive
+                ? <button onClick={() => void store.stopResolveSync()}>Stop sync</button>
+                : <button className="primary" onClick={() => void store.startResolveSync()}>
+                  {status.source.mode === 'resolve' ? 'Restart sync' : 'Start save sync'}
+                </button>}
+              {status.source.mode !== 'file' && <button onClick={() => void store.connectSource()}>Use OTIO file</button>}
+            </div>
           </section>
 
           {status.source.pending && <section className="pending-sync">
@@ -177,6 +191,19 @@ export function Editor() {
               <button className="primary" onClick={() => void store.applySource()}>Apply to working timeline</button>
             </div>
           </section>}
+
+          <section className="head-working-summary">
+            <div className="pending-head">
+              <strong>HEAD → WORKING</strong>
+              <span>{status.workingChanges.length} semantic change{status.workingChanges.length === 1 ? '' : 's'}</span>
+            </div>
+            <small>Every hunk below is cumulative from the last SnipSnap commit. A newer Resolve save replaces WORKING instead of creating hidden history.</small>
+            <div className="head-working-hunks">
+              {status.workingChanges.length === 0
+                ? <p className="muted">The latest saved Resolve timeline matches HEAD.</p>
+                : status.workingChanges.map((hunk) => <HunkRow key={hunk.id} hunk={hunk} fps={fps} />)}
+            </div>
+          </section>
 
           <TimelineTracks plan={revision.preview} playhead={playhead} onSeek={setPlayhead} />
         </>}

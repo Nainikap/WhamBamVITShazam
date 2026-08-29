@@ -339,6 +339,8 @@ small { color: var(--muted); font-size: 11px; }
   font: 700 9px var(--mono); letter-spacing: .05em; text-transform: uppercase;
 }
 .status-pill.watching { color: var(--added); background: var(--added-soft); }
+.status-pill.starting, .status-pill.waiting-for-resolve { color: #a9c9ff; background: #1c3152; }
+.status-pill.stopped { color: var(--muted); background: #272c35; }
 .status-pill.changes-ready { color: var(--modified); background: var(--modified-soft); }
 .status-pill.missing, .status-pill.invalid { color: var(--removed); background: var(--removed-soft); }
 
@@ -346,6 +348,11 @@ small { color: var(--muted); font-size: 11px; }
 .pending-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
 .pending-head span { color: var(--modified); font: 10px var(--mono); }
 .pending-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
+.source-buttons { display: flex; gap: 6px; }
+.head-working-summary { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.head-working-summary > small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+.head-working-hunks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 180px; margin-top: 10px; overflow: auto; }
+.head-working-hunks .hunk-row { margin: 0; }
 
 /* ---------- timeline ---------- */
 .timeline { flex-shrink: 0; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); overflow: hidden; }

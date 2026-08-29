@@ -33,6 +33,8 @@ interface AppStore {
   exportFromResolve(): Promise<void>;
   refreshLibrary(): Promise<void>;
   connectSource(): Promise<void>;
+  startResolveSync(): Promise<void>;
+  stopResolveSync(): Promise<void>;
   scanSource(): Promise<void>;
   applySource(): Promise<void>;
   dismissSource(): Promise<void>;
@@ -123,11 +125,15 @@ export const useAppStore = create<AppStore>((set, get) => {
       void run(async () => {
         await refresh(projectId, get().selectedRevision?.commit.id);
         const pending = get().status?.source.pending;
+        const source = get().status?.source;
+        const count = get().status?.workingChanges.length ?? 0;
         set({
           overviews: await window.snipsnap.listOverviews(),
           notice: pending
             ? `Resolve exported ${pending.changeCount} timeline change${pending.changeCount === 1 ? '' : 's'}. Review before applying.`
-            : 'Resolve source status updated.',
+            : source?.mode === 'resolve' && source.lastSavedAt
+              ? `Resolve save synchronized. ${count} uncommitted change${count === 1 ? '' : 's'} since HEAD.`
+              : 'Resolve source status updated.',
         });
       });
     }),
@@ -205,6 +211,24 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({ status: result.status });
       if (result.error) set({ error: result.error });
       else set({ notice: result.changed ? 'Source connected. Review the detected changes.' : 'Source connected and up to date.' });
+    }),
+
+    startResolveSync: () => run(async () => {
+      const { currentProjectId, status } = get();
+      if (!currentProjectId || !status) return;
+      set({
+        status: await window.snipsnap.startResolveBridge(currentProjectId, status.workspaceVersion),
+        notice: 'Resolve save sync started. Open Resolve, select the timeline, and save the project.',
+      });
+    }),
+
+    stopResolveSync: () => run(async () => {
+      const projectId = get().currentProjectId;
+      if (!projectId) return;
+      set({
+        status: await window.snipsnap.stopResolveBridge(projectId),
+        notice: 'Resolve save sync stopped. Your committed and working timeline data is unchanged.',
+      });
     }),
 
     scanSource: () => run(async () => {
