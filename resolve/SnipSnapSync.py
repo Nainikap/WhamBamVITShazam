@@ -301,7 +301,7 @@ def main() -> int:
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Folder SnipSnap reads from.")
     parser.add_argument("--all", action="store_true", help="Export every project, not only the open one.")
     parser.add_argument("--watch", type=int, metavar="SECONDS", help="Keep exporting on an interval.")
-    arguments = parser.parse_args()
+    arguments, _ignored = parser.parse_known_args()
 
     output = os.path.abspath(os.path.expanduser(arguments.output))
     if not arguments.watch:
