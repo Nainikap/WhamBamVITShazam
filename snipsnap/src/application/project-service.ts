@@ -119,7 +119,8 @@ export interface ResolveBinding {
 
 const ResolveBindingSchema = z.object({
   projectName: z.string().min(1),
-  drpPath: z.string().min(1),
+  // Empty for a project that lives only in Resolve's database.
+  drpPath: z.string(),
   otioPath: z.string().min(1),
   timelineName: z.string().min(1),
   timelineCount: z.number().int().nonnegative(),
@@ -1115,7 +1116,13 @@ export class ProjectService {
    * project SnipSnap cannot open is not a project it should offer.
    */
   async listProjectOverviews(): Promise<ProjectOverview[]> {
-    const references = await this.library.discover();
+    let references = await this.library.discover();
+    // A project Resolve never exported is still openable: rebuild it from the
+    // database so the dashboard offers it without anyone pressing anything.
+    if (references.some(({ kind, activeTimeline }) => kind === 'database' && !activeTimeline)) {
+      await this.rebuildTimelinesFromResolveDatabase().catch(() => undefined);
+      references = await this.library.discover();
+    }
     const overviews: ProjectOverview[] = [];
     for (const reference of references) {
       const metadata = await this.readMetadata(reference.id).catch(() => null);
