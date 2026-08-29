@@ -179,8 +179,11 @@ async function buildProject(input: {
   const clips: unknown[] = [];
   const gaps: unknown[] = [];
   const builtTracks: unknown[] = [];
+  let videoTrackNumber = 0;
+  let audioTrackNumber = 0;
 
   for (const [index, track] of input.tracks.entries()) {
+    const trackNumber = track.kind === 'video' ? ++videoTrackNumber : ++audioTrackNumber;
     const trackId = deterministicUuid(`${sequenceId}:track:${index}:${track.id}`);
     const ordered = [...input.itemsByTrack.get(track.id) ?? []].sort((left, right) => left.start - right.start);
     const itemIds: string[] = [];
@@ -232,7 +235,7 @@ async function buildProject(input: {
     builtTracks.push({
       id: trackId,
       sequenceId,
-      name: track.name || `${track.kind === 'audio' ? 'A' : 'V'}${index + 1}`,
+      name: track.name || `${track.kind === 'audio' ? 'A' : 'V'}${trackNumber}`,
       kind: track.kind,
       itemIds,
       ...decorations(),

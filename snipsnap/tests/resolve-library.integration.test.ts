@@ -175,4 +175,27 @@ describe('Resolve library', () => {
     expect(overview).toMatchObject({ linked: false, commitCount: 0, name: 'Never Opened' });
     expect(overview?.headCommit).toBe('');
   });
+
+  it('carries the Resolve folder on a project that has no .drp of its own', async () => {
+    // A database project is identified by its folder, not by a project file.
+    const database = path.join(root, 'database');
+    const folder = path.join(database, 'Studio Job');
+    await mkdir(folder, { recursive: true });
+    await writeFile(path.join(folder, 'Project.db'), 'SQLite format 3\u0000');
+    await writeFile(path.join(folder, 'Hero Cut.otio'), exportOtio(createDemoProject('Hero Cut')));
+    process.env.SNIPSNAP_RESOLVE_DATABASE = database;
+
+    const [reference] = await service.discoverResolveProjects();
+    expect(reference).toMatchObject({ kind: 'database', name: 'Studio Job', drpPath: '' });
+
+    const status = await service.openResolveProjectById(reference?.id ?? '');
+    expect(status.resolve).toMatchObject({
+      drpPath: '',
+      folder,
+      timelineName: 'Hero Cut',
+      projectName: 'Studio Job',
+    });
+    const [overview] = await service.listProjectOverviews();
+    expect(overview).toMatchObject({ linked: true, openable: true, kind: 'database' });
+  });
 });

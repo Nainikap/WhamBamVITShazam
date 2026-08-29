@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { probeVideo, readResolveTimelines } from '../src/application';
+import { probeVideo, ProjectService, readResolveTimelines, ResolveLibrary } from '../src/application';
 
 function box(type: string, ...parts: Buffer[]): Buffer {
   const payload = Buffer.concat(parts);
@@ -45,8 +45,8 @@ function writeProjectDatabase(file: string, mediaPath: string): void {
   database.exec(`
     CREATE TABLE SM_Project (ProjectName TEXT);
     INSERT INTO SM_Project VALUES ('Studio Job');
-    CREATE TABLE Sm2Timeline (Name TEXT, Sequence TEXT);
-    INSERT INTO Sm2Timeline VALUES ('Hero Cut', 'seq-1');
+    CREATE TABLE Sm2Timeline (Name TEXT, Sequence TEXT, ModTimeInSecs INTEGER);
+    INSERT INTO Sm2Timeline VALUES ('Hero Cut', 'seq-1', 1);
     CREATE TABLE Sm2SequenceContainer (Sm2SequenceContainer_id TEXT, Sm2Sequence_id TEXT);
     INSERT INTO Sm2SequenceContainer VALUES ('container-1', 'seq-1');
     CREATE TABLE Sm2TiTrack (Sm2TiTrack_id TEXT, Type INTEGER, UserDefinedName TEXT, Sm2SequenceContainer_id TEXT);
@@ -72,6 +72,8 @@ describe('rebuilding a timeline from a Resolve database', () => {
 
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
+    delete process.env.SNIPSNAP_RESOLVE_DATABASE;
+    delete process.env.SNIPSNAP_RESOLVE_ROOT;
   });
 
   it('reads frame rate and size from the media, which the database omits', async () => {
@@ -106,6 +108,43 @@ describe('rebuilding a timeline from a Resolve database', () => {
     expect(project?.gaps[0]?.durationFrames).toBe(24);
     expect(timeline?.missingMedia).toEqual([]);
     expect(Object.values(timeline?.mediaLinks ?? {})).toEqual([pathToFileURL(media).href]);
+  });
+
+  it('numbers unnamed video and audio tracks independently', async () => {
+    const file = path.join(root, 'Project.db');
+    writeProjectDatabase(file, media);
+    const { DatabaseSync } = createRequire(__filename)('node:sqlite') as {
+      DatabaseSync: new (databasePath: string) => { exec(sql: string): void; close(): void };
+    };
+    const database = new DatabaseSync(file);
+    database.exec('UPDATE Sm2TiTrack SET UserDefinedName = NULL');
+    database.close();
+
+    const [timeline] = await readResolveTimelines(file);
+    expect(timeline?.project.tracks.map(({ name }) => name)).toEqual(['V1', 'A1']);
+  });
+
+  it('opens a database-backed project by rebuilding its known timeline', async () => {
+    const projects = path.join(root, 'projects');
+    const projectFolder = path.join(projects, 'Studio Job');
+    await mkdir(projectFolder, { recursive: true });
+    writeProjectDatabase(path.join(projectFolder, 'Project.db'), media);
+    process.env.SNIPSNAP_RESOLVE_DATABASE = projects;
+    process.env.SNIPSNAP_RESOLVE_ROOT = path.join(root, 'generated');
+
+    const service = new ProjectService(path.join(root, 'data'), new ResolveLibrary(async () => []));
+    const [overview] = await service.listProjectOverviews();
+    expect(overview).toMatchObject({ name: 'Studio Job', kind: 'database', openable: true });
+    expect(overview?.resolve).toMatchObject({ timelineName: 'Hero Cut', timelineCount: 1 });
+
+    const status = await service.openResolveProjectById(overview?.id ?? '');
+    expect(status.project.name).toBe('Studio Job');
+    expect(status.project.sequences[0]?.name).toBe('Hero Cut');
+    expect(status.project.clips).toHaveLength(3);
+    expect(status.history).toHaveLength(1);
+
+    const restarted = new ProjectService(path.join(root, 'data'), new ResolveLibrary(async () => []));
+    expect(await restarted.listProjects()).toEqual([{ id: overview?.id, name: 'Studio Job' }]);
   });
 
   it('skips a timeline whose media cannot be measured rather than guessing its rate', async () => {

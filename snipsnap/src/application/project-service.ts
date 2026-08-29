@@ -119,7 +119,8 @@ export interface ResolveBinding {
 
 const ResolveBindingSchema = z.object({
   projectName: z.string().min(1),
-  drpPath: z.string().min(1),
+  // Resolve's own database projects do not have a standalone .drp file.
+  drpPath: z.string(),
   otioPath: z.string().min(1),
   timelineName: z.string().min(1),
   timelineCount: z.number().int().nonnegative(),
@@ -1078,12 +1079,13 @@ export class ProjectService {
   }
 
   private bindingFor(reference: ResolveProjectRef): ResolveBinding {
+    const knownTimeline = reference.knownTimelines?.[0];
     return {
       projectName: reference.name,
       drpPath: reference.drpPath,
       otioPath: reference.activeTimeline?.otioPath ?? '',
-      timelineName: reference.activeTimeline?.name ?? 'No timeline export',
-      timelineCount: reference.timelines.length,
+      timelineName: reference.activeTimeline?.name ?? knownTimeline ?? 'No timeline export',
+      timelineCount: Math.max(reference.timelines.length, reference.knownTimelines?.length ?? 0),
       folder: reference.folder,
     };
   }
@@ -1137,12 +1139,13 @@ export class ProjectService {
 
   private unlinkedOverview(reference: ResolveProjectRef): ProjectOverview {
     const binding = this.bindingFor(reference);
+    const canRebuild = reference.kind === 'database' && (reference.knownTimelines?.length ?? 0) > 0;
     return {
       id: reference.id,
       name: reference.name,
       path: reference.folder,
       linked: false,
-      openable: reference.activeTimeline !== null,
+      openable: reference.activeTimeline !== null || canRebuild,
       kind: reference.kind,
       knownTimelines: reference.knownTimelines ?? reference.timelines.map(({ name }) => name),
       resolve: binding,
@@ -1249,7 +1252,13 @@ export class ProjectService {
    * project SnipSnap cannot open is not a project it should offer.
    */
   async listProjectOverviews(): Promise<ProjectOverview[]> {
-    const references = await this.library.discover();
+    let references = await this.library.discover();
+    // A project Resolve never exported is still openable: rebuild it from the
+    // database so the dashboard offers it without anyone pressing anything.
+    if (references.some(({ kind, activeTimeline }) => kind === 'database' && !activeTimeline)) {
+      await this.rebuildTimelinesFromResolveDatabase().catch(() => undefined);
+      references = await this.library.discover();
+    }
     const overviews: ProjectOverview[] = [];
     for (const reference of references) {
       const metadata = await this.readMetadata(reference.id).catch(() => null);
@@ -1258,11 +1267,12 @@ export class ProjectService {
         continue;
       }
       try {
+        const canRebuild = reference.kind === 'database' && (reference.knownTimelines?.length ?? 0) > 0;
         overviews.push({
           ...await this.overview(reference.id),
           name: reference.name,
           linked: true,
-          openable: reference.activeTimeline !== null,
+          openable: reference.activeTimeline !== null || canRebuild,
           kind: reference.kind,
           resolve: this.bindingFor(reference),
         });
