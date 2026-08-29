@@ -110,6 +110,20 @@ describe('rebuilding a timeline from a Resolve database', () => {
     expect(Object.values(timeline?.mediaLinks ?? {})).toEqual([pathToFileURL(media).href]);
   });
 
+  it('numbers unnamed video and audio tracks independently', async () => {
+    const file = path.join(root, 'Project.db');
+    writeProjectDatabase(file, media);
+    const { DatabaseSync } = createRequire(__filename)('node:sqlite') as {
+      DatabaseSync: new (databasePath: string) => { exec(sql: string): void; close(): void };
+    };
+    const database = new DatabaseSync(file);
+    database.exec('UPDATE Sm2TiTrack SET UserDefinedName = NULL');
+    database.close();
+
+    const [timeline] = await readResolveTimelines(file);
+    expect(timeline?.project.tracks.map(({ name }) => name)).toEqual(['V1', 'A1']);
+  });
+
   it('opens a database-backed project by rebuilding its known timeline', async () => {
     const projects = path.join(root, 'projects');
     const projectFolder = path.join(projects, 'Studio Job');
