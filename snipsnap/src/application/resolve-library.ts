@@ -77,6 +77,10 @@ export function defaultResolveRoots(): string[] {
     return process.env.SNIPSNAP_RESOLVE_ROOT.split(path.delimiter).filter(Boolean);
   }
   const home = os.homedir();
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    return [path.join(appData, 'SnipSnap', 'resolve')];
+  }
   const containers = ['com.blackmagic-design.DaVinciResolveLite', 'com.blackmagic-design.DaVinciResolve'];
   return [
     path.join(home, 'Library', 'Application Support', 'SnipSnap', 'resolve'),
@@ -101,6 +105,15 @@ export function resolveDatabaseRoots(): string[] {
     return process.env.SNIPSNAP_RESOLVE_DATABASE.split(path.delimiter).filter(Boolean);
   }
   const home = os.homedir();
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    const programData = process.env.PROGRAMDATA || path.join(home, 'AppData', 'ProgramData');
+    const bases = [
+      path.join(appData, 'Blackmagic Design', 'DaVinci Resolve', 'Support'),
+      path.join(programData, 'Blackmagic Design', 'DaVinci Resolve', 'Support'),
+    ];
+    return bases.flatMap((base) => PROJECT_LIBRARY_TAILS.map((tail) => path.join(base, ...tail)));
+  }
   const bases = [
     path.join(home, 'Library', 'Application Support'),
     path.join(home, 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve'),
@@ -115,7 +128,8 @@ export function resolveDatabaseRoots(): string[] {
 export function commonExportRoots(): string[] {
   if (process.env.SNIPSNAP_RESOLVE_SCAN) return process.env.SNIPSNAP_RESOLVE_SCAN.split(path.delimiter).filter(Boolean);
   const home = os.homedir();
-  return ['Documents', 'Desktop', 'Movies', 'Downloads'].map((folder) => path.join(home, folder));
+  const mediaFolder = process.platform === 'win32' ? 'Videos' : 'Movies';
+  return ['Documents', 'Desktop', mediaFolder, 'Downloads'].map((folder) => path.join(home, folder));
 }
 
 /**
@@ -128,6 +142,13 @@ export function resolveScriptFolders(): string[] {
     return process.env.SNIPSNAP_RESOLVE_SCRIPTS.split(path.delimiter).filter(Boolean);
   }
   const home = os.homedir();
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    const programData = process.env.PROGRAMDATA || path.join(home, 'AppData', 'ProgramData');
+    return [appData, programData].map((base) => path.join(
+      base, 'Blackmagic Design', 'DaVinci Resolve', 'Support', 'Fusion', 'Scripts', 'Utility',
+    ));
+  }
   const containers = ['com.blackmagic-design.DaVinciResolveLite', 'com.blackmagic-design.DaVinciResolve'];
   return [
     path.join(home, 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve', 'Fusion', 'Scripts', 'Utility'),
