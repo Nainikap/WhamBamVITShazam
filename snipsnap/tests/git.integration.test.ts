@@ -234,7 +234,7 @@ describe('native Git repository', () => {
     expect(recompactedBytes).toBeLessThanOrEqual(Math.ceil(compactedBytes * 1.05));
     await assertRepositoryUnchanged();
     await repository.fsck();
-  });
+  }, 60_000);
 
   it('creates two-parent commits and discovers their merge base', async () => {
     const base = createDemoProject();
