@@ -39,6 +39,27 @@ describe('OTIO adapter', () => {
       .toThrow(/Expected an OTIO Timeline/u);
   });
 
+  it('reports unsupported effects, markers, disabled state, and global start time instead of silently dropping them', () => {
+    const value = JSON.parse(exportOtio(createDemoProject())) as {
+      global_start_time: unknown;
+      tracks: { children: Array<{ children: Array<Record<string, unknown>> }> };
+    };
+    value.global_start_time = { OTIO_SCHEMA: 'RationalTime.1', value: 86400, rate: 24 };
+    const clip = value.tracks.children[0]?.children[0];
+    if (!clip) throw new Error('Export fixture clip missing');
+    clip.effects = [{ OTIO_SCHEMA: 'LinearTimeWarp.1' }];
+    clip.markers = [{ OTIO_SCHEMA: 'Marker.2' }];
+    clip.enabled = false;
+
+    const result = importOtio(value);
+    expect(result.unsupported).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'global_start_time', reason: expect.stringContaining('frame zero') }),
+      expect.objectContaining({ path: 'tracks[0].children[0].effects[0]', schema: 'LinearTimeWarp.1' }),
+      expect.objectContaining({ path: 'tracks[0].children[0].markers[0]', schema: 'Marker.2' }),
+      expect.objectContaining({ path: 'tracks[0].children[0].enabled', reason: expect.stringContaining('disabled') }),
+    ]));
+  });
+
   const hasOfficialOtio = spawnSync('python', ['-c', 'import opentimelineio'], { stdio: 'ignore' }).status === 0;
   it.runIf(hasOfficialOtio)('produces JSON accepted by the official OpenTimelineIO parser', () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'snipsnap-otio-'));
