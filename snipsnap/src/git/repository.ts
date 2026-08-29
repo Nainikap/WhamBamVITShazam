@@ -236,6 +236,15 @@ export class GitRepository {
     });
   }
 
+  async commitInfo(revision: string): Promise<CommitInfo> {
+    const commit = await this.resolve(revision);
+    const format = '%H%x00%P%x00%an <%ae>%x00%aI%x00%s';
+    const output = await runGit(this.path, ['show', '--no-patch', `--format=${format}`, commit]);
+    const [id, parents = '', author = '', authoredAt = '', message = ''] = output.stdout.trim().split('\0');
+    if (!id || !OID_PATTERN.test(id)) throw new Error('Git returned an invalid commit record');
+    return { id, parents: parents ? parents.split(' ') : [], author, authoredAt, message };
+  }
+
   async createTag(name: string, revision: string, message: string, identity: CommitIdentity = defaultIdentity): Promise<void> {
     assertBranchName(name);
     const commit = await this.resolve(revision);

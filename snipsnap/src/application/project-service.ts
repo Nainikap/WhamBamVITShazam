@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { exportOtio, importOtio, type UnsupportedContent } from '../adapters/otio';
 import { reduceCommand, type EditCommand } from '../commands';
 import { applySemanticHunks, semanticDiff, type SemanticHunk } from '../diff';
-import { projectDigest, ProjectSchema, type Project } from '../domain';
+import { digestText, projectDigest, ProjectSchema, type Project } from '../domain';
 import { GitRepository, KeyedMutex, type CommitInfo } from '../git';
 import {
   completeMerge,
@@ -14,7 +15,16 @@ import {
   type ConflictResolution,
   type MergeResult,
 } from '../merge';
+import { buildPreviewPlan, type PreviewPlan, type PreviewMediaAvailability } from '../preview';
 import { atomicWriteJson, readJson } from './storage';
+import {
+  PendingSyncSchema,
+  SourceBindingSchema,
+  pendingSync,
+  reconcileImportedProject,
+  type PendingSync,
+  type SourceBinding,
+} from './source-sync';
 
 const WorkspaceSchema = z.object({
   version: z.number().int().nonnegative(),
@@ -84,6 +94,34 @@ export interface ProjectSummary {
   name: string;
 }
 
+export interface SourceSyncStatus {
+  connected: boolean;
+  fileName?: string;
+  filePath?: string;
+  state: 'not-connected' | 'watching' | 'changes-ready' | 'missing';
+  lastAppliedDigest?: string;
+  pending?: {
+    digest: string;
+    detectedAt: string;
+    changeCount: number;
+    unsupportedCount: number;
+  };
+}
+
+export interface SourceScanResult {
+  changed: boolean;
+  status: ProjectStatus;
+  error?: string;
+}
+
+export interface RevisionDetails {
+  commit: CommitInfo;
+  pointedToBy: string[];
+  diff: SemanticHunk[];
+  comparedParent?: string;
+  preview: PreviewPlan;
+}
+
 export interface ProjectStatus {
   project: Project;
   workspaceVersion: number;
@@ -94,6 +132,7 @@ export interface ProjectStatus {
   unstaged: SemanticHunk[];
   branches: Array<{ name: string; commitId: string }>;
   history: CommitInfo[];
+  source: SourceSyncStatus;
 }
 
 export interface MergeOutcome {
@@ -142,6 +181,14 @@ export class ProjectService {
     return path.join(this.projectRoot(projectId), 'media-links.json');
   }
 
+  private sourceBindingPath(projectId: string): string {
+    return path.join(this.projectRoot(projectId), 'source-binding.json');
+  }
+
+  private pendingSyncPath(projectId: string): string {
+    return path.join(this.projectRoot(projectId), 'pending-sync.json');
+  }
+
   private sessionPath(projectId: string, sessionId: string): string {
     if (!z.string().uuid().safeParse(sessionId).success) throw new Error('Invalid merge session ID');
     return path.join(this.projectRoot(projectId), 'merge-sessions', `${sessionId}.json`);
@@ -153,6 +200,64 @@ export class ProjectService {
 
   private async writeWorkspace(projectId: string, workspace: Workspace): Promise<void> {
     await atomicWriteJson(this.workspacePath(projectId), WorkspaceSchema.parse(workspace));
+  }
+
+  private async readOptionalJson(filePath: string): Promise<unknown | undefined> {
+    try {
+      return await readJson(filePath);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+      throw error;
+    }
+  }
+
+  private async readMediaLinks(projectId: string): Promise<Record<string, string>> {
+    const value = await this.readOptionalJson(this.mediaLinksPath(projectId));
+    return value === undefined ? {} : z.record(z.string()).parse(value);
+  }
+
+  private async writeMediaLinks(projectId: string, links: Record<string, string>): Promise<void> {
+    await atomicWriteJson(this.mediaLinksPath(projectId), z.record(z.string()).parse(links));
+  }
+
+  async sourceBinding(projectId: string): Promise<SourceBinding | null> {
+    const value = await this.readOptionalJson(this.sourceBindingPath(projectId));
+    return value === undefined ? null : SourceBindingSchema.parse(value);
+  }
+
+  private async readPendingSync(projectId: string): Promise<PendingSync | null> {
+    const value = await this.readOptionalJson(this.pendingSyncPath(projectId));
+    if (value === undefined) return null;
+    const parsed = PendingSyncSchema.parse(value);
+    return { ...parsed, project: ProjectSchema.parse(parsed.project) };
+  }
+
+  private async sourceStatus(projectId: string, workspace: Workspace): Promise<SourceSyncStatus> {
+    const binding = await this.sourceBinding(projectId);
+    if (!binding) return { connected: false, state: 'not-connected' };
+    const pending = await this.readPendingSync(projectId);
+    let exists = true;
+    try {
+      await access(binding.path);
+    } catch {
+      exists = false;
+    }
+    const status: SourceSyncStatus = {
+      connected: true,
+      fileName: path.basename(binding.path),
+      filePath: binding.path,
+      state: exists ? (pending ? 'changes-ready' : 'watching') : 'missing',
+    };
+    if (binding.lastAppliedDigest) status.lastAppliedDigest = binding.lastAppliedDigest;
+    if (pending) {
+      status.pending = {
+        digest: pending.digest,
+        detectedAt: pending.detectedAt,
+        changeCount: semanticDiff(workspace.working, pending.project).length,
+        unsupportedCount: pending.unsupported.length,
+      };
+    }
+    return status;
   }
 
   async listProjects(): Promise<ProjectSummary[]> {
@@ -198,10 +303,16 @@ export class ProjectService {
     });
   }
 
-  async importOtio(contents: string): Promise<ProjectSummary & { unsupported: UnsupportedContent[] }> {
+  async importOtio(contents: string, sourcePath?: string): Promise<ProjectSummary & { unsupported: UnsupportedContent[] }> {
     const imported = importOtio(contents);
     const summary = await this.createProject(imported.project, 'Import Resolve OTIO');
-    await atomicWriteJson(this.mediaLinksPath(summary.id), imported.mediaLinks);
+    await this.writeMediaLinks(summary.id, imported.mediaLinks);
+    if (sourcePath) {
+      const digest = digestText(contents);
+      await atomicWriteJson(this.sourceBindingPath(summary.id), {
+        format: 'otio', path: path.resolve(sourcePath), lastSeenDigest: digest, lastAppliedDigest: digest,
+      });
+    }
     return { ...summary, unsupported: imported.unsupported };
   }
 
@@ -215,7 +326,10 @@ export class ProjectService {
       repository.branches(),
       repository.history(),
     ]);
-    const head = await repository.readSnapshot(headCommit);
+    const [head, source] = await Promise.all([
+      repository.readSnapshot(headCommit),
+      this.sourceStatus(projectId, workspace),
+    ]);
     return {
       project: workspace.working,
       workspaceVersion: workspace.version,
@@ -226,11 +340,118 @@ export class ProjectService {
       unstaged: semanticDiff(index, workspace.working),
       branches,
       history,
+      source,
     };
   }
 
   async status(projectId: string): Promise<ProjectStatus> {
     return this.mutex.run(projectId, async () => this.statusUnlocked(projectId));
+  }
+
+  private async scanOtioSourceUnlocked(projectId: string): Promise<boolean> {
+    const binding = await this.sourceBinding(projectId);
+    if (!binding) throw new Error('Connect a Resolve OTIO file before checking for changes');
+    const contents = await readFile(binding.path, 'utf8');
+    const digest = digestText(contents);
+    const existingPending = await this.readPendingSync(projectId);
+    if (existingPending?.digest === digest) return true;
+    if (binding.ignoredDigest === digest || binding.lastAppliedDigest === digest) {
+      if (existingPending) await rm(this.pendingSyncPath(projectId), { force: true });
+      await atomicWriteJson(this.sourceBindingPath(projectId), { ...binding, lastSeenDigest: digest });
+      return false;
+    }
+
+    const workspace = await this.readWorkspace(projectId);
+    const imported = importOtio(contents);
+    const reconciled = reconcileImportedProject(workspace.working, imported.project);
+    const nextBinding: SourceBinding = { ...binding, lastSeenDigest: digest };
+    delete nextBinding.ignoredDigest;
+    if (semanticDiff(workspace.working, reconciled).length === 0) {
+      nextBinding.lastAppliedDigest = digest;
+      await Promise.all([
+        atomicWriteJson(this.sourceBindingPath(projectId), nextBinding),
+        this.writeMediaLinks(projectId, { ...await this.readMediaLinks(projectId), ...imported.mediaLinks }),
+        rm(this.pendingSyncPath(projectId), { force: true }),
+      ]);
+      return false;
+    }
+
+    await Promise.all([
+      atomicWriteJson(this.pendingSyncPath(projectId), pendingSync(
+        reconciled, imported.mediaLinks, imported.unsupported, digest, workspace.version,
+      )),
+      atomicWriteJson(this.sourceBindingPath(projectId), nextBinding),
+    ]);
+    return true;
+  }
+
+  async connectOtioSource(projectId: string, sourcePath: string, expectedVersion: number): Promise<SourceScanResult> {
+    return this.mutex.run(projectId, async () => {
+      const workspace = await this.readWorkspace(projectId);
+      if (workspace.version !== expectedVersion) throw new StaleWorkspaceError();
+      await atomicWriteJson(this.sourceBindingPath(projectId), {
+        format: 'otio', path: path.resolve(sourcePath),
+      });
+      await rm(this.pendingSyncPath(projectId), { force: true });
+      try {
+        const changed = await this.scanOtioSourceUnlocked(projectId);
+        return { changed, status: await this.statusUnlocked(projectId) };
+      } catch (error) {
+        return {
+          changed: false,
+          status: await this.statusUnlocked(projectId),
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+  }
+
+  async scanOtioSource(projectId: string): Promise<SourceScanResult> {
+    return this.mutex.run(projectId, async () => {
+      try {
+        const changed = await this.scanOtioSourceUnlocked(projectId);
+        return { changed, status: await this.statusUnlocked(projectId) };
+      } catch (error) {
+        return {
+          changed: false,
+          status: await this.statusUnlocked(projectId),
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+  }
+
+  async applyPendingSync(
+    projectId: string,
+    digest: string,
+    expectedVersion: number,
+  ): Promise<ProjectStatus> {
+    return this.mutex.run(projectId, async () => {
+      const [workspace, pending, binding] = await Promise.all([
+        this.readWorkspace(projectId), this.readPendingSync(projectId), this.sourceBinding(projectId),
+      ]);
+      if (!pending || !binding || pending.digest !== digest) throw new StaleWorkspaceError();
+      if (workspace.version !== expectedVersion || pending.baseWorkspaceVersion !== expectedVersion) {
+        throw new StaleWorkspaceError();
+      }
+      await this.writeWorkspace(projectId, { version: workspace.version + 1, working: pending.project });
+      await this.writeMediaLinks(projectId, { ...await this.readMediaLinks(projectId), ...pending.mediaLinks });
+      await atomicWriteJson(this.sourceBindingPath(projectId), {
+        ...binding, lastSeenDigest: digest, lastAppliedDigest: digest,
+      });
+      await rm(this.pendingSyncPath(projectId), { force: true });
+      return this.statusUnlocked(projectId);
+    });
+  }
+
+  async dismissPendingSync(projectId: string, digest: string): Promise<ProjectStatus> {
+    return this.mutex.run(projectId, async () => {
+      const [pending, binding] = await Promise.all([this.readPendingSync(projectId), this.sourceBinding(projectId)]);
+      if (!pending || !binding || pending.digest !== digest) throw new StaleWorkspaceError();
+      await atomicWriteJson(this.sourceBindingPath(projectId), { ...binding, ignoredDigest: digest });
+      await rm(this.pendingSyncPath(projectId), { force: true });
+      return this.statusUnlocked(projectId);
+    });
   }
 
   async edit(projectId: string, command: EditCommand, expectedVersion: number): Promise<ProjectStatus> {
@@ -303,6 +524,43 @@ export class ProjectService {
     });
   }
 
+  async createBranchFromRevision(projectId: string, name: string, revision: string): Promise<ProjectStatus> {
+    return this.mutex.run(projectId, async () => {
+      const current = await this.statusUnlocked(projectId);
+      if (current.staged.length > 0 || current.unstaged.length > 0) throw new DirtyWorkspaceError();
+      const repository = this.repository(projectId);
+      const commitId = await repository.resolve(revision);
+      const snapshot = await repository.readSnapshot(commitId);
+      await repository.createBranch(name, commitId);
+      await repository.switchBranch(name);
+      await repository.writeIndex(snapshot);
+      const workspace = await this.readWorkspace(projectId);
+      await this.writeWorkspace(projectId, { version: workspace.version + 1, working: snapshot });
+      return this.statusUnlocked(projectId);
+    });
+  }
+
+  async restoreRevisionToWorking(
+    projectId: string,
+    revision: string,
+    expectedVersion: number,
+    discardChanges: boolean,
+  ): Promise<ProjectStatus> {
+    return this.mutex.run(projectId, async () => {
+      const current = await this.statusUnlocked(projectId);
+      if (current.workspaceVersion !== expectedVersion) throw new StaleWorkspaceError();
+      if (!discardChanges && (current.staged.length > 0 || current.unstaged.length > 0)) {
+        throw new DirtyWorkspaceError();
+      }
+      if (current.staged.length > 0) {
+        await this.repository(projectId).writeIndex(await this.repository(projectId).readSnapshot('HEAD'));
+      }
+      const snapshot = await this.repository(projectId).readSnapshot(await this.repository(projectId).resolve(revision));
+      await this.writeWorkspace(projectId, { version: expectedVersion + 1, working: snapshot });
+      return this.statusUnlocked(projectId);
+    });
+  }
+
   async checkout(projectId: string, branch: string, discardChanges = false): Promise<ProjectStatus> {
     return this.mutex.run(projectId, async () => {
       const repository = this.repository(projectId);
@@ -323,6 +581,80 @@ export class ProjectService {
     const [baseCommit, headCommit] = await Promise.all([repository.resolve(baseRevision), repository.resolve(headRevision)]);
     const [base, head] = await Promise.all([repository.readSnapshot(baseCommit), repository.readSnapshot(headCommit)]);
     return semanticDiff(base, head);
+  }
+
+  private localMediaPath(target: string): string | null {
+    try {
+      if (target.startsWith('file:')) return fileURLToPath(target);
+    } catch {
+      return null;
+    }
+    return path.isAbsolute(target) ? target : null;
+  }
+
+  private async previewAvailability(
+    projectId: string,
+    project: Project,
+  ): Promise<Record<string, PreviewMediaAvailability>> {
+    const links = await this.readMediaLinks(projectId);
+    const availability: Record<string, PreviewMediaAvailability> = {};
+    await Promise.all(project.assets.map(async (asset) => {
+      const target = links[asset.fingerprint];
+      const localPath = target ? this.localMediaPath(target) : null;
+      if (!localPath) {
+        availability[asset.fingerprint] = { available: false };
+        return;
+      }
+      try {
+        await access(localPath);
+        availability[asset.fingerprint] = {
+          available: true,
+          mediaUrl: `snipsnap-media://asset/${projectId}/${asset.fingerprint}`,
+        };
+      } catch {
+        availability[asset.fingerprint] = { available: false };
+      }
+    }));
+    return availability;
+  }
+
+  async revisionDetails(projectId: string, revision: string, parentIndex = 0): Promise<RevisionDetails> {
+    const repository = this.repository(projectId);
+    const commitId = await repository.resolve(revision);
+    const [commit, snapshot, branches] = await Promise.all([
+      repository.commitInfo(commitId), repository.readSnapshot(commitId), repository.branches(),
+    ]);
+    const parent = commit.parents[parentIndex];
+    const diff = parent
+      ? semanticDiff(await repository.readSnapshot(parent), snapshot)
+      : [];
+    const availability = await this.previewAvailability(projectId, snapshot);
+    const details: RevisionDetails = {
+      commit,
+      pointedToBy: branches.filter(({ commitId: branchCommit }) => branchCommit === commitId).map(({ name }) => name),
+      diff,
+      preview: buildPreviewPlan(snapshot, revision, commitId, projectDigest(snapshot), availability),
+    };
+    if (parent) details.comparedParent = parent;
+    return details;
+  }
+
+  async linkMedia(projectId: string, fingerprint: string, filePath: string): Promise<RevisionDetails> {
+    if (!/^[a-f0-9]{64}$/u.test(fingerprint)) throw new Error('Invalid media fingerprint');
+    await access(filePath);
+    const links = await this.readMediaLinks(projectId);
+    links[fingerprint] = pathToFileURL(path.resolve(filePath)).href;
+    await this.writeMediaLinks(projectId, links);
+    return this.revisionDetails(projectId, 'HEAD');
+  }
+
+  async resolveMediaFile(projectId: string, fingerprint: string): Promise<string> {
+    if (!/^[a-f0-9]{64}$/u.test(fingerprint)) throw new Error('Invalid media fingerprint');
+    const target = (await this.readMediaLinks(projectId))[fingerprint];
+    const localPath = target ? this.localMediaPath(target) : null;
+    if (!localPath) throw new Error('Media is not linked to a local file');
+    await access(localPath);
+    return localPath;
   }
 
   private async synchronizeCurrentBranch(projectId: string, branch: string, snapshot: Project): Promise<void> {
@@ -423,12 +755,7 @@ export class ProjectService {
   async exportOtio(projectId: string, revision: string): Promise<{ commitId: string; contents: string }> {
     const repository = this.repository(projectId);
     const commitId = await repository.resolve(revision);
-    let mediaLinks: Record<string, string> = {};
-    try {
-      mediaLinks = z.record(z.string()).parse(await readJson(this.mediaLinksPath(projectId)));
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
-    }
+    const mediaLinks = await this.readMediaLinks(projectId);
     return { commitId, contents: exportOtio(await repository.readSnapshot(commitId), { mediaLinks }) };
   }
 
