@@ -20,6 +20,7 @@ export interface MergeConflict {
 export interface MergeResult {
   provisional: Project;
   conflicts: MergeConflict[];
+  alternatives: { base: Project; ours: Project; theirs: Project };
 }
 
 export type ConflictChoice = 'base' | 'ours' | 'theirs' | 'manual';
@@ -165,15 +166,19 @@ function validationMessages(project: Project): string[] {
 
 const validateProjectSafe = (project: Project) => ProjectSchema.safeParse(project);
 
-function validationConflict(project: Project, errors: string[]): MergeConflict {
+function validationConflict(
+  project: Project,
+  errors: string[],
+  alternatives: { base: Project; ours: Project; theirs: Project },
+): MergeConflict {
   return conflict({
     type: 'validation',
     entityType: 'project',
     entityId: project.id,
     fieldGroup: 'validation',
-    base: null,
-    ours: null,
-    theirs: null,
+    base: alternatives.base,
+    ours: alternatives.ours,
+    theirs: alternatives.theirs,
     message: 'Independent edits combine into an invalid timeline',
     validationErrors: errors,
   });
@@ -237,8 +242,9 @@ export function mergeThreeWay(baseInput: Project, oursInput: Project, theirsInpu
   }
 
   const errors = validationMessages(provisional);
-  if (errors.length > 0) conflicts.push(validationConflict(provisional, errors));
-  return { provisional, conflicts };
+  const alternatives = { base: clone(base), ours: clone(ours), theirs: clone(theirs) };
+  if (errors.length > 0) conflicts.push(validationConflict(provisional, errors, alternatives));
+  return { provisional, conflicts, alternatives };
 }
 
 function entityCollection(project: Project, type: CollectionType): Entity[] {
@@ -246,7 +252,11 @@ function entityCollection(project: Project, type: CollectionType): Entity[] {
 }
 
 function applyResolution(project: Project, conflictItem: MergeConflict, value: unknown, choice: ConflictChoice): void {
-  if (conflictItem.type === 'validation') return;
+  if (conflictItem.type === 'validation') {
+    const replacement = validateProject(value);
+    Object.assign(project, clone(replacement));
+    return;
+  }
   if (conflictItem.entityType === 'project') {
     project.name = String(value);
     return;
@@ -292,7 +302,7 @@ export function resolveMerge(result: MergeResult, resolutions: ConflictResolutio
 
   for (const resolution of resolutions) {
     const item = byId.get(resolution.conflictId);
-    if (!item || item.type === 'validation') continue;
+    if (!item) continue;
     const value = resolution.choice === 'manual'
       ? resolution.value
       : item[resolution.choice];
@@ -303,8 +313,8 @@ export function resolveMerge(result: MergeResult, resolutions: ConflictResolutio
 
   const conflicts = result.conflicts.filter((item) => item.type !== 'validation' && !resolved.has(item.id));
   const errors = validationMessages(provisional);
-  if (errors.length > 0) conflicts.push(validationConflict(provisional, errors));
-  return { provisional, conflicts };
+  if (errors.length > 0) conflicts.push(validationConflict(provisional, errors, result.alternatives));
+  return { provisional, conflicts, alternatives: result.alternatives };
 }
 
 export function completeMerge(result: MergeResult): Project {

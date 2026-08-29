@@ -21,6 +21,48 @@ const WorkspaceSchema = z.object({
   working: ProjectSchema,
 }).strict();
 
+const CommitIdSchema = z.string().regex(/^[a-f0-9]{40,64}$/u);
+const MergeRelationSchema = z.object({
+  parentId: z.string().uuid(),
+  index: z.number().int().safe().nonnegative(),
+}).strict();
+const MergeConflictSchema = z.object({
+  id: z.string().regex(/^[a-f0-9]{64}$/u),
+  type: z.enum(['same-field', 'delete-modify', 'order', 'validation']),
+  entityType: z.enum(['project', 'sequence', 'track', 'asset', 'clip', 'gap', 'caption']),
+  entityId: z.string().uuid(),
+  fieldGroup: z.string().min(1),
+  base: z.unknown(),
+  ours: z.unknown(),
+  theirs: z.unknown(),
+  message: z.string().min(1),
+  validationErrors: z.array(z.string()).optional(),
+  relation: z.object({
+    base: MergeRelationSchema.optional(),
+    ours: MergeRelationSchema.optional(),
+    theirs: MergeRelationSchema.optional(),
+  }).strict().optional(),
+}).strict();
+const MergeResultSchema = z.object({
+  provisional: ProjectSchema,
+  conflicts: z.array(MergeConflictSchema),
+  alternatives: z.object({
+    base: ProjectSchema,
+    ours: ProjectSchema,
+    theirs: ProjectSchema,
+  }).strict(),
+}).strict();
+const MergeSessionSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  targetBranch: z.string().min(1),
+  sourceBranch: z.string().min(1),
+  baseCommit: CommitIdSchema,
+  targetCommit: CommitIdSchema,
+  sourceCommit: CommitIdSchema,
+  result: MergeResultSchema,
+}).strict();
+
 interface Workspace {
   version: number;
   working: Project;
@@ -163,7 +205,7 @@ export class ProjectService {
     return { ...summary, unsupported: imported.unsupported };
   }
 
-  async status(projectId: string): Promise<ProjectStatus> {
+  private async statusUnlocked(projectId: string): Promise<ProjectStatus> {
     const repository = this.repository(projectId);
     const [branch, headCommit, index, workspace, branches, history] = await Promise.all([
       repository.currentBranch(),
@@ -187,6 +229,10 @@ export class ProjectService {
     };
   }
 
+  async status(projectId: string): Promise<ProjectStatus> {
+    return this.mutex.run(projectId, async () => this.statusUnlocked(projectId));
+  }
+
   async edit(projectId: string, command: EditCommand, expectedVersion: number): Promise<ProjectStatus> {
     return this.mutex.run(projectId, async () => {
       const workspace = await this.readWorkspace(projectId);
@@ -195,7 +241,7 @@ export class ProjectService {
         version: workspace.version + 1,
         working: reduceCommand(workspace.working, command),
       });
-      return this.status(projectId);
+      return this.statusUnlocked(projectId);
     });
   }
 
@@ -205,7 +251,7 @@ export class ProjectService {
       const [index, workspace] = await Promise.all([repository.readIndex(), this.readWorkspace(projectId)]);
       const nextIndex = applySemanticHunks(index, workspace.working, hunkIds, expectedIndexDigest);
       await repository.writeIndex(nextIndex);
-      return this.status(projectId);
+      return this.statusUnlocked(projectId);
     });
   }
 
@@ -230,7 +276,7 @@ export class ProjectService {
         return match.id;
       });
       await repository.writeIndex(applySemanticHunks(index, head, reverseIds, projectDigest(index)));
-      return this.status(projectId);
+      return this.statusUnlocked(projectId);
     });
   }
 
@@ -246,21 +292,21 @@ export class ProjectService {
       if (actualHead !== expectedHead) throw new StaleWorkspaceError();
       if (semanticDiff(head, index).length === 0) throw new Error('Nothing is staged');
       await repository.commitIndex(message, expectedHead);
-      return this.status(projectId);
+      return this.statusUnlocked(projectId);
     });
   }
 
   async createBranch(projectId: string, name: string, fromRevision = 'HEAD'): Promise<ProjectStatus> {
     return this.mutex.run(projectId, async () => {
       await this.repository(projectId).createBranch(name, fromRevision);
-      return this.status(projectId);
+      return this.statusUnlocked(projectId);
     });
   }
 
   async checkout(projectId: string, branch: string, discardChanges = false): Promise<ProjectStatus> {
     return this.mutex.run(projectId, async () => {
       const repository = this.repository(projectId);
-      const current = await this.status(projectId);
+      const current = await this.statusUnlocked(projectId);
       if (!discardChanges && (current.staged.length > 0 || current.unstaged.length > 0)) throw new DirtyWorkspaceError();
       const target = await repository.resolve(`refs/heads/${branch}`);
       const snapshot = await repository.readSnapshot(target);
@@ -268,7 +314,7 @@ export class ProjectService {
       await repository.writeIndex(snapshot);
       const workspace = await this.readWorkspace(projectId);
       await this.writeWorkspace(projectId, { version: workspace.version + 1, working: snapshot });
-      return this.status(projectId);
+      return this.statusUnlocked(projectId);
     });
   }
 
@@ -290,7 +336,7 @@ export class ProjectService {
   async merge(projectId: string, targetBranch: string, sourceBranch: string): Promise<MergeOutcome> {
     return this.mutex.run(projectId, async () => {
       const repository = this.repository(projectId);
-      const current = await this.status(projectId);
+      const current = await this.statusUnlocked(projectId);
       if (current.staged.length || current.unstaged.length) throw new DirtyWorkspaceError();
       const [targetCommit, sourceCommit] = await Promise.all([
         repository.resolve(`refs/heads/${targetBranch}`),
@@ -331,11 +377,9 @@ export class ProjectService {
 
   private async readSession(projectId: string, sessionId: string): Promise<MergeSession> {
     const value = await readJson(this.sessionPath(projectId, sessionId));
-    const header = z.object({
-      id: z.string().uuid(), projectId: z.string().uuid(), targetBranch: z.string(), sourceBranch: z.string(),
-      baseCommit: z.string(), targetCommit: z.string(), sourceCommit: z.string(), result: z.unknown(),
-    }).parse(value);
-    return header as MergeSession;
+    const session = MergeSessionSchema.parse(value) as MergeSession;
+    if (session.id !== sessionId || session.projectId !== projectId) throw new Error('Merge session identity does not match its storage path');
+    return session;
   }
 
   async resolveConflict(projectId: string, sessionId: string, resolution: ConflictResolution): Promise<MergeSession> {
@@ -361,7 +405,7 @@ export class ProjectService {
       );
       await this.synchronizeCurrentBranch(projectId, session.targetBranch, merged);
       await rm(this.sessionPath(projectId, sessionId), { force: true });
-      return this.status(projectId);
+      return this.statusUnlocked(projectId);
     });
   }
 
@@ -389,13 +433,15 @@ export class ProjectService {
   }
 
   async verify(projectId: string): Promise<void> {
-    const repository = this.repository(projectId);
-    await repository.fsck();
-    const [head, index, workspace] = await Promise.all([
-      repository.readSnapshot('HEAD'), repository.readIndex(), this.readWorkspace(projectId),
-    ]);
-    ProjectSchema.parse(head);
-    ProjectSchema.parse(index);
-    ProjectSchema.parse(workspace.working);
+    await this.mutex.run(projectId, async () => {
+      const repository = this.repository(projectId);
+      await repository.fsck();
+      const [head, index, workspace] = await Promise.all([
+        repository.readSnapshot('HEAD'), repository.readIndex(), this.readWorkspace(projectId),
+      ]);
+      ProjectSchema.parse(head);
+      ProjectSchema.parse(index);
+      ProjectSchema.parse(workspace.working);
+    });
   }
 }
