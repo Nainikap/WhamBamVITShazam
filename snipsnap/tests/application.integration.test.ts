@@ -169,5 +169,7 @@ describe('V1 project workflow', () => {
     expect((await runGit(repoPath, ['show', 'HEAD:timeline.json'])).stdout).not.toContain('/Volumes/Edit');
     await service.tag(imported.id, 'v1.0', status.headCommit, 'Approved cut');
     expect((await runGit(repoPath, ['cat-file', '-t', 'refs/tags/v1.0'])).stdout.trim()).toBe('tag');
+    const taggedExport = await service.exportOtio(imported.id, 'refs/tags/v1.0');
+    expect(taggedExport.commitId).toBe(status.headCommit);
   });
 });

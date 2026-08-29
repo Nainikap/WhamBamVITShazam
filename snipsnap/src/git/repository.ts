@@ -86,7 +86,7 @@ export class GitRepository {
 
   async resolve(revision: string): Promise<string> {
     assertRevision(revision);
-    return (await runGit(this.path, ['rev-parse', '--verify', revision])).stdout.trim();
+    return (await runGit(this.path, ['rev-parse', '--verify', `${revision}^{commit}`])).stdout.trim();
   }
 
   async currentBranch(): Promise<string> {

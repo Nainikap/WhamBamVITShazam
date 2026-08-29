@@ -72,4 +72,16 @@ describe('native Git repository', () => {
     await expect(repository.createBranch('--upload-pack=oops', initial)).rejects.toThrow(/Invalid branch name/u);
     await expect(repository.createBranch('../escape', initial)).rejects.toThrow(/Invalid branch name/u);
   });
+
+  it('peels annotated tags to immutable commit IDs and ignores unsafe Git environment overrides', async () => {
+    const initial = await repository.createInitialCommit(createDemoProject(), 'Import timeline');
+    await repository.createTag('v1.0', initial, 'Approved cut');
+    expect((await runGit(directory, ['cat-file', '-t', 'refs/tags/v1.0'])).stdout.trim()).toBe('tag');
+    expect(await repository.resolve('refs/tags/v1.0')).toBe(initial);
+
+    const resolvedWithOverride = await runGit(directory, ['rev-parse', '--show-toplevel'], {
+      env: { GIT_DIR: path.join(directory, 'missing-repository') },
+    });
+    expect(path.resolve(resolvedWithOverride.stdout.trim())).toBe(path.resolve(directory));
+  });
 });
