@@ -1,16 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PreviewPlan, PreviewSegment } from '../preview';
-
-function timecode(frame: number, fps: number): string {
-  const roundedFps = Math.max(1, Math.round(fps));
-  const totalSeconds = Math.floor(frame / fps);
-  const frames = Math.floor(frame % roundedFps);
-  const seconds = totalSeconds % 60;
-  const minutes = Math.floor(totalSeconds / 60) % 60;
-  const hours = Math.floor(totalSeconds / 3600);
-  return [hours, minutes, seconds].map((value) => value.toString().padStart(2, '0')).join(':')
-    + `:${frames.toString().padStart(2, '0')}`;
-}
+import { framesToTimecode } from './format';
 
 function segmentAt(plan: PreviewPlan, frame: number): { segment: PreviewSegment; index: number } | null {
   const index = plan.segments.findIndex((segment) => frame >= segment.timelineStart
@@ -20,7 +10,17 @@ function segmentAt(plan: PreviewPlan, frame: number): { segment: PreviewSegment;
   return fallback ? { segment: fallback, index: plan.segments.length - 1 } : null;
 }
 
-export function CommitPlayer({ plan, onRelink }: { plan: PreviewPlan; onRelink(fingerprint: string): void }) {
+export interface CommitPlayerProps {
+  plan: PreviewPlan;
+  onRelink?(fingerprint: string): void;
+  /** Compact hides the segment strip, for the side-by-side comparison. */
+  variant?: 'full' | 'compact';
+  label?: string;
+  onPlayheadChange?(frame: number): void;
+  playhead?: number;
+}
+
+export function CommitPlayer({ plan, onRelink, variant = 'full', label, onPlayheadChange, playhead: external }: CommitPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -33,6 +33,17 @@ export function CommitPlayer({ plan, onRelink }: { plan: PreviewPlan; onRelink(f
     setPlaying(false);
     setActiveIndex(0);
   }, [plan.commitId]);
+
+  useEffect(() => {
+    onPlayheadChange?.(playhead);
+  }, [playhead]);
+
+  useEffect(() => {
+    if (external === undefined || Math.abs(external - playhead) < 0.5) return;
+    const located = segmentAt(plan, external);
+    setPlayhead(external);
+    if (located && located.index !== activeIndex) setActiveIndex(located.index);
+  }, [external]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -115,7 +126,7 @@ export function CommitPlayer({ plan, onRelink }: { plan: PreviewPlan; onRelink(f
     }
   }
 
-  return <section className="viewer" aria-label="Commit video preview">
+  return <section className={`viewer viewer-${variant}`} aria-label={label ?? 'Commit video preview'}>
     <div className="viewer-stage" style={{ aspectRatio: `${plan.width} / ${plan.height}` }}>
       <video
         ref={videoRef}
@@ -136,17 +147,27 @@ export function CommitPlayer({ plan, onRelink }: { plan: PreviewPlan; onRelink(f
         }}
         onEnded={advance}
       />
-      {(!canPlayMedia || !playing) && <div className="viewer-overlay">
+      <div className="viewer-timecode">{framesToTimecode(playhead, plan.fps)}</div>
+      <div className="viewer-badge">
+        <em>{plan.commitId.slice(0, 8)}</em>
+        <span>{displayLabel}</span>
+      </div>
+      {!canPlayMedia && <div className="viewer-overlay">
         <span className="viewer-kicker">COMMIT {plan.commitId.slice(0, 8)}</span>
         <strong>{displayLabel}</strong>
-        {!active?.available && active?.assetFingerprint && <button onClick={() => {
+        {!active?.available && active?.assetFingerprint && onRelink && <button onClick={() => {
           if (active.assetFingerprint) onRelink(active.assetFingerprint);
         }}>Locate media</button>}
       </div>}
     </div>
     <div className="transport">
-      <button className="play-button" onClick={togglePlayback} disabled={plan.segments.length === 0}>{playing ? 'Pause' : 'Play'}</button>
-      <span>{timecode(playhead, plan.fps)}</span>
+      <button
+        className="play-button"
+        aria-label={playing ? 'Pause' : 'Play'}
+        onClick={togglePlayback}
+        disabled={plan.segments.length === 0}
+      >{playing ? '❚❚' : '►'}</button>
+      <span>{framesToTimecode(playhead, plan.fps)}</span>
       <input
         aria-label="Preview playhead"
         type="range"
@@ -156,21 +177,15 @@ export function CommitPlayer({ plan, onRelink }: { plan: PreviewPlan; onRelink(f
         value={Math.min(playhead, Math.max(1, plan.totalFrames - 1))}
         onChange={(event) => seek(Number(event.target.value))}
       />
-      <span>{timecode(plan.totalFrames, plan.fps)}</span>
+      <span>{framesToTimecode(plan.totalFrames, plan.fps)}</span>
     </div>
-    <div className="segment-strip" aria-label="Preview segments">
-      {plan.segments.map((segment, index) => <button
-        key={segment.id}
-        className={`${segment.kind} ${index === activeIndex ? 'active' : ''} ${segment.available ? '' : 'offline'}`}
-        style={{ flexGrow: segment.duration }}
-        onClick={() => seek(segment.timelineStart)}
-        title={`${segment.name} · ${segment.duration} frames`}
-      ><span>{segment.name}</span></button>)}
-    </div>
-    <div className="viewer-meta">
+    {variant === 'full' && <div className="viewer-meta">
       <span>{plan.videoTrackName ?? 'No video track'}</span>
-      <span>{plan.fps.toFixed(3).replace(/\.000$/u, '')} fps</span>
-      <span>{plan.missingAssets.length ? `${plan.missingAssets.length} media file${plan.missingAssets.length === 1 ? '' : 's'} offline` : 'All media linked'}</span>
-    </div>
+      <span>{plan.width}×{plan.height}</span>
+      <span>{plan.fps.toFixed(3).replace(/\.?0+$/u, '')} fps</span>
+      <span>{plan.missingAssets.length
+        ? `${plan.missingAssets.length} media file${plan.missingAssets.length === 1 ? '' : 's'} offline`
+        : 'All media linked'}</span>
+    </div>}
   </section>;
 }
