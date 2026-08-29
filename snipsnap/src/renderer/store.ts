@@ -13,7 +13,6 @@ interface AppStore {
   busy: boolean;
   error: string | null;
   notice: string | null;
-  selectedCommit: string | null;
   initialize(): Promise<void>;
   listenForSourceChanges(): () => void;
   selectProject(id: string): Promise<void>;

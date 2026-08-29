@@ -21,7 +21,6 @@ export function App() {
   const [branchName, setBranchName] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [tagName, setTagName] = useState('');
-  const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
 
   useEffect(() => {
     const stopListening = store.listenForSourceChanges();
@@ -154,17 +153,6 @@ export function App() {
         <section className="panel">
           <span className="eyebrow">MARK & EXPORT</span>
           <div className="stack-form"><input aria-label="Tag name" value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="approved-v1" /><button disabled={!tagName} onClick={() => void store.tag(tagName).then(() => setTagName(''))}>Tag selected commit</button><button onClick={() => void store.exportSelected()}>Export selected OTIO</button></div>
-        </section>
-        <section className="panel commit-tree-panel">
-          <span className="eyebrow">COMMIT TREE</span>
-          <CommitTree commits={status.history} onSelect={(commitId) => {
-            setSelectedCommitId(commitId);
-            window.snipsnap.exportOtio(store.currentProjectId!, commitId);
-          }} />
-          {selectedCommitId && <div className="selected-commit-info">
-            <h4>Selected commit: {selectedCommitId.slice(0, 8)}</h4>
-            <button onClick={() => void window.snipsnap.exportOtio(store.currentProjectId!, selectedCommitId)}>Export as OTIO</button>
-          </div>}
         </section>
       </aside>
     </main>}
