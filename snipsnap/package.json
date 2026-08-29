@@ -64,6 +64,7 @@
     "autoprefixer": "^10.5.4",
     "electron": "^44.0.0",
     "eslint": "^8.57.1",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
     "fast-check": "^3.23.2",
     "jsdom": "^25.0.1",

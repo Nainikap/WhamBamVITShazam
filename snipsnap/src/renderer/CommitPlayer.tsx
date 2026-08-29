@@ -1,9 +1,9 @@
 import { Pause, Play } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PreviewPlan, PreviewSegment } from '../preview';
-import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
-import { cn } from '../lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { framesToTimecode } from './format';
 
 function segmentAt(plan: PreviewPlan, frame: number): { segment: PreviewSegment; index: number } | null {
@@ -212,7 +212,7 @@ export function CommitPlayer({
       </div>
       {!canPlayMedia && <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 p-6 text-center">
         <strong className="text-sm">{displayLabel}</strong>
-        {!active?.available && active?.assetFingerprint && onRelink && <Button size="sm" onClick={() => {
+        {!active?.available && active?.assetFingerprint && onRelink && <Button variant="secondary" size="sm" onClick={() => {
           if (active.assetFingerprint) onRelink(active.assetFingerprint);
         }}>Locate media</Button>}
       </div>}

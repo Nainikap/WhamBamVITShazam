@@ -1,8 +1,8 @@
 import { Minus, Plus } from 'lucide-react';
 import { useMemo, useState, type MouseEvent } from 'react';
 import type { PreviewPlan, PreviewSegment, PreviewTrack } from '../preview';
-import { Button } from '../components/ui/button';
-import { cn } from '../lib/utils';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { framesToTimecode } from './format';
 
 const kindLabel: Record<PreviewTrack['kind'], string> = { video: 'VIDEO', audio: 'AUDIO', caption: 'TEXT' };

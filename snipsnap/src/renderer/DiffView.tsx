@@ -3,11 +3,11 @@ import { useMemo, useState } from 'react';
 import type { TimelineComparison } from '../application';
 import type { CommitInfo } from '../git';
 import type { TimelineDiffSegment, TimelineDiffTrack } from '../preview';
-import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { cn } from '../lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { CommitPlayer } from './CommitPlayer';
 import { framesToTimecode, relativeTime, shortId } from './format';
 
@@ -181,7 +181,7 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
           <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-sm bg-retimed" />retimed</span>
           <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-sm bg-edited" />other edit</span>
         </div>
-        <Button aria-label="Close comparison" onClick={onClose}><X />Close diff</Button>
+        <Button variant="secondary" aria-label="Close comparison" onClick={onClose}><X />Close diff</Button>
       </div>
     </Card>
 

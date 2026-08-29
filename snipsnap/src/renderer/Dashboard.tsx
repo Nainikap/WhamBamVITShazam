@@ -1,12 +1,13 @@
 import { ArrowRight, FilePlus2, FolderOpen, Image, RefreshCw } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { ProjectOverview } from '../application';
-import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
-import { Input } from '../components/ui/input';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
-import { cn } from '../lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { durationLabel, frameRateLabel, relativeTime, shortId } from './format';
 import { useAppStore } from './store';
 
@@ -17,9 +18,9 @@ const stateLabel: Record<ProjectOverview['state'], string> = {
   'resolve-pending': 'Resolve update',
 };
 
-const stateVariant: Record<ProjectOverview['state'], 'default' | 'primary' | 'retimed' | 'added'> = {
+const stateVariant: Record<ProjectOverview['state'], 'default' | 'info' | 'retimed' | 'added'> = {
   clean: 'default',
-  staged: 'primary',
+  staged: 'info',
   uncommitted: 'retimed',
   'resolve-pending': 'added',
 };
@@ -95,7 +96,7 @@ export function Dashboard() {
         <Button variant="default" onClick={() => void store.addResolveProjectFile()}>
           <FilePlus2 />Choose a .drp file
         </Button>
-        <Button onClick={() => void store.addResolveFolder()}><FolderOpen />Choose a folder</Button>
+        <Button variant="secondary" onClick={() => void store.addResolveFolder()}><FolderOpen />Choose a folder</Button>
         <Button variant="ghost" onClick={() => void store.exportFromResolve()}>Export from Resolve</Button>
       </div>
     </main>;
@@ -117,7 +118,7 @@ export function Dashboard() {
         />
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button size="icon" aria-label="Add .drp" onClick={() => void store.addResolveProjectFile()}>
+            <Button variant="secondary" size="icon" aria-label="Add .drp" onClick={() => void store.addResolveProjectFile()}>
               <FilePlus2 />
             </Button>
           </TooltipTrigger>
@@ -125,7 +126,7 @@ export function Dashboard() {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button size="icon" aria-label="Add folder" onClick={() => void store.addResolveFolder()}>
+            <Button variant="secondary" size="icon" aria-label="Add folder" onClick={() => void store.addResolveFolder()}>
               <FolderOpen />
             </Button>
           </TooltipTrigger>
@@ -175,34 +176,46 @@ export function Dashboard() {
         <h2 className="text-sm font-semibold">Worked on earlier</h2>
         <Badge variant="outline">{earlier.length}</Badge>
       </div>
-      <ul className="flex flex-col gap-2">
-        {earlier.map((project) => <li key={project.id}>
-          <Card className="overflow-hidden p-0 transition-colors hover:border-primary/40">
-            <button
-              aria-label={project.openable ? `Open ${project.name}` : `Export ${project.name} from Resolve`}
-              onClick={() => void openOrExport(project)}
-              className="grid w-full grid-cols-[8rem_minmax(0,1fr)_auto] items-center gap-4 pr-5 text-left"
-            >
-              <Poster project={project} />
-              <div className="flex min-w-0 flex-col gap-2 py-3">
-                <div className="flex items-center gap-2.5">
-                  <strong className="truncate text-sm">{project.name}</strong>
-                  <StatePill project={project} />
-                </div>
-                <Facts project={project} />
-                <span className="truncate font-mono text-[10px] text-muted-foreground" title={project.resolve.drpPath || project.path}>
-                  {project.resolve.drpPath || project.path}
-                </span>
+      <Table className="table-fixed">
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="w-[7rem]" />
+            <TableHead className="w-[38%]">Project</TableHead>
+            <TableHead>Timeline</TableHead>
+            <TableHead className="w-[11rem] text-right">Last worked on</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {earlier.map((project) => <TableRow
+            key={project.id}
+            role="button"
+            tabIndex={0}
+            aria-label={project.openable ? `Open ${project.name}` : `Export ${project.name} from Resolve`}
+            onClick={() => void openOrExport(project)}
+            onKeyDown={(event) => { if (event.key === 'Enter') void openOrExport(project); }}
+            className="cursor-pointer"
+          >
+            <TableCell className="p-0"><Poster project={project} className="w-28 rounded-l" /></TableCell>
+            <TableCell className="overflow-hidden">
+              <div className="flex items-center gap-2">
+                <strong className="truncate text-sm">{project.name}</strong>
+                <StatePill project={project} />
               </div>
-              <div className="flex flex-col items-end gap-1 text-xs text-muted-foreground">
-                <span>{relativeTime(project.updatedAt)}</span>
-                {project.linked && <code className="font-mono text-[10px]">{shortId(project.headCommit)}</code>}
-                {project.linked && <span>{project.commitCount} commit{project.commitCount === 1 ? '' : 's'}</span>}
-              </div>
-            </button>
-          </Card>
-        </li>)}
-      </ul>
+              <span
+                className="mt-1 block truncate font-mono text-[10px] text-muted-foreground"
+                title={project.resolve.drpPath || project.path}
+              >{project.resolve.drpPath || project.path}</span>
+            </TableCell>
+            <TableCell className="overflow-hidden"><Facts project={project} /></TableCell>
+            <TableCell className="text-right align-middle">
+              <span className="block text-xs text-muted-foreground">{relativeTime(project.updatedAt)}</span>
+              {project.linked && <span className="block font-mono text-[10px] text-muted-foreground">
+                {shortId(project.headCommit)} · {project.commitCount} commit{project.commitCount === 1 ? '' : 's'}
+              </span>}
+            </TableCell>
+          </TableRow>)}
+        </TableBody>
+      </Table>
     </section>}
   </main>;
 }

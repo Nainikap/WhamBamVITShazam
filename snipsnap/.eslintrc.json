@@ -24,5 +24,12 @@
     "node_modules",
     "playwright-report",
     "test-results"
-  ]
+  ],
+  "settings": {
+    "import/resolver": {
+      "typescript": {
+        "project": "./tsconfig.json"
+      }
+    }
+  }
 }

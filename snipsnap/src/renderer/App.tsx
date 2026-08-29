@@ -1,9 +1,10 @@
 import { Clapperboard, FolderGit2, Home, X } from 'lucide-react';
 import { useEffect } from 'react';
-import { Button } from '../components/ui/button';
-import { Separator } from '../components/ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
-import { cn } from '../lib/utils';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { Dashboard } from './Dashboard';
 import { Editor } from './Editor';
 import { MergeDialog } from './MergeDialog';
@@ -85,6 +86,7 @@ export function App() {
               </Tooltip>
             </div>
             <Button
+              size="sm"
               onClick={() => void store.exportRevision(store.selectedRevision?.commit.id ?? status.headCommit)}
             >Export OTIO</Button>
           </>}
@@ -92,22 +94,23 @@ export function App() {
 
         {store.busy && <div className="absolute left-0 top-12 z-40 h-0.5 w-1/3 animate-pulse bg-primary" aria-label="Working" />}
 
-        {(store.error || store.notice) && <div
+        {(store.error || store.notice) && <Alert
           role={store.error ? 'alert' : 'status'}
+          variant={store.error ? 'destructive' : 'default'}
           className={cn(
-            'alert mx-4 mt-3 flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs',
-            store.error
-              ? 'error border-destructive/40 bg-destructive/10 text-destructive'
-              : 'notice border-added/40 bg-added-soft text-added',
+            'alert mx-4 mt-3 flex w-auto items-start justify-between gap-3 py-2',
+            store.error ? 'error' : 'notice border-added/40 bg-added-soft text-added',
           )}
         >
-          <span>{store.error ?? store.notice}</span>
-          <button
+          <AlertDescription className="text-xs">{store.error ?? store.notice}</AlertDescription>
+          <Button
+            variant="ghost"
+            size="icon"
             aria-label={store.error ? 'Dismiss error' : 'Dismiss notice'}
             onClick={store.error ? store.clearError : store.clearNotice}
-            className="shrink-0 opacity-70 hover:opacity-100"
-          ><X className="h-3.5 w-3.5" /></button>
-        </div>}
+            className="h-5 w-5 shrink-0"
+          ><X className="h-3.5 w-3.5" /></Button>
+        </Alert>}
 
         {editing ? <Editor /> : <Dashboard />}
       </div>

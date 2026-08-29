@@ -1,14 +1,14 @@
 import type { MergeSession } from '../application';
 import { describeConflict, type ConflictBrief, type ConflictChoice } from '../merge';
-import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { ScrollArea } from '../components/ui/scroll-area';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
-import { cn } from '../lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
-const scopeVariant: Record<ConflictBrief['scope'], 'primary' | 'added' | 'edited' | 'retimed'> = {
-  video: 'primary',
+const scopeVariant: Record<ConflictBrief['scope'], 'info' | 'added' | 'edited' | 'retimed'> = {
+  video: 'info',
   audio: 'added',
   caption: 'edited',
   timeline: 'retimed',
@@ -79,8 +79,8 @@ export function MergeDialog({ session, onResolve, onComplete, onAbort, busy }: M
             </ul>}
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" disabled={busy} onClick={() => onResolve(brief.id, 'ours')}>Accept current</Button>
-              <Button size="sm" disabled={busy} onClick={() => onResolve(brief.id, 'theirs')}>Accept incoming</Button>
+              <Button variant="secondary" size="sm" disabled={busy} onClick={() => onResolve(brief.id, 'ours')}>Accept current</Button>
+              <Button variant="secondary" size="sm" disabled={busy} onClick={() => onResolve(brief.id, 'theirs')}>Accept incoming</Button>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
@@ -103,7 +103,7 @@ export function MergeDialog({ session, onResolve, onComplete, onAbort, busy }: M
       </ScrollArea>
 
       <DialogFooter>
-        <Button onClick={onAbort} disabled={busy}>Abort merge</Button>
+        <Button variant="secondary" onClick={onAbort} disabled={busy}>Abort merge</Button>
         <Button variant="default" disabled={busy || remaining > 0} onClick={onComplete}>Complete merge</Button>
       </DialogFooter>
     </DialogContent>

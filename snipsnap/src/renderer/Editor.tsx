@@ -1,14 +1,14 @@
 import { GitBranch, GitMerge, SplitSquareHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { SemanticHunk } from '../diff';
-import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { ScrollArea } from '../components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Separator } from '../components/ui/separator';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
-import { cn } from '../lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { CommitGraph } from './CommitGraph';
 import { CommitPlayer } from './CommitPlayer';
 import { DiffView } from './DiffView';
@@ -217,7 +217,7 @@ export function Editor() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <Button disabled={!canDiff} onClick={openDiff}><SplitSquareHorizontal />See diff</Button>
+                    <Button variant="secondary" disabled={!canDiff} onClick={openDiff}><SplitSquareHorizontal />See diff</Button>
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -227,6 +227,7 @@ export function Editor() {
                 </TooltipContent>
               </Tooltip>
               <Button
+                variant="secondary"
                 disabled={revision.commit.id === status.headCommit}
                 onClick={() => {
                   const discard = dirty && window.confirm('Replace the staged and working timeline with this commit?');
@@ -260,9 +261,9 @@ export function Editor() {
               </span>
             </div>
             <div className="flex shrink-0 gap-2">
-              {status.source.mode === 'file' && <Button size="sm" onClick={() => void store.scanSource()}>Check file</Button>}
+              {status.source.mode === 'file' && <Button variant="secondary" size="sm" onClick={() => void store.scanSource()}>Check file</Button>}
               {resolveSyncActive
-                ? <Button size="sm" onClick={() => void store.stopResolveSync()}>Stop sync</Button>
+                ? <Button variant="secondary" size="sm" onClick={() => void store.stopResolveSync()}>Stop sync</Button>
                 : <Button size="sm" variant="default" onClick={() => void store.startResolveSync()}>
                   {status.source.mode === 'resolve' ? 'Restart sync' : 'Start save sync'}
                 </Button>}
@@ -274,7 +275,7 @@ export function Editor() {
               <strong>{status.source.pending.changeCount} change{status.source.pending.changeCount === 1 ? '' : 's'} detected in Resolve</strong>
               {status.source.pending.unsupportedCount > 0 && ` · ${status.source.pending.unsupportedCount} unsupported`}
             </span>
-            <Button size="sm" onClick={() => void store.dismissSource()}>Ignore</Button>
+            <Button variant="secondary" size="sm" onClick={() => void store.dismissSource()}>Ignore</Button>
             <Button size="sm" variant="default" onClick={() => void store.applySource()}>Apply to working timeline</Button>
           </div>}
 
@@ -321,6 +322,7 @@ export function Editor() {
           <TooltipTrigger asChild>
             <span>
               <Button
+                variant="secondary"
                 className="w-full"
                 disabled={!mergeSource || dirty}
                 onClick={() => void store.merge(mergeSource)}

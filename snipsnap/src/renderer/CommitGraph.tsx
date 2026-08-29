@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { CommitInfo } from '../git';
-import { Badge } from '../components/ui/badge';
-import { cn } from '../lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { relativeTime, shortId } from './format';
 
 const ROW = 56;
@@ -136,7 +136,7 @@ export function CommitGraph({ history, headCommit, selectedCommit, branches, onS
           <span>·</span>
           <span className="truncate">{relativeTime(entry.commit.authoredAt)}</span>
           {(tips.get(entry.commit.id) ?? []).map((name) => (
-            <Badge key={name} variant="primary" className="ml-0.5">{name}</Badge>
+            <Badge key={name} variant="info" className="ml-0.5">{name}</Badge>
           ))}
           {entry.commit.parents.length > 1 && <Badge variant="edited">merge</Badge>}
         </span>
