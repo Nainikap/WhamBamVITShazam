@@ -167,6 +167,11 @@ export function resolveDatabaseProjectId(folder: string): string {
   return deterministicUuid(`resolve-database-project:${path.resolve(folder)}`);
 }
 
+/** Where SnipSnap keeps timelines it rebuilt from a Resolve project database. */
+export function generatedExportFolder(projectFolder: string): string {
+  return path.join(defaultResolveRoots()[0] as string, 'generated', path.basename(projectFolder));
+}
+
 /** One SnipSnap project per Resolve project file, stable across re-exports. */
 export function resolveProjectId(drpPath: string): string {
   return deterministicUuid(`resolve-project:${path.resolve(drpPath)}`);
@@ -302,9 +307,16 @@ async function fromDatabase(root: string): Promise<ResolveProjectRef[]> {
       continue;
     }
     const timelines: DiscoveredTimeline[] = [];
-    for (const name of contents.filter((candidate) => candidate.toLowerCase().endsWith('.otio'))) {
-      const file = await readableFile(path.join(folder, name));
-      if (file) timelines.push({ name: path.basename(name, '.otio'), file, isCurrent: timelines.length === 0 });
+    // Exports Resolve wrote itself, then any this app rebuilt from the database.
+    const sources: Array<{ dir: string; names: string[] }> = [
+      { dir: folder, names: contents },
+      { dir: generatedExportFolder(folder), names: await readdir(generatedExportFolder(folder)).catch(() => []) },
+    ];
+    for (const source of sources) {
+      for (const name of source.names.filter((candidate) => candidate.toLowerCase().endsWith('.otio'))) {
+        const file = await readableFile(path.join(source.dir, name));
+        if (file) timelines.push({ name: path.basename(name, '.otio'), file, isCurrent: timelines.length === 0 });
+      }
     }
     const details = await readProjectDatabase(path.join(folder, databaseFile));
     refs.push({

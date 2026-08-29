@@ -47,11 +47,11 @@ export function App() {
 
         {editing && status && <div
           className="project-path"
-          title={`${status.resolve?.drpPath ?? status.path}\nTimeline: ${status.resolve?.otioPath ?? '—'}`}
+          title={`${status.resolve?.drpPath || status.resolve?.folder || status.path}\nTimeline: ${status.resolve?.otioPath ?? '—'}`}
         >
           <span className="path-icon" aria-hidden="true">▤</span>
           <span className="path-project">{status.project.name}</span>
-          <span className="path-text">{status.resolve?.drpPath ?? status.path}</span>
+          <span className="path-text">{status.resolve?.drpPath || status.resolve?.folder || status.path}</span>
           {status.resolve && <span className="path-timeline">⧉ {status.resolve.timelineName}</span>}
         </div>}
 

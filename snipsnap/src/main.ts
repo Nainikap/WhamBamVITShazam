@@ -187,6 +187,16 @@ function registerIpc(): void {
     return projects.addResolveProjectFile(projectFile);
   });
   ipcMain.handle(channels.exportFromResolve, async () => {
+    // Resolve does not have to be running for this: a project database on disk
+    // holds enough to rebuild its timelines.
+    const rebuilt = await projects.rebuildTimelinesFromResolveDatabase();
+    if (rebuilt.timelines > 0) {
+      return {
+        ok: true,
+        message: `Rebuilt ${rebuilt.timelines} timeline${rebuilt.timelines === 1 ? '' : 's'} from `
+          + `${rebuilt.projects} Resolve project${rebuilt.projects === 1 ? '' : 's'}.`,
+      };
+    }
     const script = resolveScriptPath();
     let output = '';
     try {
