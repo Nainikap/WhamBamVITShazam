@@ -145,7 +145,7 @@ export interface MergeOutcome {
 
 export class DirtyWorkspaceError extends Error {
   constructor() {
-    super('Checkout would discard staged or working changes');
+    super('This action would discard a pending Resolve update or staged/working changes');
     this.name = 'DirtyWorkspaceError';
   }
 }
@@ -548,7 +548,7 @@ export class ProjectService {
   async createBranchFromRevision(projectId: string, name: string, revision: string): Promise<ProjectStatus> {
     return this.mutex.run(projectId, async () => {
       const current = await this.statusUnlocked(projectId);
-      if (current.staged.length > 0 || current.unstaged.length > 0) throw new DirtyWorkspaceError();
+      if (current.staged.length > 0 || current.unstaged.length > 0 || current.source.pending) throw new DirtyWorkspaceError();
       const repository = this.repository(projectId);
       const commitId = await repository.resolve(revision);
       const snapshot = await repository.readSnapshot(commitId);
@@ -570,9 +570,10 @@ export class ProjectService {
     return this.mutex.run(projectId, async () => {
       const current = await this.statusUnlocked(projectId);
       if (current.workspaceVersion !== expectedVersion) throw new StaleWorkspaceError();
-      if (!discardChanges && (current.staged.length > 0 || current.unstaged.length > 0)) {
+      if (!discardChanges && (current.staged.length > 0 || current.unstaged.length > 0 || current.source.pending)) {
         throw new DirtyWorkspaceError();
       }
+      if (discardChanges && current.source.pending) await rm(this.pendingSyncPath(projectId), { force: true });
       if (current.staged.length > 0) {
         await this.repository(projectId).writeIndex(await this.repository(projectId).readSnapshot('HEAD'));
       }
@@ -586,7 +587,10 @@ export class ProjectService {
     return this.mutex.run(projectId, async () => {
       const repository = this.repository(projectId);
       const current = await this.statusUnlocked(projectId);
-      if (!discardChanges && (current.staged.length > 0 || current.unstaged.length > 0)) throw new DirtyWorkspaceError();
+      if (!discardChanges && (current.staged.length > 0 || current.unstaged.length > 0 || current.source.pending)) {
+        throw new DirtyWorkspaceError();
+      }
+      if (discardChanges && current.source.pending) await rm(this.pendingSyncPath(projectId), { force: true });
       const target = await repository.resolve(`refs/heads/${branch}`);
       const snapshot = await repository.readSnapshot(target);
       await repository.switchBranch(branch);
@@ -690,7 +694,7 @@ export class ProjectService {
     return this.mutex.run(projectId, async () => {
       const repository = this.repository(projectId);
       const current = await this.statusUnlocked(projectId);
-      if (current.staged.length || current.unstaged.length) throw new DirtyWorkspaceError();
+      if (current.staged.length || current.unstaged.length || current.source.pending) throw new DirtyWorkspaceError();
       const [targetCommit, sourceCommit] = await Promise.all([
         repository.resolve(`refs/heads/${targetBranch}`),
         repository.resolve(`refs/heads/${sourceBranch}`),

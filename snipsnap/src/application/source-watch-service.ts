@@ -20,15 +20,20 @@ export class SourceWatchService {
     this.unwatch(projectId);
     const resolved = path.resolve(sourcePath);
     const expectedName = path.basename(resolved).toLocaleLowerCase();
-    const watcher = watch(path.dirname(resolved), { persistent: false }, (_event, filename) => {
-      if (filename && filename.toString().toLocaleLowerCase() !== expectedName) return;
-      const previous = this.timers.get(projectId);
-      if (previous) clearTimeout(previous);
-      this.timers.set(projectId, setTimeout(() => {
-        this.timers.delete(projectId);
-        void this.onChange({ projectId, sourcePath: resolved });
-      }, this.debounceMs));
-    });
+    let watcher: FSWatcher;
+    try {
+      watcher = watch(path.dirname(resolved), { persistent: false }, (_event, filename) => {
+        if (filename && filename.toString().toLocaleLowerCase() !== expectedName) return;
+        const previous = this.timers.get(projectId);
+        if (previous) clearTimeout(previous);
+        this.timers.set(projectId, setTimeout(() => {
+          this.timers.delete(projectId);
+          void this.onChange({ projectId, sourcePath: resolved });
+        }, this.debounceMs));
+      });
+    } catch {
+      return;
+    }
     watcher.on('error', () => this.unwatch(projectId));
     this.watchers.set(projectId, watcher);
   }

@@ -94,7 +94,7 @@ export function App() {
           <div className="panel-title revision-title">
             <div><span className="eyebrow">SELECTED COMMIT</span><h3>{revision.commit.message}</h3><small>{revision.commit.id} · {formatDate(revision.commit.authoredAt)}</small></div>
             <div className="revision-actions"><button onClick={() => void store.exportSelected()}>Export OTIO</button><button onClick={() => {
-              const dirty = status.staged.length > 0 || status.unstaged.length > 0;
+              const dirty = status.staged.length > 0 || status.unstaged.length > 0 || Boolean(status.source.pending);
               const discard = dirty && window.confirm('Replace staged and working changes with this commit?');
               if (!dirty || discard) void store.restoreSelected(discard);
             }} disabled={revision.commit.id === status.headCommit}>Restore to WORKING</button></div>
@@ -144,7 +144,7 @@ export function App() {
           <div className="panel-title"><div><span className="eyebrow">BRANCHES</span><h3>Project cuts</h3></div><span>{status.branches.length}</span></div>
           <div className="branch-list">{status.branches.map((branch) => <button aria-label={`Switch to branch ${branch.name}`} className={branch.name === status.branch ? 'active' : ''} key={branch.name} onClick={() => {
             if (branch.name === status.branch) return;
-            const dirty = status.staged.length > 0 || status.unstaged.length > 0;
+            const dirty = status.staged.length > 0 || status.unstaged.length > 0 || Boolean(status.source.pending);
             const discard = dirty && window.confirm('Discard staged and working changes before switching branches?');
             if (!dirty || discard) void store.checkout(branch.name, discard);
           }}><span>⑂</span>{branch.name}<code>{branch.commitId.slice(0, 6)}</code></button>)}</div>

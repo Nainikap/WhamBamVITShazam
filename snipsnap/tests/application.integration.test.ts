@@ -250,6 +250,27 @@ describe('V1 project workflow', () => {
       .rejects.toThrow(/Workspace changed/u);
   });
 
+  it('guards branch checkout while a Resolve update is pending', async () => {
+    const sourcePath = path.join(root, 'resolve-pending.otio');
+    const fixture = await readFile(path.join(__dirname, 'fixtures/resolve-basic.otio'), 'utf8');
+    await writeFile(sourcePath, fixture);
+    const imported = await service.importOtio(fixture, sourcePath);
+    await service.createBranch(imported.id, 'alternate');
+    const changed = JSON.parse(fixture) as {
+      tracks: { children: Array<{ children: Array<{ source_range?: { duration: { value: number } } }> }> };
+    };
+    const first = changed.tracks.children[0]?.children[0];
+    if (!first?.source_range) throw new Error('Fixture clip range missing');
+    first.source_range.duration.value -= 3;
+    await writeFile(sourcePath, JSON.stringify(changed));
+    expect((await service.scanOtioSource(imported.id)).status.source.pending).toBeDefined();
+
+    await expect(service.checkout(imported.id, 'alternate')).rejects.toBeInstanceOf(DirtyWorkspaceError);
+    const discarded = await service.checkout(imported.id, 'alternate', true);
+    expect(discarded.source.pending).toBeUndefined();
+    expect(discarded.branch).toBe('alternate');
+  });
+
   it('loads immutable commit details and starts a clean branch from history', async () => {
     const project = createDemoProject('History preview');
     await service.createProject(project);
