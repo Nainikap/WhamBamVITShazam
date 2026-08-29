@@ -8,6 +8,7 @@ export const SourceBindingSchema = z.object({
   lastSeenDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   lastAppliedDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   ignoredDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+  lastError: z.string().min(1).max(2000).optional(),
 }).strict();
 
 export const PendingSyncSchema = z.object({

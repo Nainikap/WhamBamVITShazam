@@ -66,6 +66,7 @@ code { color: #a9b4c7; font: 11px ui-monospace, SFMono-Regular, Consolas, monosp
 .status-pill.watching { color: #9df0ce; background: #173d31; }
 .status-pill.changes-ready { color: #f7d895; background: #493b20; }
 .status-pill.missing { color: #ffb3ab; background: #4b2626; }
+.status-pill.invalid { color: #ffb3ab; background: #4b2626; }
 .pending-sync { padding: 15px 16px; border-top: 1px solid #554526; background: #211d14; }
 .pending-heading { display: flex; justify-content: space-between; gap: 12px; }
 .pending-heading div { display: flex; flex-direction: column; }

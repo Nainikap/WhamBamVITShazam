@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { importOtio } from '../src/adapters/otio';
 import { reconcileImportedProject } from '../src/application/source-sync';
 import { semanticDiff } from '../src/diff';
-import fixture from './fixtures/resolve-basic.otio?raw';
+
+const fixture = readFileSync(path.join(__dirname, 'fixtures', 'resolve-basic.otio'), 'utf8');
 
 function withoutVideoGitMetadata(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutVideoGitMetadata);

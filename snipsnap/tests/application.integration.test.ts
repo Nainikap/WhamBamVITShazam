@@ -202,6 +202,33 @@ describe('V1 project workflow', () => {
       .toEqual(initial.project.clips);
   });
 
+  it('preserves the last good timeline when Resolve leaves an incomplete export', async () => {
+    const sourcePath = path.join(root, 'resolve-partial.otio');
+    const fixture = await readFile(path.join(__dirname, 'fixtures/resolve-basic.otio'), 'utf8');
+    await writeFile(sourcePath, fixture);
+    const imported = await service.importOtio(fixture, sourcePath);
+    const initial = await service.status(imported.id);
+
+    await writeFile(sourcePath, '{"OTIO_SCHEMA":');
+    const invalid = await service.scanOtioSource(imported.id);
+    expect(invalid.changed).toBe(false);
+    expect(invalid.error).toMatch(/JSON/u);
+    expect(invalid.status.source.state).toBe('invalid');
+    expect(invalid.status.project).toEqual(initial.project);
+
+    const changed = JSON.parse(fixture) as {
+      tracks: { children: Array<{ children: Array<{ source_range?: { duration: { value: number } } }> }> };
+    };
+    const first = changed.tracks.children[0]?.children[0];
+    if (!first?.source_range) throw new Error('Fixture clip range missing');
+    first.source_range.duration.value -= 1;
+    await writeFile(sourcePath, JSON.stringify(changed));
+    const recovered = await service.scanOtioSource(imported.id);
+    expect(recovered.changed).toBe(true);
+    expect(recovered.status.source.state).toBe('changes-ready');
+    expect(recovered.status.source.error).toBeUndefined();
+  });
+
   it('rejects a stale Resolve candidate after the workspace moves', async () => {
     const sourcePath = path.join(root, 'resolve-stale.otio');
     const fixture = await readFile(path.join(__dirname, 'fixtures/resolve-basic.otio'), 'utf8');

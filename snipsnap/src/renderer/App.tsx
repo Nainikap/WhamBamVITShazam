@@ -75,7 +75,7 @@ export function App() {
         <section className={`panel source-panel source-${status.source.state}`}>
           <div className="source-summary">
             <div className="source-icon">↻</div>
-            <div><span className="eyebrow">RESOLVE SYNC</span><h3>{status.source.connected ? status.source.fileName : 'No OTIO source connected'}</h3><p>{status.source.connected ? status.source.filePath : 'Connect the OTIO file that Resolve overwrites when you export the active timeline.'}</p></div>
+            <div><span className="eyebrow">RESOLVE SYNC</span><h3>{status.source.connected ? status.source.fileName : 'No OTIO source connected'}</h3><p>{status.source.error ?? (status.source.connected ? status.source.filePath : 'Connect the OTIO file that Resolve overwrites when you export the active timeline.')}</p></div>
             <div className="source-actions">
               <span className={`status-pill ${status.source.state}`}>{status.source.state.replace('-', ' ')}</span>
               {status.source.connected

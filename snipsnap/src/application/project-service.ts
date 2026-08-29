@@ -98,8 +98,9 @@ export interface SourceSyncStatus {
   connected: boolean;
   fileName?: string;
   filePath?: string;
-  state: 'not-connected' | 'watching' | 'changes-ready' | 'missing';
+  state: 'not-connected' | 'watching' | 'changes-ready' | 'missing' | 'invalid';
   lastAppliedDigest?: string;
+  error?: string;
   pending?: {
     digest: string;
     detectedAt: string;
@@ -247,9 +248,10 @@ export class ProjectService {
       connected: true,
       fileName: path.basename(binding.path),
       filePath: binding.path,
-      state: exists ? (pending ? 'changes-ready' : 'watching') : 'missing',
+      state: exists ? (binding.lastError ? 'invalid' : pending ? 'changes-ready' : 'watching') : 'missing',
     };
     if (binding.lastAppliedDigest) status.lastAppliedDigest = binding.lastAppliedDigest;
+    if (binding.lastError) status.error = binding.lastError;
     if (pending) {
       const changes = semanticDiff(workspace.working, pending.project);
       status.pending = {
@@ -357,10 +359,19 @@ export class ProjectService {
     const contents = await readFile(binding.path, 'utf8');
     const digest = digestText(contents);
     const existingPending = await this.readPendingSync(projectId);
-    if (existingPending?.digest === digest) return true;
-    if (binding.ignoredDigest === digest || binding.lastAppliedDigest === digest) {
+    if (existingPending?.digest === digest) {
+      if (binding.lastError) {
+        const next = { ...binding };
+        delete next.lastError;
+        await atomicWriteJson(this.sourceBindingPath(projectId), next);
+      }
+      return true;
+    }
+    if (binding.ignoredDigest === digest) {
       if (existingPending) await rm(this.pendingSyncPath(projectId), { force: true });
-      await atomicWriteJson(this.sourceBindingPath(projectId), { ...binding, lastSeenDigest: digest });
+      const next = { ...binding, lastSeenDigest: digest };
+      delete next.lastError;
+      await atomicWriteJson(this.sourceBindingPath(projectId), next);
       return false;
     }
 
@@ -369,6 +380,7 @@ export class ProjectService {
     const reconciled = reconcileImportedProject(workspace.working, imported.project);
     const nextBinding: SourceBinding = { ...binding, lastSeenDigest: digest };
     delete nextBinding.ignoredDigest;
+    delete nextBinding.lastError;
     if (semanticDiff(workspace.working, reconciled).length === 0) {
       nextBinding.lastAppliedDigest = digest;
       await Promise.all([
@@ -400,10 +412,13 @@ export class ProjectService {
         const changed = await this.scanOtioSourceUnlocked(projectId);
         return { changed, status: await this.statusUnlocked(projectId) };
       } catch (error) {
+        const binding = await this.sourceBinding(projectId);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (binding) await atomicWriteJson(this.sourceBindingPath(projectId), { ...binding, lastError: errorMessage });
         return {
           changed: false,
           status: await this.statusUnlocked(projectId),
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage,
         };
       }
     });
@@ -415,10 +430,13 @@ export class ProjectService {
         const changed = await this.scanOtioSourceUnlocked(projectId);
         return { changed, status: await this.statusUnlocked(projectId) };
       } catch (error) {
+        const binding = await this.sourceBinding(projectId);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (binding) await atomicWriteJson(this.sourceBindingPath(projectId), { ...binding, lastError: errorMessage });
         return {
           changed: false,
           status: await this.statusUnlocked(projectId),
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage,
         };
       }
     });
