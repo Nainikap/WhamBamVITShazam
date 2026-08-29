@@ -5,6 +5,15 @@ import { GitError, runGit } from './process';
 const ZERO_OID = '0000000000000000000000000000000000000000';
 const OID_PATTERN = /^[a-f0-9]{40,64}$/u;
 const SAFE_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
+const SNAPSHOT_REPACK_THRESHOLD = 256;
+const SNAPSHOT_REPACK_SIZE_THRESHOLD_KIB = 4 * 1_024;
+const SNAPSHOT_REPACK_CONFIG = [
+  '-c', 'core.bigFileThreshold=64m', // Larger blobs remain packed, but skip memory-heavy delta search.
+  '-c', 'pack.compression=6',
+  '-c', 'pack.packSizeLimit=0',
+  '-c', 'repack.useDeltaIslands=false',
+  '-c', 'repack.writeBitmaps=false',
+] as const;
 
 export class StaleRefError extends Error {
   constructor(readonly ref: string) {
@@ -72,6 +81,13 @@ function identityEnv(identity: CommitIdentity): NodeJS.ProcessEnv {
   };
 }
 
+function countObjectsMetric(output: string, name: 'count' | 'size'): number {
+  const line = output.split('\n').find((candidate) => candidate.startsWith(`${name}: `));
+  const value = Number(line?.slice(name.length + 2));
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`Git returned an invalid ${name} metric`);
+  return value;
+}
+
 export class GitRepository {
   constructor(readonly path: string) {}
 
@@ -108,6 +124,31 @@ export class GitRepository {
     return (await runGit(this.path, ['hash-object', '-w', '--stdin'], { input: canonicalJson(project) })).stdout.trim();
   }
 
+  private async autoOptimizeSnapshotStorage(): Promise<void> {
+    try {
+      await this.optimizeSnapshotStorage(false);
+    } catch {
+      // Packing is best-effort: repository housekeeping must not change commit behavior.
+    }
+  }
+
+  /** Pack snapshots without rewriting refs or deleting unreachable objects. */
+  async optimizeSnapshotStorage(force = true): Promise<boolean> {
+    if (!force) {
+      const output = await runGit(this.path, ['count-objects', '--verbose']);
+      const looseObjects = countObjectsMetric(output.stdout, 'count');
+      const looseSizeKiB = countObjectsMetric(output.stdout, 'size');
+      if (looseObjects < SNAPSHOT_REPACK_THRESHOLD
+        && looseSizeKiB < SNAPSHOT_REPACK_SIZE_THRESHOLD_KIB) return false;
+    }
+    await runGit(this.path, [
+      ...SNAPSHOT_REPACK_CONFIG,
+      'repack', '-a', '-d', '-k', '--quiet',
+      '--window=50', '--depth=50', '--window-memory=64m', '--threads=1',
+    ]);
+    return true;
+  }
+
   async writeIndex(project: Project): Promise<string> {
     const blob = await this.writeBlob(validateProject(project));
     await runGit(this.path, ['update-index', '--add', '--cacheinfo', `100644,${blob},timeline.json`]);
@@ -131,6 +172,7 @@ export class GitRepository {
       args.push('-p', parent);
     }
     args.push('-F', '-');
+    await this.autoOptimizeSnapshotStorage();
     return (await runGit(this.path, args, { input: `${message.trim()}\n`, env: identityEnv(identity) })).stdout.trim();
   }
 

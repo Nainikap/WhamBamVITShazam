@@ -29,7 +29,7 @@ adapter in V1. Those remain V2 work as required by the Engineering Plan.
 | Deterministic NFC canonical JSON | `src/domain/canonical.ts` | key-order, Unicode, digest, and stable UUID property tests | Automated |
 | Minimal Resolve OTIO cut subset | `src/adapters/otio/` imports/exports tracks, clips, gaps, timing, and SnipSnap caption metadata | `tests/otio.test.ts`, including parse by official OpenTimelineIO 0.18.1 when installed | Automated for OTIO; Resolve validation pending |
 | Footage and machine-local paths never enter Git | canonical assets contain fingerprint/name/length; relink URLs live in untracked `media-links.json` application state | Git integration asserts the commit tree contains only `timeline.json` and its blob has no source path | Automated |
-| Real Git commits, branches, refs, tags, merge-base, and two-parent commits | `src/git/` uses native Git plumbing through `spawn` argument arrays with `shell: false` | `tests/git.integration.test.ts` and `tests/application.integration.test.ts` inspect actual object types, parents, trees, refs, tags, and `git fsck` | Automated |
+| Real Git commits, branches, refs, tags, merge-base, and two-parent commits | `src/git/` uses native Git plumbing through `spawn` argument arrays with `shell: false`; Git pack/delta maintenance compacts similar snapshots without changing their logical format | `tests/git.integration.test.ts` and `tests/application.integration.test.ts` inspect actual object types, parents, trees, refs, tags, compaction behavior, and `git fsck` | Automated |
 | Compare-and-swap ref safety | immutable objects are created first; refs move last through `update-ref <new> <expected-old>` | stale-ref unit/integration cases, including a target moved during conflict resolution | Automated |
 | Distinct HEAD / INDEX / WORKING snapshots | HEAD is read from a commit, semantic INDEX is the real Git index, WORKING is atomically persisted application state | selective-stage integration test proves a commit contains only one of two working edits | Automated |
 | Semantic status and atomic staging | `src/diff/` emits stable-ID hunks for trims, ranges, fields, entities, and order; hunk IDs bind the base digest | diff/command unit tests cover selective staging, atomic trim/order, and stale hunk rejection | Automated |
@@ -58,7 +58,8 @@ mise exec -- npm run package
 The test layers deliberately prove different things:
 
 - unit/property tests prove deterministic model, OTIO, diff, commands, and merge rules;
-- integration tests execute real Git 2.x repositories under temporary directories;
+- integration tests execute real Git 2.x repositories under temporary directories, including
+  physical snapshot compaction with unchanged refs, index, history, and canonical reads;
 - Playwright launches the packaged Electron entry and exercises renderer -> preload -> IPC ->
   services -> Git rather than replacing the API with mocks;
 - the packaging check verifies Electron Forge can produce `out/snipsnap-linux-x64/snipsnap`.
@@ -87,7 +88,9 @@ caption objects. That fidelity must remain explicit rather than silently adverti
 ## Storage and security notes
 
 - Each project repository is generated below Electron `userData/v1-data/projects/<uuid>/repo`.
-- The Git tree contains one complete canonical `timeline.json` snapshot per commit.
+- The Git tree contains one complete canonical `timeline.json` snapshot per commit. Git's native
+  pack/delta storage transparently shares bytes between similar snapshots; automatic maintenance
+  is best-effort and never changes commits, refs, the semantic index, or the working snapshot.
 - Source media URLs are stored beside the workspace in `media-links.json`, never in Git. They are
   used only to reconstruct external references during local OTIO export; footage is not copied.
 - The BrowserWindow is sandboxed with context isolation on and Node integration off.
