@@ -2,11 +2,36 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { probeVideo, readResolveTimelines } from '../src/application';
-import { spawnSync } from 'node:child_process';
 
-const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
+function box(type: string, ...parts: Buffer[]): Buffer {
+  const payload = Buffer.concat(parts);
+  const header = Buffer.alloc(8);
+  header.writeUInt32BE(payload.length + header.length, 0);
+  header.write(type, 4, 4, 'latin1');
+  return Buffer.concat([header, payload]);
+}
+
+/** A deterministic MP4 header is enough: probeVideo never reads media samples. */
+async function writeSyntheticVideo(file: string): Promise<void> {
+  const tkhd = Buffer.alloc(84);
+  tkhd.writeUInt32BE(320 * 65_536, 76);
+  tkhd.writeUInt32BE(180 * 65_536, 80);
+  const mdhd = Buffer.alloc(20);
+  mdhd.writeUInt32BE(24, 12);
+  mdhd.writeUInt32BE(192, 16);
+  const stts = Buffer.alloc(16);
+  stts.writeUInt32BE(1, 4);
+  stts.writeUInt32BE(192, 8);
+  stts.writeUInt32BE(1, 12);
+  const trak = box('trak',
+    box('tkhd', tkhd),
+    box('mdia', box('mdhd', mdhd), box('minf', box('vmhd'), box('stbl', box('stts', stts)))),
+  );
+  await writeFile(file, Buffer.concat([box('ftyp', Buffer.from('isom')), box('moov', trak)]));
+}
 
 /** Build the handful of tables SnipSnap reads out of a Resolve project. */
 function writeProjectDatabase(file: string, mediaPath: string): void {
@@ -35,17 +60,14 @@ function writeProjectDatabase(file: string, mediaPath: string): void {
   database.close();
 }
 
-describe.runIf(hasFfmpeg)('rebuilding a timeline from a Resolve database', () => {
+describe('rebuilding a timeline from a Resolve database', () => {
   let root: string;
   let media: string;
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-db-'));
     media = path.join(root, 'source.mp4');
-    spawnSync('ffmpeg', [
-      '-y', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=24:duration=8',
-      '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', media,
-    ], { stdio: 'ignore' });
+    await writeSyntheticVideo(media);
   });
 
   afterEach(async () => {
@@ -83,7 +105,7 @@ describe.runIf(hasFfmpeg)('rebuilding a timeline from a Resolve database', () =>
     expect(items).toEqual(['opening@12+48', 'gap', 'closing@0+24']);
     expect(project?.gaps[0]?.durationFrames).toBe(24);
     expect(timeline?.missingMedia).toEqual([]);
-    expect(Object.values(timeline?.mediaLinks ?? {})).toEqual([`file://${media}`]);
+    expect(Object.values(timeline?.mediaLinks ?? {})).toEqual([pathToFileURL(media).href]);
   });
 
   it('skips a timeline whose media cannot be measured rather than guessing its rate', async () => {
