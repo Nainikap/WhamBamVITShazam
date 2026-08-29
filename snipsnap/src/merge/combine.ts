@@ -48,7 +48,7 @@ export function mergeOrders(ours: string[], theirs: string[]): string[] {
   return result;
 }
 
-const duplicable = new Set(['clip', 'gap', 'caption']);
+const duplicable = new Set(['clip', 'gap', 'transition', 'caption']);
 
 export function combinePlan(conflict: MergeConflict, fps = 24): CombinePlan {
   const timecode = (range: FrameRange) => `${framesToTimecode(range.start, fps)} → ${framesToTimecode(range.start + range.duration, fps)}`;

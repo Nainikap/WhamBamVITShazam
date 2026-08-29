@@ -6,6 +6,51 @@ const NameSchema = z.string().min(1).transform((value) => value.normalize('NFC')
 const TextSchema = z.string().transform((value) => value.normalize('NFC'));
 const PositiveSafeIntegerSchema = z.number().int().safe().positive();
 const NonnegativeSafeIntegerSchema = z.number().int().safe().nonnegative();
+const SafeIntegerSchema = z.number().int().safe();
+
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+/** Any JSON the editor produced that V1 does not model field by field. */
+export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
+  z.null(),
+  z.boolean(),
+  z.number().finite(),
+  TextSchema,
+  z.array(JsonValueSchema),
+  z.record(JsonValueSchema),
+]));
+
+/**
+ * Carries every editor field V1 does not model explicitly. Keeping it means an
+ * import never drops data and any change to it still shows up in a diff.
+ */
+export const ExtrasSchema = z.record(JsonValueSchema);
+
+export const MarkerSchema = z
+  .object({
+    name: TextSchema,
+    color: NameSchema,
+    start: NonnegativeSafeIntegerSchema,
+    duration: NonnegativeSafeIntegerSchema,
+    comment: TextSchema,
+    extras: ExtrasSchema,
+  })
+  .strict();
+
+export const EffectSchema = z
+  .object({
+    name: TextSchema,
+    schema: NameSchema,
+    parameters: ExtrasSchema,
+  })
+  .strict();
+
+const DecorationShape = {
+  enabled: z.boolean(),
+  markers: z.array(MarkerSchema),
+  effects: z.array(EffectSchema),
+  extras: ExtrasSchema,
+};
 
 export const RationalSchema = z
   .object({
@@ -27,6 +72,7 @@ export const AssetSchema = z
     name: NameSchema,
     fingerprint: Sha256Schema,
     durationFrames: PositiveSafeIntegerSchema,
+    extras: ExtrasSchema,
   })
   .strict();
 
@@ -40,6 +86,8 @@ export const ClipSchema = z
     sourceRange: FrameRangeSchema,
     gainDb: z.number().min(-60).max(12),
     preset: z.enum(['none', 'warm', 'cool', 'mono']),
+    color: NameSchema.nullable(),
+    ...DecorationShape,
   })
   .strict();
 
@@ -49,6 +97,24 @@ export const GapSchema = z
     type: z.literal('gap'),
     trackId: UUIDSchema,
     durationFrames: PositiveSafeIntegerSchema,
+    ...DecorationShape,
+  })
+  .strict();
+
+/**
+ * A transition sits between two neighbouring items and consumes frames from
+ * each of them. Resolve calls these cross dissolves, dips, and wipes.
+ */
+export const TransitionSchema = z
+  .object({
+    id: UUIDSchema,
+    type: z.literal('transition'),
+    trackId: UUIDSchema,
+    name: NameSchema,
+    transitionType: NameSchema,
+    inOffsetFrames: NonnegativeSafeIntegerSchema,
+    outOffsetFrames: NonnegativeSafeIntegerSchema,
+    ...DecorationShape,
   })
   .strict();
 
@@ -60,6 +126,7 @@ export const CaptionSchema = z
     text: TextSchema,
     range: FrameRangeSchema,
     style: z.enum(['default', 'title', 'subtitle']),
+    ...DecorationShape,
   })
   .strict();
 
@@ -70,6 +137,7 @@ export const TrackSchema = z
     name: NameSchema,
     kind: z.enum(['video', 'audio', 'caption']),
     itemIds: z.array(UUIDSchema),
+    ...DecorationShape,
   })
   .strict();
 
@@ -81,6 +149,9 @@ export const SequenceSchema = z
     width: PositiveSafeIntegerSchema,
     height: PositiveSafeIntegerSchema,
     trackIds: z.array(UUIDSchema),
+    globalStartFrame: SafeIntegerSchema,
+    markers: z.array(MarkerSchema),
+    extras: ExtrasSchema,
   })
   .strict();
 
@@ -94,7 +165,9 @@ const ProjectShape = z
     assets: z.array(AssetSchema),
     clips: z.array(ClipSchema),
     gaps: z.array(GapSchema),
+    transitions: z.array(TransitionSchema),
     captions: z.array(CaptionSchema),
+    extras: ExtrasSchema,
   })
   .strict();
 
@@ -108,7 +181,7 @@ export const ProjectSchema = ProjectShape.superRefine((project, context) => {
   unique('Sequence', project.sequences.map(({ id }) => id));
   unique('Track', project.tracks.map(({ id }) => id));
   unique('Asset', project.assets.map(({ id }) => id));
-  const items = [...project.clips, ...project.gaps, ...project.captions];
+  const items = [...project.clips, ...project.gaps, ...project.transitions, ...project.captions];
   unique('Timeline item', items.map(({ id }) => id));
 
   const sequenceIds = new Set(project.sequences.map(({ id }) => id));
@@ -159,11 +232,12 @@ export const ProjectSchema = ProjectShape.superRefine((project, context) => {
     }
   }
 
-  for (const item of [...project.gaps, ...project.captions]) {
+  for (const item of [...project.gaps, ...project.transitions, ...project.captions]) {
     if (!trackIds.has(item.trackId)) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `Item ${item.id} has an invalid track` });
     }
   }
+
 
   const referencedTracks = project.sequences.flatMap(({ trackIds: ids }) => ids);
   for (const track of project.tracks) {
@@ -180,7 +254,9 @@ export const ProjectSchema = ProjectShape.superRefine((project, context) => {
 
   const itemDuration = (itemId: string): number => {
     const item = itemById.get(itemId);
-    if (!item || item.type === 'caption') return 0;
+    // Captions carry absolute ranges and transitions overlap their neighbours,
+    // so neither adds to the running length of a track.
+    if (!item || item.type === 'caption' || item.type === 'transition') return 0;
     return item.type === 'clip' ? item.sourceRange.duration : item.durationFrames;
   };
   for (const sequence of project.sequences) {
@@ -209,10 +285,19 @@ export type Asset = z.infer<typeof AssetSchema>;
 export type Clip = z.infer<typeof ClipSchema>;
 export type Gap = z.infer<typeof GapSchema>;
 export type Caption = z.infer<typeof CaptionSchema>;
-export type TimelineItem = Clip | Gap | Caption;
+export type Transition = z.infer<typeof TransitionSchema>;
+export type Marker = z.infer<typeof MarkerSchema>;
+export type Effect = z.infer<typeof EffectSchema>;
+export type Extras = z.infer<typeof ExtrasSchema>;
+export type TimelineItem = Clip | Gap | Transition | Caption;
 export type Track = z.infer<typeof TrackSchema>;
 export type Sequence = z.infer<typeof SequenceSchema>;
 export type Project = z.infer<typeof ProjectShape>;
+
+/** Default decorations for a freshly constructed timeline item. */
+export function decorations(): { enabled: boolean; markers: Marker[]; effects: Effect[]; extras: Extras } {
+  return { enabled: true, markers: [], effects: [], extras: {} };
+}
 
 export function validateProject(input: unknown): Project {
   return ProjectSchema.parse(input);

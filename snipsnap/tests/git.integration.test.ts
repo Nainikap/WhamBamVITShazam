@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { reduceCommand } from '../src/commands';
 import {
   createDemoProject,
+  decorations,
   deterministicUuid,
   digestText,
   validateProject,
@@ -21,6 +22,7 @@ function createStorageFixture(clipCount = 500): Project {
     name: `camera-${index}-${digestText(`asset-name:${index}`).slice(0, 16)}.mov`,
     fingerprint: digestText(`media-fingerprint:${index}`),
     durationFrames: 2_000,
+    extras: {},
   }));
   const clips = assets.map((asset, index) => ({
     id: deterministicUuid(`${trackId}:clip:${index}`),
@@ -31,6 +33,8 @@ function createStorageFixture(clipCount = 500): Project {
     sourceRange: { start: index % 300, duration: 120 },
     gainDb: 0,
     preset: 'none' as const,
+    color: null,
+    ...decorations(),
   }));
 
   return validateProject({
@@ -44,6 +48,9 @@ function createStorageFixture(clipCount = 500): Project {
       width: 3_840,
       height: 2_160,
       trackIds: [trackId],
+      globalStartFrame: 0,
+      markers: [],
+      extras: {},
     }],
     tracks: [{
       id: trackId,
@@ -51,11 +58,14 @@ function createStorageFixture(clipCount = 500): Project {
       name: 'V1',
       kind: 'video',
       itemIds: clips.map(({ id }) => id),
+      ...decorations(),
     }],
     assets,
     clips,
     gaps: [],
+    transitions: [],
     captions: [],
+    extras: {},
   });
 }
 

@@ -230,7 +230,8 @@ describe('V1 project workflow', () => {
   it('exports an immutable commit OTIO and never places footage in Git', async () => {
     const fixture = await readFile(path.join(__dirname, 'fixtures/resolve-basic.otio'), 'utf8');
     const imported = await service.importOtio(fixture);
-    expect(imported.unsupported).toHaveLength(1);
+    // Nothing in the Resolve subset is dropped any more, transitions included.
+    expect(imported.unsupported).toEqual([]);
     const status = await service.status(imported.id);
     const exported = await service.exportOtio(imported.id, 'HEAD');
     expect(exported.commitId).toBe(status.headCommit);
@@ -356,7 +357,8 @@ describe('V1 project workflow', () => {
     const details = await service.revisionDetails(project.id, status.headCommit);
     expect(details.diff.some(({ entityType, operation }) => entityType === 'clip' && operation === 'modify')).toBe(true);
     expect(details.preview.commitId).toBe(status.headCommit);
-    expect(details.preview.segments).toHaveLength(2);
+    // Two clips plus the dissolve between them.
+    expect(details.preview.segments).toHaveLength(3);
 
     const branched = await service.createBranchFromRevision(project.id, 'from-import', initial.headCommit);
     expect(branched.branch).toBe('from-import');

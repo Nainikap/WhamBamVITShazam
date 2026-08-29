@@ -17,9 +17,11 @@ describe('OTIO adapter', () => {
     expect(result.project.gaps[0]?.durationFrames).toBe(12);
     expect(result.project.assets[0]?.name).toBe('opening.mov');
     expect(Object.values(result.mediaLinks)).toEqual(['file:///Volumes/Edit/opening.mov']);
-    expect(result.unsupported).toEqual([
-      expect.objectContaining({ schema: 'Transition.1', reason: expect.stringContaining('Clip and Gap') }),
-    ]);
+    expect(result.unsupported).toEqual([]);
+    expect(result.project.transitions).toEqual([expect.objectContaining({
+      name: 'Cross Dissolve',
+      transitionType: 'Custom',
+    })]);
   });
 
   it('round-trips the canonical V1 subset without frame or identity drift', () => {
@@ -39,7 +41,7 @@ describe('OTIO adapter', () => {
       .toThrow(/Expected an OTIO Timeline/u);
   });
 
-  it('reports unsupported effects, markers, disabled state, and global start time instead of silently dropping them', () => {
+  it('preserves effects, markers, disabled state, colour, and global start time', () => {
     const value = JSON.parse(exportOtio(createDemoProject())) as {
       global_start_time: unknown;
       tracks: { children: Array<{ children: Array<Record<string, unknown>> }> };
@@ -47,17 +49,65 @@ describe('OTIO adapter', () => {
     value.global_start_time = { OTIO_SCHEMA: 'RationalTime.1', value: 86400, rate: 24 };
     const clip = value.tracks.children[0]?.children[0];
     if (!clip) throw new Error('Export fixture clip missing');
-    clip.effects = [{ OTIO_SCHEMA: 'LinearTimeWarp.1' }];
-    clip.markers = [{ OTIO_SCHEMA: 'Marker.2' }];
+    clip.effects = [{ OTIO_SCHEMA: 'LinearTimeWarp.1', name: 'Speed', time_scalar: 2 }];
+    clip.markers = [{
+      OTIO_SCHEMA: 'Marker.2',
+      name: 'Check the cut',
+      color: 'BLUE',
+      comment: 'ask the director',
+      marked_range: {
+        OTIO_SCHEMA: 'TimeRange.1',
+        start_time: { OTIO_SCHEMA: 'RationalTime.1', value: 24, rate: 24 },
+        duration: { OTIO_SCHEMA: 'RationalTime.1', value: 12, rate: 24 },
+      },
+    }];
     clip.enabled = false;
+    clip.color = 'Orange';
 
     const result = importOtio(value);
-    expect(result.unsupported).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'global_start_time', reason: expect.stringContaining('frame zero') }),
-      expect.objectContaining({ path: 'tracks[0].children[0].effects[0]', schema: 'LinearTimeWarp.1' }),
-      expect.objectContaining({ path: 'tracks[0].children[0].markers[0]', schema: 'Marker.2' }),
-      expect.objectContaining({ path: 'tracks[0].children[0].enabled', reason: expect.stringContaining('disabled') }),
-    ]));
+    expect(result.unsupported).toEqual([]);
+    const imported = result.project.clips[0];
+    expect(imported?.enabled).toBe(false);
+    expect(imported?.color).toBe('Orange');
+    expect(imported?.effects).toEqual([{
+      name: 'Speed',
+      schema: 'LinearTimeWarp.1',
+      parameters: { time_scalar: 2 },
+    }]);
+    expect(imported?.markers).toEqual([{
+      name: 'Check the cut',
+      color: 'BLUE',
+      comment: 'ask the director',
+      start: 24,
+      duration: 12,
+      extras: {},
+    }]);
+    expect(result.project.sequences[0]?.globalStartFrame).toBe(86400);
+
+    // Everything the editor sent must come back out again.
+    const exported = JSON.parse(exportOtio(result.project)) as typeof value;
+    const roundTripped = exported.tracks.children[0]?.children[0];
+    expect(roundTripped?.enabled).toBe(false);
+    expect(roundTripped?.color).toBe('Orange');
+    expect(roundTripped?.effects).toEqual(clip.effects);
+    expect(exported.global_start_time).toEqual(value.global_start_time);
+  });
+
+  it('carries unmodelled editor fields through a round trip untouched', () => {
+    const value = JSON.parse(exportOtio(createDemoProject())) as {
+      tracks: { children: Array<{ children: Array<Record<string, unknown>> }> };
+    };
+    const clip = value.tracks.children[0]?.children[0];
+    if (!clip) throw new Error('Export fixture clip missing');
+    clip.metadata = {
+      ...(clip.metadata as Record<string, unknown>),
+      Resolve_OTIO: { 'Effects': [{ 'Name': 'Gaussian Blur', 'Amount': 0.4 }] },
+    };
+
+    const imported = importOtio(value).project;
+    const exported = JSON.parse(exportOtio(imported)) as typeof value;
+    const metadata = exported.tracks.children[0]?.children[0]?.metadata as Record<string, unknown>;
+    expect(metadata.Resolve_OTIO).toEqual({ 'Effects': [{ 'Name': 'Gaussian Blur', 'Amount': 0.4 }] });
   });
 
   const hasOfficialOtio = spawnSync('python', ['-c', 'import opentimelineio'], { stdio: 'ignore' }).status === 0;

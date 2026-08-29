@@ -41,16 +41,19 @@ const collectionKeys: Record<CollectionType, keyof Project> = {
   asset: 'assets',
   clip: 'clips',
   gap: 'gaps',
+  transition: 'transitions',
   caption: 'captions',
 };
 
+const decorationGroups = [['enabled'], ['markers'], ['effects'], ['extras']];
 const groups: Record<CollectionType, string[][]> = {
-  sequence: [['name'], ['fps'], ['width', 'height'], ['trackIds']],
-  track: [['name'], ['kind'], ['sequenceId'], ['itemIds']],
-  asset: [['name'], ['fingerprint'], ['durationFrames']],
-  clip: [['name'], ['trackId'], ['assetId'], ['sourceRange'], ['gainDb'], ['preset']],
-  gap: [['trackId'], ['durationFrames']],
-  caption: [['trackId'], ['text'], ['range'], ['style']],
+  sequence: [['name'], ['fps'], ['width', 'height'], ['trackIds'], ['globalStartFrame'], ['markers'], ['extras']],
+  track: [['name'], ['kind'], ['sequenceId'], ['itemIds'], ...decorationGroups],
+  asset: [['name'], ['fingerprint'], ['durationFrames'], ['extras']],
+  clip: [['name'], ['trackId'], ['assetId'], ['sourceRange'], ['gainDb'], ['preset'], ['color'], ...decorationGroups],
+  gap: [['trackId'], ['durationFrames'], ...decorationGroups],
+  transition: [['trackId'], ['name'], ['transitionType'], ['inOffsetFrames'], ['outOffsetFrames'], ...decorationGroups],
+  caption: [['trackId'], ['text'], ['range'], ['style'], ...decorationGroups],
 };
 
 function clone<T>(value: T): T {
@@ -280,7 +283,8 @@ function applyResolution(project: Project, conflictItem: MergeConflict, value: u
         if (sequence && !sequence.trackIds.includes(conflictItem.entityId)) {
           sequence.trackIds.splice(relation?.index ?? sequence.trackIds.length, 0, conflictItem.entityId);
         }
-      } else if (conflictItem.entityType === 'clip' || conflictItem.entityType === 'gap' || conflictItem.entityType === 'caption') {
+      } else if (conflictItem.entityType === 'clip' || conflictItem.entityType === 'gap'
+        || conflictItem.entityType === 'transition' || conflictItem.entityType === 'caption') {
         const parentId = relation?.parentId ?? String(entity.trackId);
         const track = project.tracks.find(({ id }) => id === parentId);
         if (track && !track.itemIds.includes(conflictItem.entityId)) {
@@ -298,7 +302,7 @@ function applyResolution(project: Project, conflictItem: MergeConflict, value: u
 
 /** Every timeline item that currently belongs to a track, in no particular order. */
 function itemsOf(project: Project): Array<Entity & { trackId: string }> {
-  return [...project.clips, ...project.gaps, ...project.captions] as unknown as Array<Entity & { trackId: string }>;
+  return [...project.clips, ...project.gaps, ...project.transitions, ...project.captions] as unknown as Array<Entity & { trackId: string }>;
 }
 
 /** Apply a combined order while dropping identities the merge did not keep. */

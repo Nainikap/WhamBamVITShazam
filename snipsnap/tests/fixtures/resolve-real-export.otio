@@ -1,0 +1,203 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "Ravi Kishan — First 10 Seconds",
+  "global_start_time": null,
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "name": "tracks",
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "V1 — Source Video",
+        "kind": "Video",
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "Ravi kishan dancing on stage in red coat and black pant trending meme template",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 0,
+                "rate": 60
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 600,
+                "rate": 60
+              }
+            },
+            "effects": [],
+            "markers": [],
+            "enabled": true,
+            "color": null,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "name": "ravi_kishan_first_10_seconds.mp4",
+                "target_url": "file:///Users/sreerajmuthaiya.a.l/WhamBamVITShazam/deliverables/ravi_kishan_otio/ravi_kishan_first_10_seconds.mp4",
+                "available_range": {
+                  "OTIO_SCHEMA": "TimeRange.1",
+                  "start_time": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 0,
+                    "rate": 60
+                  },
+                  "duration": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 600,
+                    "rate": 60
+                  }
+                },
+                "available_image_bounds": null,
+                "metadata": {
+                  "youtube": {
+                    "video_id": "L_DeG3spYN4",
+                    "title": "Ravi kishan dancing on stage in red coat and black pant trending meme template",
+                    "channel": "Weird Templates",
+                    "source_duration_seconds": 22,
+                    "observed_max_width": 1920,
+                    "observed_max_height": 1080,
+                    "observed_max_frame_rate": 60,
+                    "bundled_media_sha256": "74fda41825f5c4d9ca25e14bf616bdb35f5b2f446305ee77b5ac41c468cffc74",
+                    "relink_required": false
+                  }
+                }
+              }
+            },
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "metadata": {
+              "videogit": {
+                "id": "f00625d0-b7e5-5703-b42b-ec3c66250303",
+                "assetId": "d781f087-c2a2-56da-967a-ee9ed5897614",
+                "assetFingerprint": "e099b595b53806faffda39653126f259f1dadf34eaee98c8177ac6e440cdafde",
+                "gainDb": 0,
+                "preset": "none"
+              }
+            }
+          }
+        ],
+        "source_range": null,
+        "effects": [],
+        "markers": [],
+        "enabled": true,
+        "color": null,
+        "metadata": {
+          "videogit": {
+            "id": "452e91eb-aeca-5a52-a5f7-c81bddb34939",
+            "kind": "video"
+          }
+        }
+      },
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "A1 — Source Audio",
+        "kind": "Audio",
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "Ravi kishan dancing on stage in red coat and black pant trending meme template — Audio",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 0,
+                "rate": 60
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "value": 600,
+                "rate": 60
+              }
+            },
+            "effects": [],
+            "markers": [],
+            "enabled": true,
+            "color": null,
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "name": "ravi_kishan_first_10_seconds.mp4",
+                "target_url": "file:///Users/sreerajmuthaiya.a.l/WhamBamVITShazam/deliverables/ravi_kishan_otio/ravi_kishan_first_10_seconds.mp4",
+                "available_range": {
+                  "OTIO_SCHEMA": "TimeRange.1",
+                  "start_time": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 0,
+                    "rate": 60
+                  },
+                  "duration": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "value": 600,
+                    "rate": 60
+                  }
+                },
+                "available_image_bounds": null,
+                "metadata": {
+                  "youtube": {
+                    "video_id": "L_DeG3spYN4",
+                    "title": "Ravi kishan dancing on stage in red coat and black pant trending meme template",
+                    "channel": "Weird Templates",
+                    "source_duration_seconds": 22,
+                    "observed_audio_channels": 2,
+                    "bundled_media_sha256": "74fda41825f5c4d9ca25e14bf616bdb35f5b2f446305ee77b5ac41c468cffc74",
+                    "relink_required": false
+                  }
+                }
+              }
+            },
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "metadata": {
+              "videogit": {
+                "id": "09a36407-cdd7-5ea5-9af8-c972e5b3254e",
+                "assetId": "d781f087-c2a2-56da-967a-ee9ed5897614",
+                "assetFingerprint": "e099b595b53806faffda39653126f259f1dadf34eaee98c8177ac6e440cdafde",
+                "gainDb": 0,
+                "preset": "none"
+              }
+            }
+          }
+        ],
+        "source_range": null,
+        "effects": [],
+        "markers": [],
+        "enabled": true,
+        "color": null,
+        "metadata": {
+          "videogit": {
+            "id": "0627d038-c373-55f2-85bf-ab2c5c88faa4",
+            "kind": "audio"
+          }
+        }
+      }
+    ],
+    "source_range": null,
+    "effects": [],
+    "markers": [],
+    "enabled": true,
+    "color": null,
+    "metadata": {
+      "videogit": {
+        "id": "3d86858b-8864-5bcf-9b49-1f68d20e7145",
+        "name": "Ravi Kishan — First 10 Seconds",
+        "width": 1920,
+        "height": 1080
+      }
+    }
+  },
+  "metadata": {
+    "videogit": {
+      "id": "2f83dc6b-31dd-57a5-95ec-66179f0fde69",
+      "schemaVersion": 1
+    },
+    "source": {
+      "provider": "YouTube",
+      "video_id": "L_DeG3spYN4",
+      "watch_url": "https://www.youtube.com/watch?v=L_DeG3spYN4",
+      "requested_range_seconds": {
+        "start": 0,
+        "duration": 10
+      }
+    }
+  }
+}

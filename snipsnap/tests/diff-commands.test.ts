@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { reduceCommand } from '../src/commands';
 import { applySemanticHunks, semanticDiff, StaleHunkError } from '../src/diff';
-import { createDemoProject, projectDigest } from '../src/domain';
+import { createDemoProject, projectDigest, type Project } from '../src/domain';
 
 describe('commands and semantic staging', () => {
   it('emits human semantic hunks with atomic trim ranges', () => {
@@ -79,5 +79,39 @@ describe('commands and semantic staging', () => {
     expect(semanticDiff(project, working)).toEqual([
       expect.objectContaining({ operation: 'reorder', fieldGroup: 'itemIds', entityId: track.id }),
     ]);
+  });
+
+  it('tracks every editor change, not only cuts', () => {
+    const base = createDemoProject();
+    const head = structuredClone(base) as Project;
+    const clip = head.clips[0];
+    const track = head.tracks[0];
+    const transition = head.transitions[0];
+    const sequence = head.sequences[0];
+    if (!clip || !track || !transition || !sequence) throw new Error('Fixture is incomplete');
+    clip.enabled = false;
+    clip.color = 'Orange';
+    clip.markers = [{ name: 'Fix', color: 'RED', start: 2, duration: 1, comment: 'regrade', extras: {} }];
+    clip.effects = [{ name: 'Blur', schema: 'Effect.1', parameters: { amount: 2 } }];
+    clip.extras = { Resolve_OTIO: { Retime: 'Freeze' } };
+    track.enabled = false;
+    transition.transitionType = 'SMPTE_Wipe';
+    transition.inOffsetFrames = 24;
+    sequence.globalStartFrame = 3600;
+    sequence.markers = [{ name: 'Act two', color: 'GREEN', start: 100, duration: 0, comment: '', extras: {} }];
+    head.extras = { Resolve_OTIO: { ColourScience: 'DaVinci YRGB' } };
+
+    const fields = semanticDiff(base, head).map(({ entityType, fieldGroup }) => `${entityType}.${fieldGroup}`);
+    expect(fields).toEqual(expect.arrayContaining([
+      'clip.enabled', 'clip.color', 'clip.markers', 'clip.effects', 'clip.extras',
+      'track.enabled',
+      'transition.transitionType', 'transition.inOffsetFrames',
+      'sequence.globalStartFrame', 'sequence.markers',
+      'project.extras',
+    ]));
+  });
+
+  it('reports no change when nothing was edited', () => {
+    expect(semanticDiff(createDemoProject(), createDemoProject())).toEqual([]);
   });
 });

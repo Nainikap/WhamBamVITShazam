@@ -18,9 +18,11 @@ describe('preview plan', () => {
     });
 
     expect(plan.commitId).toBe('a'.repeat(40));
-    expect(plan.segments.map(({ timelineStart, duration }) => ({ timelineStart, duration }))).toEqual([
-      { timelineStart: 0, duration: 144 },
-      { timelineStart: 144, duration: 360 },
+    expect(plan.segments.map(({ kind, timelineStart, duration }) => ({ kind, timelineStart, duration }))).toEqual([
+      { kind: 'clip', timelineStart: 0, duration: 144 },
+      // The dissolve overlaps its neighbours instead of occupying its own time.
+      { kind: 'transition', timelineStart: 132, duration: 24 },
+      { kind: 'clip', timelineStart: 144, duration: 360 },
     ]);
     expect(plan.totalFrames).toBe(504);
     expect(plan.segments[0]?.available).toBe(true);

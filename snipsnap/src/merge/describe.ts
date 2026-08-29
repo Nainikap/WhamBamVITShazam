@@ -74,7 +74,7 @@ function trackFor(projects: Project[], conflict: MergeConflict): Track | null {
       const track = project.tracks.find(({ id }) => id === conflict.entityId);
       if (track) return track;
     }
-    const item = [...project.clips, ...project.gaps, ...project.captions]
+    const item = [...project.clips, ...project.gaps, ...project.transitions, ...project.captions]
       .find(({ id }) => id === conflict.entityId);
     if (item) {
       const track = project.tracks.find(({ id }) => id === item.trackId);
@@ -86,7 +86,7 @@ function trackFor(projects: Project[], conflict: MergeConflict): Track | null {
 
 function entityName(projects: Project[], conflict: MergeConflict): string | null {
   for (const project of projects) {
-    const item = [...project.clips, ...project.captions].find(({ id }) => id === conflict.entityId);
+    const item = [...project.clips, ...project.transitions, ...project.captions].find(({ id }) => id === conflict.entityId);
     if (item) return 'name' in item ? item.name : `“${item.text}”`;
     const track = project.tracks.find(({ id }) => id === conflict.entityId);
     if (track) return track.name;

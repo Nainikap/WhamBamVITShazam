@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { reduceCommand } from '../src/commands';
-import { createDemoProject, deterministicUuid } from '../src/domain';
+import { createDemoProject, decorations, deterministicUuid } from '../src/domain';
 import { combinePlan, completeMerge, describeConflict, mergeOrders, mergeThreeWay, resolveMerge } from '../src/merge';
 
 describe('conservative three-way merge', () => {
@@ -84,12 +84,12 @@ describe('conservative three-way merge', () => {
     const track = base.tracks[0];
     if (!track) throw new Error('Fixture track missing');
     const gapId = deterministicUuid(`${track.id}:gap`);
-    base.gaps.push({ id: gapId, type: 'gap', trackId: track.id, durationFrames: 12 });
+    base.gaps.push({ id: gapId, type: 'gap', trackId: track.id, durationFrames: 12, ...decorations() });
     track.itemIds.push(gapId);
-    const [first, second, third] = track.itemIds;
-    if (!first || !second || !third) throw new Error('Fixture order missing');
-    const ours = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [second, first, third] });
-    const theirs = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [first, third, second] });
+    const [first, second, third, fourth] = track.itemIds;
+    if (!first || !second || !third || !fourth) throw new Error('Fixture order missing');
+    const ours = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [second, first, third, fourth] });
+    const theirs = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [first, third, second, fourth] });
 
     const result = mergeThreeWay(base, ours, theirs);
     expect(result.conflicts).toEqual(expect.arrayContaining([
@@ -159,20 +159,20 @@ describe('keeping both branches', () => {
     const track = base.tracks[0];
     if (!track) throw new Error('Fixture track missing');
     const gapId = deterministicUuid(`${track.id}:gap`);
-    base.gaps.push({ id: gapId, type: 'gap', trackId: track.id, durationFrames: 12 });
+    base.gaps.push({ id: gapId, type: 'gap', trackId: track.id, durationFrames: 12, ...decorations() });
     track.itemIds.push(gapId);
-    const [first, second, third] = track.itemIds;
-    if (!first || !second || !third) throw new Error('Fixture order missing');
-    const ours = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [second, first, third] });
-    const theirs = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [first, third, second] });
+    const [first, second, third, fourth] = track.itemIds;
+    if (!first || !second || !third || !fourth) throw new Error('Fixture order missing');
+    const ours = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [second, first, third, fourth] });
+    const theirs = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [first, third, second, fourth] });
 
     const result = mergeThreeWay(base, ours, theirs);
     const conflict = result.conflicts.find(({ type }) => type === 'order');
     if (!conflict) throw new Error('Expected an order conflict');
 
     const merged = completeMerge(resolveMerge(result, [{ conflictId: conflict.id, choice: 'both' }]));
-    expect(merged.tracks[0]?.itemIds).toHaveLength(3);
-    expect([...merged.tracks[0]?.itemIds ?? []].sort()).toEqual([first, second, third].sort());
+    expect(merged.tracks[0]?.itemIds).toHaveLength(4);
+    expect([...merged.tracks[0]?.itemIds ?? []].sort()).toEqual([first, second, third, fourth].sort());
   });
 
   it('keeps both takes when the branches point one clip at different footage', () => {
@@ -196,7 +196,7 @@ describe('keeping both branches', () => {
     const merged = completeMerge(resolveMerge(result, [{ conflictId: conflict.id, choice: 'both' }]));
     const track = merged.tracks[0];
     if (!track) throw new Error('Merged track missing');
-    expect(track.itemIds).toHaveLength(3);
+    expect(track.itemIds).toHaveLength(4);
     expect(track.itemIds[0]).toBe(clip.id);
     const duplicate = merged.clips.find(({ id }) => id === track.itemIds[1]);
     expect(merged.clips.find(({ id }) => id === clip.id)?.assetId).toBe(interviewAsset.id);

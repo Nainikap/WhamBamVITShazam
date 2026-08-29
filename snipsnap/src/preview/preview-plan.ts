@@ -2,7 +2,7 @@ import { rationalToRate, validateProject, type Project, type Track } from '../do
 
 export interface PreviewSegment {
   id: string;
-  kind: 'clip' | 'gap' | 'caption';
+  kind: 'clip' | 'gap' | 'caption' | 'transition';
   name: string;
   timelineStart: number;
   duration: number;
@@ -14,6 +14,9 @@ export interface PreviewSegment {
   gainDb: number;
   preset?: 'none' | 'warm' | 'cool' | 'mono';
   text?: string;
+  enabled?: boolean;
+  markerCount?: number;
+  effectCount?: number;
 }
 
 export interface PreviewTrack {
@@ -54,6 +57,7 @@ function buildTrack(
   const clipById = new Map(project.clips.map((clip) => [clip.id, clip]));
   const gapById = new Map(project.gaps.map((gap) => [gap.id, gap]));
   const captionById = new Map(project.captions.map((caption) => [caption.id, caption]));
+  const transitionById = new Map(project.transitions.map((transition) => [transition.id, transition]));
   const assetById = new Map(project.assets.map((asset) => [asset.id, asset]));
   const segments: PreviewSegment[] = [];
   let timelineStart = 0;
@@ -72,6 +76,28 @@ function buildTrack(
         available: true,
         gainDb: 0,
         text: caption.text,
+        enabled: caption.enabled,
+        markerCount: caption.markers.length,
+        effectCount: caption.effects.length,
+      });
+      continue;
+    }
+    const transition = transitionById.get(itemId);
+    if (transition) {
+      // A transition overlaps the items beside it rather than occupying its own time.
+      const width = transition.inOffsetFrames + transition.outOffsetFrames;
+      segments.push({
+        id: transition.id,
+        kind: 'transition',
+        name: transition.name,
+        timelineStart: Math.max(0, timelineStart - transition.inOffsetFrames),
+        duration: Math.max(1, width),
+        sourceStart: 0,
+        available: true,
+        gainDb: 0,
+        enabled: transition.enabled,
+        markerCount: transition.markers.length,
+        effectCount: transition.effects.length,
       });
       continue;
     }
@@ -86,6 +112,9 @@ function buildTrack(
         sourceStart: 0,
         available: false,
         gainDb: 0,
+        enabled: gap.enabled,
+        markerCount: gap.markers.length,
+        effectCount: gap.effects.length,
       });
       timelineStart += gap.durationFrames;
       continue;
@@ -107,6 +136,9 @@ function buildTrack(
       available: media?.available === true,
       gainDb: clip.gainDb,
       preset: clip.preset,
+      enabled: clip.enabled,
+      markerCount: clip.markers.length,
+      effectCount: clip.effects.length,
     };
     if (media?.mediaUrl) segment.mediaUrl = media.mediaUrl;
     segments.push(segment);

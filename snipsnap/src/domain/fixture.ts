@@ -1,4 +1,5 @@
 import { deterministicUuid, digestText } from './canonical';
+import { decorations } from './model';
 import { validateProject, type Project } from './model';
 
 export function createDemoProject(name = 'Launch Cut'): Project {
@@ -15,6 +16,7 @@ export function createDemoProject(name = 'Launch Cut'): Project {
   const musicClipId = deterministicUuid(`${audioTrackId}:music`);
   const voiceClipId = deterministicUuid(`${audioTrackId}:voice`);
   const captionId = deterministicUuid(`${captionTrackId}:caption`);
+  const transitionId = deterministicUuid(`${videoTrackId}:dissolve`);
 
   return validateProject({
     schemaVersion: 1,
@@ -27,26 +29,33 @@ export function createDemoProject(name = 'Launch Cut'): Project {
       width: 1920,
       height: 1080,
       trackIds: [videoTrackId, audioTrackId, captionTrackId],
+      globalStartFrame: 0,
+      markers: [],
+      extras: {},
     }],
     tracks: [
-      { id: videoTrackId, sequenceId, name: 'V1', kind: 'video', itemIds: [introClipId, interviewClipId] },
-      { id: audioTrackId, sequenceId, name: 'A1', kind: 'audio', itemIds: [musicClipId, voiceClipId] },
-      { id: captionTrackId, sequenceId, name: 'Captions', kind: 'caption', itemIds: [captionId] },
+      { id: videoTrackId, sequenceId, name: 'V1', kind: 'video', itemIds: [introClipId, transitionId, interviewClipId], ...decorations() },
+      { id: audioTrackId, sequenceId, name: 'A1', kind: 'audio', itemIds: [musicClipId, voiceClipId], ...decorations() },
+      { id: captionTrackId, sequenceId, name: 'Captions', kind: 'caption', itemIds: [captionId], ...decorations() },
     ],
     assets: [
-      { id: introAssetId, name: 'intro.mov', fingerprint: digestText('media:intro.mov'), durationFrames: 480 },
-      { id: interviewAssetId, name: 'interview.mov', fingerprint: digestText('media:interview.mov'), durationFrames: 2400 },
-      { id: musicAssetId, name: 'music-bed.wav', fingerprint: digestText('media:music-bed.wav'), durationFrames: 3600 },
+      { id: introAssetId, name: 'intro.mov', fingerprint: digestText('media:intro.mov'), durationFrames: 480, extras: {} },
+      { id: interviewAssetId, name: 'interview.mov', fingerprint: digestText('media:interview.mov'), durationFrames: 2400, extras: {} },
+      { id: musicAssetId, name: 'music-bed.wav', fingerprint: digestText('media:music-bed.wav'), durationFrames: 3600, extras: {} },
     ],
     clips: [
-      { id: introClipId, type: 'clip', trackId: videoTrackId, name: 'Intro', assetId: introAssetId, sourceRange: { start: 0, duration: 144 }, gainDb: 0, preset: 'none' },
-      { id: interviewClipId, type: 'clip', trackId: videoTrackId, name: 'Interview', assetId: interviewAssetId, sourceRange: { start: 240, duration: 360 }, gainDb: 0, preset: 'none' },
-      { id: musicClipId, type: 'clip', trackId: audioTrackId, name: 'Music Bed', assetId: musicAssetId, sourceRange: { start: 0, duration: 240 }, gainDb: -12, preset: 'none' },
-      { id: voiceClipId, type: 'clip', trackId: audioTrackId, name: 'Interview VO', assetId: interviewAssetId, sourceRange: { start: 240, duration: 264 }, gainDb: -3, preset: 'none' },
+      { id: introClipId, type: 'clip', trackId: videoTrackId, name: 'Intro', assetId: introAssetId, sourceRange: { start: 0, duration: 144 }, gainDb: 0, preset: 'none', color: null, ...decorations() },
+      { id: interviewClipId, type: 'clip', trackId: videoTrackId, name: 'Interview', assetId: interviewAssetId, sourceRange: { start: 240, duration: 360 }, gainDb: 0, preset: 'none', color: null, ...decorations() },
+      { id: musicClipId, type: 'clip', trackId: audioTrackId, name: 'Music Bed', assetId: musicAssetId, sourceRange: { start: 0, duration: 240 }, gainDb: -12, preset: 'none', color: null, ...decorations() },
+      { id: voiceClipId, type: 'clip', trackId: audioTrackId, name: 'Interview VO', assetId: interviewAssetId, sourceRange: { start: 240, duration: 264 }, gainDb: -3, preset: 'none', color: null, ...decorations() },
     ],
     gaps: [],
+    transitions: [
+      { id: transitionId, type: 'transition', trackId: videoTrackId, name: 'Cross Dissolve', transitionType: 'SMPTE_Dissolve', inOffsetFrames: 12, outOffsetFrames: 12, ...decorations() },
+    ],
+    extras: {},
     captions: [
-      { id: captionId, type: 'caption', trackId: captionTrackId, text: 'Ship the story, not the files.', range: { start: 72, duration: 96 }, style: 'subtitle' },
+      { id: captionId, type: 'caption', trackId: captionTrackId, text: 'Ship the story, not the files.', range: { start: 72, duration: 96 }, style: 'subtitle', ...decorations() },
     ],
   });
 }

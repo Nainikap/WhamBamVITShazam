@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { reduceCommand } from '../src/commands';
-import { createDemoProject, deterministicUuid, projectDigest, type Project } from '../src/domain';
+import { createDemoProject, decorations, deterministicUuid, projectDigest, type Project } from '../src/domain';
 import { buildPreviewPlan, buildTimelineDiff } from '../src/preview';
 
 function plan(project: Project, commitId: string) {
@@ -21,7 +21,7 @@ describe('timeline diff', () => {
   it('reports an unchanged snapshot as unchanged on every lane', () => {
     const result = diff(createDemoProject(), createDemoProject());
 
-    expect(result.counts).toEqual({ added: 0, removed: 0, modified: 0, unchanged: 5 });
+    expect(result.counts).toMatchObject({ added: 0, removed: 0, modified: 0, unchanged: 6, addedFrames: 0, removedFrames: 0 });
     expect(result.tracks.map(({ kind, change }) => `${kind}:${change}`))
       .toEqual(['video:unchanged', 'audio:unchanged', 'caption:unchanged']);
   });
@@ -40,8 +40,9 @@ describe('timeline diff', () => {
     expect(trimmed?.before).toMatchObject({ sourceStart: 0, duration: 144 });
     expect(trimmed?.after).toMatchObject({ sourceStart: 12, duration: 96 });
     // The clip after it slides earlier, so its position changed even though its trim did not.
-    expect(video.segments[1]).toMatchObject({ change: 'modified', changedFields: ['position'] });
-    expect(video.counts).toEqual({ added: 0, removed: 0, modified: 2, unchanged: 0 });
+    expect(video.segments.find(({ name }) => name === 'Interview'))
+      .toMatchObject({ change: 'modified', changedFields: ['position'] });
+    expect(video.counts).toMatchObject({ added: 0, removed: 0, modified: 3, unchanged: 0 });
   });
 
   it('marks new audio footage as added and cut audio footage as removed', () => {
@@ -65,13 +66,15 @@ describe('timeline diff', () => {
       sourceRange: { start: 0, duration: 240 },
       gainDb: -18,
       preset: 'none',
+      color: null,
+      ...decorations(),
     });
     headTrack.itemIds = [addedId, ...headTrack.itemIds.filter((id) => id !== music.id)];
 
     const audio = lane(diff(base, head), 'audio');
     expect(audio.segments.map(({ name, change }) => `${name}:${change}`))
       .toEqual(['Music Bed:removed', 'Room Tone:added', 'Interview VO:unchanged']);
-    expect(audio.counts).toEqual({ added: 1, removed: 1, modified: 0, unchanged: 1 });
+    expect(audio.counts).toMatchObject({ added: 1, removed: 1, modified: 0, unchanged: 1 });
     expect(audio.change).toBe('modified');
   });
 
@@ -89,13 +92,14 @@ describe('timeline diff', () => {
     head.captions = head.captions.map((caption) => ({ ...caption, range: { start: 0, duration: 96 } }));
 
     const video = lane(diff(base, head), 'video');
-    expect(video.segments.map(({ name, change, laneStart, laneDuration }) => ({ name, change, laneStart, laneDuration })))
+    expect(video.segments.map(({ name, change, laneDuration }) => ({ name, change, laneDuration })))
       .toEqual([
-        { name: 'Intro', change: 'unchanged', laneStart: 0, laneDuration: 144 },
-        { name: 'Interview', change: 'removed', laneStart: 144, laneDuration: 360 },
+        { name: 'Intro', change: 'unchanged', laneDuration: 144 },
+        { name: 'Cross Dissolve', change: 'unchanged', laneDuration: 24 },
+        { name: 'Interview', change: 'removed', laneDuration: 360 },
       ]);
-    expect(video.segments[1]?.after).toBeUndefined();
-    expect(video.segments[1]?.before).toMatchObject({ timelineStart: 144, duration: 360 });
+    expect(video.segments[2]?.after).toBeUndefined();
+    expect(video.segments[2]?.before).toMatchObject({ timelineStart: 144, duration: 360 });
   });
 
   it('separates a level change from a timing change', () => {
@@ -117,7 +121,7 @@ describe('timeline diff', () => {
     const head = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [...track.itemIds].reverse() });
 
     const video = lane(diff(base, head), 'video');
-    expect(video.counts).toEqual({ added: 0, removed: 0, modified: 2, unchanged: 0 });
+    expect(video.counts).toMatchObject({ added: 0, removed: 0, modified: 3, unchanged: 0 });
     expect(video.segments.every(({ timingChanged }) => timingChanged)).toBe(true);
   });
 
@@ -136,5 +140,68 @@ describe('timeline diff', () => {
     const audio = lane(diff(base, head), 'audio');
     expect(audio.change).toBe('removed');
     expect(audio.segments.every(({ change }) => change === 'removed')).toBe(true);
+  });
+
+  it('shows the frames a trim removed instead of colouring the whole clip', () => {
+    const base = createDemoProject();
+    const clip = base.clips.find(({ name }) => name === 'Interview');
+    if (!clip) throw new Error('Fixture clip missing');
+    // Keep the head, drop the last 60 frames of source.
+    const head = reduceCommand(base, { type: 'trimClip', clipId: clip.id, start: 240, duration: 300 });
+
+    const trimmed = lane(diff(base, head), 'video').segments.find(({ name }) => name === 'Interview');
+    expect(trimmed?.removedFrames).toBe(60);
+    expect(trimmed?.addedFrames).toBe(0);
+    expect(trimmed?.parts).toEqual([
+      { change: 'kept', laneStart: 168, laneDuration: 300, contentStart: 240 },
+      { change: 'removed', laneStart: 468, laneDuration: 60, contentStart: 540 },
+    ]);
+  });
+
+  it('shows the frames a longer trim added as new footage', () => {
+    const base = createDemoProject();
+    const clip = base.clips.find(({ name }) => name === 'Interview');
+    if (!clip) throw new Error('Fixture clip missing');
+    // Pull the in point 48 frames earlier and hold 24 frames longer.
+    const head = reduceCommand(base, { type: 'trimClip', clipId: clip.id, start: 192, duration: 432 });
+
+    const extended = lane(diff(base, head), 'video').segments.find(({ name }) => name === 'Interview');
+    expect(extended?.addedFrames).toBe(72);
+    expect(extended?.removedFrames).toBe(0);
+    expect(extended?.parts.map(({ change, laneDuration, contentStart }) => ({ change, laneDuration, contentStart })))
+      .toEqual([
+        { change: 'added', laneDuration: 48, contentStart: 192 },
+        { change: 'kept', laneDuration: 360, contentStart: 240 },
+        { change: 'added', laneDuration: 24, contentStart: 600 },
+      ]);
+  });
+
+  it('counts every added and removed frame across the whole comparison', () => {
+    const base = createDemoProject();
+    const interview = base.clips.find(({ name }) => name === 'Interview');
+    const music = base.clips.find(({ name }) => name === 'Music Bed');
+    if (!interview || !music) throw new Error('Fixture clips missing');
+    let head = reduceCommand(base, { type: 'trimClip', clipId: interview.id, start: 240, duration: 300 });
+    head = reduceCommand(head, { type: 'trimClip', clipId: music.id, start: 0, duration: 288 });
+
+    const result = diff(base, head);
+    expect(result.counts.removedFrames).toBe(60);
+    expect(result.counts.addedFrames).toBe(48);
+  });
+
+  it('reports a disabled clip, new markers, and new effects as changes', () => {
+    const base = createDemoProject();
+    const head = structuredClone(base) as Project;
+    const clip = head.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    clip.enabled = false;
+    clip.markers = [{ name: 'Check', color: 'BLUE', start: 4, duration: 1, comment: '', extras: {} }];
+    clip.effects = [{ name: 'Blur', schema: 'Effect.1', parameters: { amount: 3 } }];
+
+    const changed = lane(diff(base, head), 'video').segments[0];
+    expect(changed?.change).toBe('modified');
+    expect(changed?.changedFields).toEqual(expect.arrayContaining(['enabled', 'markers', 'effects']));
+    expect(changed?.timingChanged).toBe(false);
+    expect(changed?.addedFrames).toBe(0);
   });
 });

@@ -8,39 +8,42 @@ import {
   type Asset,
   type Caption,
   type Clip,
+  type Effect,
+  type Extras,
   type Gap,
+  type Marker,
   type Project,
   type Rational,
   type Track,
+  type Transition,
 } from '../../domain';
 
 const RationalTimeSchema = z.object({ value: z.number(), rate: z.number().positive() }).passthrough();
 const TimeRangeSchema = z.object({ start_time: RationalTimeSchema, duration: RationalTimeSchema }).passthrough();
+const MediaReferenceSchema = z.object({
+  target_url: z.string().optional(),
+  available_range: TimeRangeSchema.optional().nullable(),
+}).passthrough();
 const ItemSchema = z.object({
   OTIO_SCHEMA: z.string(),
-  name: z.string().optional(),
+  name: z.string().optional().nullable(),
   source_range: TimeRangeSchema.optional().nullable(),
-  media_reference: z.object({
-    target_url: z.string().optional(),
-    available_range: TimeRangeSchema.optional().nullable(),
-  }).passthrough().optional().nullable(),
-  media_references: z.record(z.object({
-    target_url: z.string().optional(),
-    available_range: TimeRangeSchema.optional().nullable(),
-  }).passthrough()).optional(),
-  active_media_reference_key: z.string().optional(),
+  media_reference: MediaReferenceSchema.optional().nullable(),
+  media_references: z.record(MediaReferenceSchema).optional(),
+  active_media_reference_key: z.string().optional().nullable(),
   metadata: z.record(z.unknown()).optional(),
 }).passthrough();
 const TrackInputSchema = z.object({
   OTIO_SCHEMA: z.string(),
-  name: z.string().optional(),
-  kind: z.string().optional(),
+  name: z.string().optional().nullable(),
+  kind: z.string().optional().nullable(),
   children: z.array(ItemSchema),
   metadata: z.record(z.unknown()).optional(),
 }).passthrough();
 const TimelineInputSchema = z.object({
   OTIO_SCHEMA: z.string(),
-  name: z.string().optional(),
+  name: z.string().optional().nullable(),
+  global_start_time: RationalTimeSchema.optional().nullable(),
   tracks: z.object({
     children: z.array(TrackInputSchema),
     metadata: z.record(z.unknown()).optional(),
@@ -48,6 +51,7 @@ const TimelineInputSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 }).passthrough();
 
+type Json = Record<string, unknown>;
 type OtioMetadata = Record<string, unknown>;
 
 export interface UnsupportedContent {
@@ -66,6 +70,43 @@ export interface OtioExportOptions {
   mediaLinks?: Readonly<Record<string, string>>;
 }
 
+/** Fields this adapter models by name. Everything else is carried in `extras`. */
+const ITEM_FIELDS = [
+  'OTIO_SCHEMA', 'name', 'source_range', 'media_reference', 'media_references',
+  'active_media_reference_key', 'metadata', 'markers', 'effects', 'enabled', 'color',
+];
+const TRANSITION_FIELDS = [
+  'OTIO_SCHEMA', 'name', 'transition_type', 'in_offset', 'out_offset', 'metadata',
+  'markers', 'effects', 'enabled',
+];
+const TRACK_FIELDS = ['OTIO_SCHEMA', 'name', 'kind', 'children', 'metadata', 'markers', 'effects', 'enabled'];
+const STACK_FIELDS = ['OTIO_SCHEMA', 'name', 'children', 'metadata', 'markers', 'effects', 'enabled'];
+const TIMELINE_FIELDS = ['OTIO_SCHEMA', 'name', 'tracks', 'global_start_time', 'metadata'];
+const MARKER_FIELDS = ['OTIO_SCHEMA', 'name', 'color', 'marked_range', 'comment'];
+const MEDIA_FIELDS = ['OTIO_SCHEMA', 'target_url', 'available_range', 'name'];
+
+/** Fields the exporter always writes; an empty one carries no editorial meaning. */
+const STRUCTURAL_NULLABLE = ['source_range', 'color', 'available_image_bounds'];
+
+function isJson(value: unknown): boolean {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJson);
+  if (typeof value === 'object') return Object.values(value as Json).every((item) => item === undefined || isJson(item));
+  return false;
+}
+
+/** Copy every field the model does not name, so nothing is lost on import. */
+function extrasOf(source: Json | undefined, modelled: string[]): Extras {
+  const extras: Extras = {};
+  for (const [key, value] of Object.entries(source ?? {})) {
+    if (modelled.includes(key) || value === undefined) continue;
+    if (value === null && STRUCTURAL_NULLABLE.includes(key)) continue;
+    if (isJson(value)) extras[key] = value as Extras[string];
+  }
+  return extras;
+}
+
 function videogitMetadata(metadata: OtioMetadata | undefined): Record<string, unknown> {
   const value = metadata?.videogit;
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -73,11 +114,21 @@ function videogitMetadata(metadata: OtioMetadata | undefined): Record<string, un
     : {};
 }
 
+/** Editor metadata other than our own must survive a round trip untouched. */
+function foreignMetadata(metadata: OtioMetadata | undefined): Extras | undefined {
+  const rest = extrasOf(metadata as Json | undefined, ['videogit']);
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
 function metadataId(metadata: OtioMetadata | undefined, seed: string): string {
   const candidate = videogitMetadata(metadata).id;
   return typeof candidate === 'string' && z.string().uuid().safeParse(candidate).success
     ? candidate
     : deterministicUuid(seed);
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.normalize('NFC') : '';
 }
 
 function basename(targetUrl: string): string {
@@ -104,47 +155,70 @@ function schemaName(value: unknown, fallback: string): string {
   return fallback;
 }
 
-function reportArray(
-  value: unknown,
-  path: string,
-  reason: string,
-  unsupported: UnsupportedContent[],
-): void {
-  if (!Array.isArray(value)) return;
-  value.forEach((entry, index) => unsupported.push({
-    path: `${path}[${index}]`,
-    schema: schemaName(entry, 'Unknown.1'),
-    reason,
-  }));
+/** Frames stay exact when the source already speaks the timeline's rate. */
+function frames(value: number, fromRate: number, fps: Rational): number {
+  const target = rationalToRate(fps);
+  if (fromRate === target) return Math.round(value);
+  return Math.round((value / fromRate) * target);
 }
 
-function reportDecorations(
-  value: Record<string, unknown>,
-  path: string,
-  unsupported: UnsupportedContent[],
-): void {
-  reportArray(value.effects, `${path}.effects`, 'V1 does not preserve effects', unsupported);
-  reportArray(value.markers, `${path}.markers`, 'V1 does not preserve markers', unsupported);
-  if (value.enabled === false) {
-    unsupported.push({ path: `${path}.enabled`, schema: schemaName(value, 'Unknown.1'), reason: 'V1 does not preserve disabled state' });
-  }
-  if (value.color !== undefined && value.color !== null) {
-    unsupported.push({ path: `${path}.color`, schema: schemaName(value, 'Unknown.1'), reason: 'V1 does not preserve color labels' });
-  }
+function timeFrames(time: { value: number; rate: number } | undefined, fps: Rational): number {
+  return time ? frames(time.value, time.rate, fps) : 0;
 }
 
+function importMarkers(value: unknown, fps: Rational): Marker[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const raw = (entry ?? {}) as Json;
+    const range = TimeRangeSchema.safeParse(raw.marked_range);
+    return {
+      name: text(raw.name),
+      color: text(raw.color) || 'RED',
+      start: range.success ? Math.max(0, timeFrames(range.data.start_time, fps)) : 0,
+      duration: range.success ? Math.max(0, timeFrames(range.data.duration, fps)) : 0,
+      comment: text(raw.comment),
+      extras: extrasOf(raw, MARKER_FIELDS),
+    };
+  });
+}
+
+function importEffects(value: unknown): Effect[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const raw = (entry ?? {}) as Json;
+    return {
+      name: text(raw.name),
+      schema: schemaName(raw, 'Effect.1'),
+      parameters: extrasOf(raw, ['OTIO_SCHEMA', 'name']),
+    };
+  });
+}
+
+function importDecorations(raw: Json, fps: Rational, modelled: string[]) {
+  return {
+    enabled: raw.enabled !== false,
+    markers: importMarkers(raw.markers, fps),
+    effects: importEffects(raw.effects),
+    extras: {
+      ...extrasOf(raw, modelled),
+      ...(foreignMetadata(raw.metadata as OtioMetadata | undefined) ? { metadata: foreignMetadata(raw.metadata as OtioMetadata | undefined) as Extras[string] } : {}),
+    },
+  };
+}
+
+/** Pick the rate the timeline itself declares, falling back to what its items use. */
 function getRate(timeline: z.infer<typeof TimelineInputSchema>): Rational {
+  if (timeline.global_start_time?.rate) return rateToRational(timeline.global_start_time.rate);
+  const counts = new Map<number, number>();
   for (const track of timeline.tracks.children) {
     for (const item of track.children) {
-      const rate = item.source_range?.duration.rate ?? item.media_reference?.available_range?.duration.rate;
-      if (rate) return rateToRational(rate);
+      const rate = item.source_range?.duration.rate
+        ?? mediaReference(item)?.available_range?.duration.rate;
+      if (rate) counts.set(rate, (counts.get(rate) ?? 0) + 1);
     }
   }
-  return { numerator: 24, denominator: 1 };
-}
-
-function frames(value: number, fromRate: number, fps: Rational): number {
-  return Math.round((value / fromRate) * rationalToRate(fps));
+  const best = [...counts.entries()].sort((left, right) => right[1] - left[1] || right[0] - left[0])[0];
+  return best ? rateToRational(best[0]) : { numerator: 24, denominator: 1 };
 }
 
 export function importOtio(input: string | unknown): OtioImportResult {
@@ -154,9 +228,10 @@ export function importOtio(input: string | unknown): OtioImportResult {
     throw new Error(`Expected an OTIO Timeline, received ${timeline.OTIO_SCHEMA}`);
   }
 
-  const name = timeline.name?.normalize('NFC') || 'Imported Timeline';
+  const name = text(timeline.name) || 'Imported Timeline';
   const fps = getRate(timeline);
   const projectId = metadataId(timeline.metadata, `otio:${name}:project`);
+  const stack = timeline.tracks as unknown as Json;
   const sequenceMeta = videogitMetadata(timeline.tracks.metadata);
   const sequenceId = typeof sequenceMeta.id === 'string' && z.string().uuid().safeParse(sequenceMeta.id).success
     ? sequenceMeta.id
@@ -165,45 +240,22 @@ export function importOtio(input: string | unknown): OtioImportResult {
   const assetsByFingerprint = new Map<string, Asset>();
   const clips: Clip[] = [];
   const gaps: Gap[] = [];
+  const transitions: Transition[] = [];
   const captions: Caption[] = [];
   const unsupported: UnsupportedContent[] = [];
   const mediaLinks: Record<string, string> = {};
 
-  reportDecorations(timeline, 'timeline', unsupported);
-  reportDecorations(timeline.tracks, 'tracks', unsupported);
-  if (timeline.global_start_time !== undefined && timeline.global_start_time !== null) {
-    unsupported.push({
-      path: 'global_start_time',
-      schema: schemaName(timeline.global_start_time, 'RationalTime.1'),
-      reason: 'V1 timelines always begin at frame zero',
-    });
-  }
-  if (timeline.tracks.source_range !== undefined && timeline.tracks.source_range !== null) {
-    unsupported.push({
-      path: 'tracks.source_range',
-      schema: schemaName(timeline.tracks.source_range, 'TimeRange.1'),
-      reason: 'V1 does not preserve stack source ranges',
-    });
-  }
-
   timeline.tracks.children.forEach((trackInput, trackIndex) => {
     const trackPath = `tracks[${trackIndex}]`;
-    reportDecorations(trackInput, trackPath, unsupported);
     if (!trackInput.OTIO_SCHEMA.startsWith('Track.')) {
       unsupported.push({ path: trackPath, schema: trackInput.OTIO_SCHEMA, reason: 'Only OTIO Track objects are supported' });
       return;
     }
-    if (trackInput.source_range !== undefined && trackInput.source_range !== null) {
-      unsupported.push({
-        path: `${trackPath}.source_range`,
-        schema: schemaName(trackInput.source_range, 'TimeRange.1'),
-        reason: 'V1 does not preserve track source ranges',
-      });
-    }
     const trackMeta = videogitMetadata(trackInput.metadata);
     const declaredKind = trackMeta.kind;
     const inputKind = trackInput.kind?.toLowerCase();
-    if (declaredKind !== 'caption' && inputKind !== undefined && inputKind !== 'audio' && inputKind !== 'video') {
+    if (declaredKind !== 'caption' && inputKind !== undefined && inputKind !== null
+      && inputKind !== 'audio' && inputKind !== 'video') {
       unsupported.push({ path: `${trackPath}.kind`, schema: trackInput.OTIO_SCHEMA, reason: `Unsupported track kind ${trackInput.kind}` });
     }
     const kind: Track['kind'] = declaredKind === 'caption'
@@ -214,28 +266,52 @@ export function importOtio(input: string | unknown): OtioImportResult {
 
     trackInput.children.forEach((item, itemIndex) => {
       const itemPath = `${trackPath}.children[${itemIndex}]`;
-      reportDecorations(item, itemPath, unsupported);
+      const itemRaw = item as unknown as Json;
       const seed = `${trackId}:item:${itemIndex}:${item.name ?? ''}`;
       const itemId = metadataId(item.metadata, seed);
       const schema = item.OTIO_SCHEMA;
       const range = item.source_range;
+
+      if (schema.startsWith('Transition.')) {
+        const inOffset = RationalTimeSchema.safeParse(itemRaw.in_offset);
+        const outOffset = RationalTimeSchema.safeParse(itemRaw.out_offset);
+        transitions.push({
+          id: itemId,
+          type: 'transition',
+          trackId,
+          name: text(item.name) || 'Transition',
+          transitionType: text(itemRaw.transition_type) || 'Custom',
+          inOffsetFrames: inOffset.success ? Math.max(0, timeFrames(inOffset.data, fps)) : 0,
+          outOffsetFrames: outOffset.success ? Math.max(0, timeFrames(outOffset.data, fps)) : 0,
+          ...importDecorations(itemRaw, fps, TRANSITION_FIELDS),
+        });
+        itemIds.push(itemId);
+        return;
+      }
 
       if (schema.startsWith('Gap.')) {
         if (!range) {
           unsupported.push({ path: itemPath, schema, reason: 'Gap has no source range' });
           return;
         }
-        gaps.push({ id: itemId, type: 'gap', trackId, durationFrames: Math.max(1, frames(range.duration.value, range.duration.rate, fps)) });
+        gaps.push({
+          id: itemId,
+          type: 'gap',
+          trackId,
+          durationFrames: Math.max(1, frames(range.duration.value, range.duration.rate, fps)),
+          ...importDecorations(itemRaw, fps, ITEM_FIELDS),
+        });
         itemIds.push(itemId);
         return;
       }
 
       if (!schema.startsWith('Clip.')) {
-        unsupported.push({ path: itemPath, schema, reason: 'V1 supports Clip and Gap items only' });
+        unsupported.push({ path: itemPath, schema, reason: 'V1 supports Clip, Gap, and Transition items only' });
         return;
       }
 
       const itemMeta = videogitMetadata(item.metadata);
+      const decoration = importDecorations(itemRaw, fps, ITEM_FIELDS);
       if (itemMeta.kind === 'caption') {
         if (!range) {
           unsupported.push({ path: itemPath, schema, reason: 'Caption has no range' });
@@ -245,12 +321,13 @@ export function importOtio(input: string | unknown): OtioImportResult {
           id: itemId,
           type: 'caption',
           trackId,
-          text: typeof itemMeta.text === 'string' ? itemMeta.text.normalize('NFC') : item.name ?? '',
+          text: typeof itemMeta.text === 'string' ? itemMeta.text.normalize('NFC') : text(item.name),
           range: {
             start: Math.max(0, frames(range.start_time.value, range.start_time.rate, fps)),
             duration: Math.max(1, frames(range.duration.value, range.duration.rate, fps)),
           },
           style: itemMeta.style === 'title' || itemMeta.style === 'subtitle' ? itemMeta.style : 'default',
+          ...decoration,
         });
         itemIds.push(itemId);
         return;
@@ -287,32 +364,38 @@ export function importOtio(input: string | unknown): OtioImportResult {
           )
           : 1,
       );
+      // A media reference names the file; the URL basename is only a fallback.
+      const assetName = text(media?.name as string | undefined) || basename(targetUrl).normalize('NFC');
       let asset = assetsByFingerprint.get(fingerprint);
       if (!asset) {
         asset = {
           id: typeof itemMeta.assetId === 'string' && z.string().uuid().safeParse(itemMeta.assetId).success
             ? itemMeta.assetId
             : deterministicUuid(`asset:${fingerprint}`),
-          name: basename(targetUrl).normalize('NFC'),
+          name: assetName || 'external-media',
           fingerprint,
           durationFrames: Math.max(1, duration),
+          extras: extrasOf(media as Json | undefined, MEDIA_FIELDS),
         };
         assetsByFingerprint.set(fingerprint, asset);
       } else if (duration > asset.durationFrames) {
         asset.durationFrames = duration;
       }
+      const resolvedAsset = asset;
       clips.push({
         id: itemId,
         type: 'clip',
         trackId,
-        name: (item.name || asset.name).normalize('NFC'),
-        assetId: asset.id,
+        name: text(item.name) || resolvedAsset.name,
+        assetId: resolvedAsset.id,
         sourceRange: {
           start: Math.max(0, frames(range.start_time.value, range.start_time.rate, fps)),
           duration: Math.max(1, frames(range.duration.value, range.duration.rate, fps)),
         },
         gainDb: typeof itemMeta.gainDb === 'number' ? itemMeta.gainDb : 0,
         preset: itemMeta.preset === 'warm' || itemMeta.preset === 'cool' || itemMeta.preset === 'mono' ? itemMeta.preset : 'none',
+        color: typeof itemRaw.color === 'string' ? itemRaw.color.normalize('NFC') : null,
+        ...decoration,
       });
       itemIds.push(itemId);
     });
@@ -320,12 +403,14 @@ export function importOtio(input: string | unknown): OtioImportResult {
     tracks.push({
       id: trackId,
       sequenceId,
-      name: (trackInput.name || `${kind.toUpperCase()} ${trackIndex + 1}`).normalize('NFC'),
+      name: text(trackInput.name) || `${kind.toUpperCase()} ${trackIndex + 1}`,
       kind,
       itemIds,
+      ...importDecorations(trackInput as unknown as Json, fps, TRACK_FIELDS),
     });
   });
 
+  const stackDecoration = importDecorations(stack, fps, STACK_FIELDS);
   const project = validateProject({
     schemaVersion: 1,
     id: projectId,
@@ -337,12 +422,17 @@ export function importOtio(input: string | unknown): OtioImportResult {
       width: typeof sequenceMeta.width === 'number' && Number.isInteger(sequenceMeta.width) ? sequenceMeta.width : 1920,
       height: typeof sequenceMeta.height === 'number' && Number.isInteger(sequenceMeta.height) ? sequenceMeta.height : 1080,
       trackIds: tracks.map(({ id }) => id),
+      globalStartFrame: timeFrames(timeline.global_start_time ?? undefined, fps),
+      markers: stackDecoration.markers,
+      extras: { ...stackDecoration.extras, ...(stackDecoration.enabled ? {} : { enabled: false }) },
     }],
     tracks,
     assets: [...assetsByFingerprint.values()],
     clips,
     gaps,
+    transitions,
     captions,
+    extras: extrasOf(raw as Json, TIMELINE_FIELDS),
   });
   return { project, unsupported, mediaLinks };
 }
@@ -359,6 +449,35 @@ function otioRange(start: number, duration: number, rate: number) {
   };
 }
 
+function exportMarkers(markers: Marker[], rate: number): Json[] {
+  return markers.map((marker) => ({
+    OTIO_SCHEMA: 'Marker.2',
+    ...marker.extras,
+    name: marker.name,
+    color: marker.color,
+    marked_range: otioRange(marker.start, marker.duration, rate),
+    comment: marker.comment,
+  }));
+}
+
+function exportEffects(effects: Effect[]): Json[] {
+  return effects.map((effect) => ({
+    OTIO_SCHEMA: effect.schema,
+    ...effect.parameters,
+    name: effect.name,
+  }));
+}
+
+/** Rebuild the fields the model does not name, then the ones it does. */
+function withExtras(extras: Extras, base: Json): Json {
+  const { metadata: foreign, ...rest } = extras;
+  const merged: Json = { ...rest, ...base };
+  if (foreign && typeof foreign === 'object' && !Array.isArray(foreign)) {
+    merged.metadata = { ...(foreign as Json), ...(base.metadata as Json | undefined ?? {}) };
+  }
+  return merged;
+}
+
 export function exportOtio(projectInput: Project, options: OtioExportOptions = {}): string {
   const project = validateProject(projectInput);
   const sequence = project.sequences[0];
@@ -366,35 +485,50 @@ export function exportOtio(projectInput: Project, options: OtioExportOptions = {
   const rate = rationalToRate(sequence.fps);
   const clipById = new Map(project.clips.map((clip) => [clip.id, clip]));
   const gapById = new Map(project.gaps.map((gap) => [gap.id, gap]));
+  const transitionById = new Map(project.transitions.map((transition) => [transition.id, transition]));
   const captionById = new Map(project.captions.map((caption) => [caption.id, caption]));
   const assetById = new Map(project.assets.map((asset) => [asset.id, asset]));
 
   const tracks = sequence.trackIds.map((trackId) => {
     const track = project.tracks.find(({ id }) => id === trackId);
     if (!track) throw new Error(`Missing track ${trackId}`);
-    const children = track.itemIds.map((itemId) => {
+    const children = track.itemIds.map((itemId): Json => {
+      const transition = transitionById.get(itemId);
+      if (transition) {
+        return withExtras(transition.extras, {
+          OTIO_SCHEMA: 'Transition.1',
+          name: transition.name,
+          transition_type: transition.transitionType,
+          in_offset: otioTime(transition.inOffsetFrames, rate),
+          out_offset: otioTime(transition.outOffsetFrames, rate),
+          markers: exportMarkers(transition.markers, rate),
+          effects: exportEffects(transition.effects),
+          enabled: transition.enabled,
+          metadata: { videogit: { id: transition.id } },
+        });
+      }
       const gap = gapById.get(itemId);
       if (gap) {
-        return {
+        return withExtras(gap.extras, {
           OTIO_SCHEMA: 'Gap.1',
           name: 'Gap',
           source_range: otioRange(0, gap.durationFrames, rate),
-          effects: [],
-          markers: [],
-          enabled: true,
+          effects: exportEffects(gap.effects),
+          markers: exportMarkers(gap.markers, rate),
+          enabled: gap.enabled,
           color: null,
           metadata: { videogit: { id: gap.id } },
-        };
+        });
       }
       const caption = captionById.get(itemId);
       if (caption) {
-        return {
+        return withExtras(caption.extras, {
           OTIO_SCHEMA: 'Clip.2',
           name: caption.text,
           source_range: otioRange(caption.range.start, caption.range.duration, rate),
-          effects: [],
-          markers: [],
-          enabled: true,
+          effects: exportEffects(caption.effects),
+          markers: exportMarkers(caption.markers, rate),
+          enabled: caption.enabled,
           color: null,
           media_references: {
             DEFAULT_MEDIA: {
@@ -407,29 +541,28 @@ export function exportOtio(projectInput: Project, options: OtioExportOptions = {
           },
           active_media_reference_key: 'DEFAULT_MEDIA',
           metadata: { videogit: { id: caption.id, kind: 'caption', text: caption.text, style: caption.style } },
-        };
+        });
       }
       const clip = clipById.get(itemId);
       if (!clip) throw new Error(`Missing timeline item ${itemId}`);
       const asset = assetById.get(clip.assetId);
       if (!asset) throw new Error(`Missing asset ${clip.assetId}`);
-      return {
+      return withExtras(clip.extras, {
         OTIO_SCHEMA: 'Clip.2',
         name: clip.name,
         source_range: otioRange(clip.sourceRange.start, clip.sourceRange.duration, rate),
-        effects: [],
-        markers: [],
-        enabled: true,
-        color: null,
+        effects: exportEffects(clip.effects),
+        markers: exportMarkers(clip.markers, rate),
+        enabled: clip.enabled,
+        color: clip.color,
         media_references: {
           DEFAULT_MEDIA: {
+            ...asset.extras,
             OTIO_SCHEMA: 'ExternalReference.1',
             name: asset.name,
             target_url: options.mediaLinks?.[asset.fingerprint]
               ?? `videogit://asset/${asset.fingerprint}/${encodeURIComponent(asset.name)}`,
             available_range: otioRange(0, asset.durationFrames, rate),
-            available_image_bounds: null,
-            metadata: {},
           },
         },
         active_media_reference_key: 'DEFAULT_MEDIA',
@@ -442,35 +575,36 @@ export function exportOtio(projectInput: Project, options: OtioExportOptions = {
             preset: clip.preset,
           },
         },
-      };
+      });
     });
-    return {
+    return withExtras(track.extras, {
       OTIO_SCHEMA: 'Track.1',
       name: track.name,
       kind: track.kind === 'audio' ? 'Audio' : 'Video',
       children,
       source_range: null,
-      effects: [],
-      markers: [],
-      enabled: true,
+      effects: exportEffects(track.effects),
+      markers: exportMarkers(track.markers, rate),
+      enabled: track.enabled,
       color: null,
       metadata: { videogit: { id: track.id, kind: track.kind } },
-    };
+    });
   });
 
-  return `${JSON.stringify({
+  const timeline = withExtras(project.extras, {
     OTIO_SCHEMA: 'Timeline.1',
     name: project.name,
-    global_start_time: null,
-    tracks: {
+    global_start_time: sequence.globalStartFrame === 0
+      ? null
+      : otioTime(sequence.globalStartFrame, rate),
+    tracks: withExtras(sequence.extras, {
       OTIO_SCHEMA: 'Stack.1',
       name: 'tracks',
       children: tracks,
       source_range: null,
       effects: [],
-      markers: [],
+      markers: exportMarkers(sequence.markers, rate),
       enabled: true,
-      color: null,
       metadata: {
         videogit: {
           id: sequence.id,
@@ -479,7 +613,9 @@ export function exportOtio(projectInput: Project, options: OtioExportOptions = {
           height: sequence.height,
         },
       },
-    },
-    metadata: { videogit: { id: project.id, schemaVersion: 1 } },
-  }, null, 2)}\n`;
+    }),
+    metadata: { videogit: { id: project.id } },
+  });
+
+  return `${JSON.stringify(timeline, null, 2)}\n`;
 }

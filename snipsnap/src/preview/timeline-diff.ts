@@ -3,7 +3,23 @@ import type { PreviewPlan, PreviewSegment, PreviewTrack } from './preview-plan';
 export type TimelineChange = 'unchanged' | 'added' | 'removed' | 'modified';
 
 /** Every way a surviving timeline item can differ between two commits. */
-export type TimelineChangeField = 'trim' | 'position' | 'footage' | 'gain' | 'look' | 'name' | 'text';
+export type TimelineChangeField =
+  | 'trim' | 'position' | 'footage' | 'gain' | 'look' | 'name' | 'text'
+  | 'enabled' | 'markers' | 'effects' | 'settings';
+
+/**
+ * A slice of one item's content. A trimmed clip becomes a kept part plus the
+ * frames the trim dropped, so the lane shows exactly what left the cut.
+ */
+export type TimelinePartChange = 'kept' | 'added' | 'removed';
+
+export interface TimelineDiffPart {
+  change: TimelinePartChange;
+  laneStart: number;
+  laneDuration: number;
+  /** Where these frames sit inside the source media. */
+  contentStart: number;
+}
 
 export interface TimelineSegmentState {
   timelineStart: number;
@@ -17,7 +33,7 @@ export interface TimelineSegmentState {
 
 export interface TimelineDiffSegment {
   id: string;
-  kind: 'clip' | 'gap' | 'caption';
+  kind: 'clip' | 'gap' | 'caption' | 'transition';
   name: string;
   change: TimelineChange;
   changedFields: TimelineChangeField[];
@@ -26,6 +42,10 @@ export interface TimelineDiffSegment {
   /** Placement inside the merged comparison lane, which holds items from both commits. */
   laneStart: number;
   laneDuration: number;
+  /** The item split into kept, added, and removed frames. */
+  parts: TimelineDiffPart[];
+  addedFrames: number;
+  removedFrames: number;
   available: boolean;
   before?: TimelineSegmentState;
   after?: TimelineSegmentState;
@@ -36,6 +56,9 @@ export interface TimelineDiffCounts {
   removed: number;
   modified: number;
   unchanged: number;
+  /** Frames of footage that only one of the two commits holds. */
+  addedFrames: number;
+  removedFrames: number;
 }
 
 export interface TimelineDiffTrack {
@@ -78,7 +101,69 @@ function changedFields(before: PreviewSegment, after: PreviewSegment): TimelineC
   if (before.preset !== after.preset) fields.push('look');
   if (before.name !== after.name) fields.push('name');
   if (before.text !== after.text) fields.push('text');
+  if (before.enabled !== after.enabled) fields.push('enabled');
+  if (before.markerCount !== after.markerCount) fields.push('markers');
+  if (before.effectCount !== after.effectCount) fields.push('effects');
   return fields;
+}
+
+/**
+ * The interval an item covers in its own content space. For a clip that is the
+ * range of source media it uses; for a caption it is where it sits in the
+ * sequence; for a gap or transition it is simply its length.
+ */
+function contentInterval(segment: PreviewSegment): { start: number; end: number } {
+  if (segment.kind === 'clip') {
+    return { start: segment.sourceStart, end: segment.sourceStart + segment.duration };
+  }
+  if (segment.kind === 'caption') {
+    return { start: segment.timelineStart, end: segment.timelineStart + segment.duration };
+  }
+  return { start: 0, end: segment.duration };
+}
+
+/**
+ * Split an item into the frames both commits keep, the frames only the compared
+ * commit has, and the frames only the base commit had.
+ */
+function splitParts(
+  before: PreviewSegment | undefined,
+  after: PreviewSegment | undefined,
+  laneStart: number,
+): { parts: TimelineDiffPart[]; addedFrames: number; removedFrames: number; laneDuration: number } {
+  const baseSpan = before ? contentInterval(before) : null;
+  const headSpan = after ? contentInterval(after) : null;
+  const union = {
+    start: Math.min(baseSpan?.start ?? Number.POSITIVE_INFINITY, headSpan?.start ?? Number.POSITIVE_INFINITY),
+    end: Math.max(baseSpan?.end ?? Number.NEGATIVE_INFINITY, headSpan?.end ?? Number.NEGATIVE_INFINITY),
+  };
+  const boundaries = [...new Set([
+    union.start,
+    union.end,
+    ...(baseSpan ? [baseSpan.start, baseSpan.end] : []),
+    ...(headSpan ? [headSpan.start, headSpan.end] : []),
+  ])].sort((left, right) => left - right);
+
+  const parts: TimelineDiffPart[] = [];
+  let addedFrames = 0;
+  let removedFrames = 0;
+  let cursor = laneStart;
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const start = boundaries[index] as number;
+    const end = boundaries[index + 1] as number;
+    const length = end - start;
+    if (length <= 0) continue;
+    const inBase = baseSpan !== null && start >= baseSpan.start && end <= baseSpan.end;
+    const inHead = headSpan !== null && start >= headSpan.start && end <= headSpan.end;
+    if (!inBase && !inHead) continue;
+    const change: TimelinePartChange = inBase && inHead ? 'kept' : inHead ? 'added' : 'removed';
+    if (change === 'added') addedFrames += length;
+    if (change === 'removed') removedFrames += length;
+    parts.push({ change, laneStart: cursor, laneDuration: length, contentStart: start });
+    cursor += length;
+  }
+
+  return { parts, addedFrames, removedFrames, laneDuration: Math.max(cursor - laneStart, 1) };
 }
 
 /** Longest common subsequence of two identity sequences, used to align surviving items. */
@@ -142,6 +227,8 @@ function tally(segments: TimelineDiffSegment[]): TimelineDiffCounts {
     removed: segments.filter(({ change }) => change === 'removed').length,
     modified: segments.filter(({ change }) => change === 'modified').length,
     unchanged: segments.filter(({ change }) => change === 'unchanged').length,
+    addedFrames: segments.reduce((total, segment) => total + segment.addedFrames, 0),
+    removedFrames: segments.reduce((total, segment) => total + segment.removedFrames, 0),
   };
 }
 
@@ -168,9 +255,9 @@ function diffTrack(
     const change: TimelineChange = !before ? 'added'
       : !after ? 'removed'
         : fields.length > 0 ? 'modified' : 'unchanged';
-    const laneDuration = present.duration;
     const laneStart = absolute ? present.timelineStart : cursor;
-    if (!absolute) cursor += laneDuration;
+    const split = splitParts(before, after, laneStart);
+    if (!absolute) cursor += split.laneDuration;
     return {
       id,
       kind: present.kind,
@@ -179,7 +266,10 @@ function diffTrack(
       changedFields: fields,
       timingChanged: fields.includes('trim') || fields.includes('position'),
       laneStart,
-      laneDuration,
+      laneDuration: split.laneDuration,
+      parts: split.parts,
+      addedFrames: split.addedFrames,
+      removedFrames: split.removedFrames,
       available: present.available,
       ...(before ? { before: state(before) } : {}),
       ...(after ? { after: state(after) } : {}),

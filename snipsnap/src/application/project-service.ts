@@ -45,7 +45,7 @@ const MergeRelationSchema = z.object({
 const MergeConflictSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{64}$/u),
   type: z.enum(['same-field', 'delete-modify', 'order', 'validation']),
-  entityType: z.enum(['project', 'sequence', 'track', 'asset', 'clip', 'gap', 'caption']),
+  entityType: z.enum(['project', 'sequence', 'track', 'asset', 'clip', 'gap', 'transition', 'caption']),
   entityId: z.string().uuid(),
   fieldGroup: z.string().min(1),
   base: z.unknown(),

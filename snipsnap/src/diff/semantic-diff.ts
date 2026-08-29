@@ -1,6 +1,6 @@
 import { cloneProject, digestText, projectDigest, validateProject, type FrameRange, type Project } from '../domain';
 
-export type EntityType = 'project' | 'sequence' | 'track' | 'asset' | 'clip' | 'gap' | 'caption';
+export type EntityType = 'project' | 'sequence' | 'track' | 'asset' | 'clip' | 'gap' | 'transition' | 'caption';
 export type HunkOperation = 'add' | 'delete' | 'modify' | 'reorder';
 
 export interface SemanticHunk {
@@ -27,17 +27,47 @@ const collectionKeys: Record<CollectionKey, keyof Project> = {
   asset: 'assets',
   clip: 'clips',
   gap: 'gaps',
+  transition: 'transitions',
   caption: 'captions',
 };
 
+/** Everything the editor can change, so nothing moves without a hunk. */
+const decorationGroups = [['enabled'], ['markers'], ['effects'], ['extras']];
 const fieldGroups: Record<CollectionKey, string[][]> = {
-  sequence: [['name'], ['fps'], ['width', 'height'], ['trackIds']],
-  track: [['name'], ['kind'], ['itemIds']],
-  asset: [['name'], ['fingerprint'], ['durationFrames']],
-  clip: [['name'], ['assetId'], ['sourceRange'], ['gainDb'], ['preset'], ['trackId']],
-  gap: [['durationFrames'], ['trackId']],
-  caption: [['text'], ['range'], ['style'], ['trackId']],
+  sequence: [['name'], ['fps'], ['width', 'height'], ['trackIds'], ['globalStartFrame'], ['markers'], ['extras']],
+  track: [['name'], ['kind'], ['itemIds'], ...decorationGroups],
+  asset: [['name'], ['fingerprint'], ['durationFrames'], ['extras']],
+  clip: [['name'], ['assetId'], ['sourceRange'], ['gainDb'], ['preset'], ['trackId'], ['color'], ...decorationGroups],
+  gap: [['durationFrames'], ['trackId'], ...decorationGroups],
+  transition: [['name'], ['transitionType'], ['inOffsetFrames'], ['outOffsetFrames'], ['trackId'], ...decorationGroups],
+  caption: [['text'], ['range'], ['style'], ['trackId'], ...decorationGroups],
 };
+
+const fieldLabels: Record<string, string> = {
+  enabled: 'enabled state',
+  markers: 'markers',
+  effects: 'effects',
+  extras: 'editor settings',
+  color: 'colour label',
+  globalStartFrame: 'timeline start',
+  transitionType: 'transition type',
+  inOffsetFrames: 'incoming handle',
+  outOffsetFrames: 'outgoing handle',
+  gainDb: 'level',
+  preset: 'look',
+  fps: 'frame rate',
+  assetId: 'source footage',
+  fingerprint: 'media identity',
+  durationFrames: 'duration',
+};
+
+function countChange(before: unknown, after: unknown): string {
+  const beforeLength = Array.isArray(before) ? before.length : 0;
+  const afterLength = Array.isArray(after) ? after.length : 0;
+  if (afterLength > beforeLength) return `added ${afterLength - beforeLength}`;
+  if (afterLength < beforeLength) return `removed ${beforeLength - afterLength}`;
+  return 'changed';
+}
 
 function stableValue(value: unknown): string {
   if (value === undefined) return 'undefined';
@@ -65,7 +95,7 @@ function relation(project: Project, type: CollectionKey, id: string): Record<str
     const sequence = project.sequences.find((candidate) => candidate.id === track?.sequenceId);
     if (sequence) return { parentId: sequence.id, orderIndex: sequence.trackIds.indexOf(id) };
   }
-  if (type === 'clip' || type === 'gap' || type === 'caption') {
+  if (type === 'clip' || type === 'gap' || type === 'transition' || type === 'caption') {
     const items = project[collectionKeys[type]] as unknown as Array<Entity & { trackId: string }>;
     const item = items.find((candidate) => candidate.id === id);
     if (item && 'trackId' in item) {
@@ -76,7 +106,14 @@ function relation(project: Project, type: CollectionKey, id: string): Record<str
   return {};
 }
 
-function describe(type: CollectionKey, operation: HunkOperation, entity: Entity, fields: string[]): string {
+function describe(
+  type: CollectionKey,
+  operation: HunkOperation,
+  entity: Entity,
+  fields: string[],
+  before?: unknown,
+  after?: unknown,
+): string {
   const label = typeof entity.name === 'string'
     ? entity.name
     : typeof entity.text === 'string' ? `“${entity.text.slice(0, 32)}”` : entity.id.slice(0, 8);
@@ -86,7 +123,12 @@ function describe(type: CollectionKey, operation: HunkOperation, entity: Entity,
   if (type === 'clip' && fields.includes('sourceRange')) return `Trimmed clip ${label}`;
   if (type === 'caption' && fields.includes('range')) return `Retimed caption ${label}`;
   if (type === 'caption' && fields.includes('text')) return `Changed caption text ${label}`;
-  return `Changed ${type} ${label}: ${fields.join(' + ')}`;
+  if (fields.includes('markers')) return `${countChange(before, after)} markers on ${type} ${label}`;
+  if (fields.includes('effects')) return `${countChange(before, after)} effects on ${type} ${label}`;
+  if (fields.includes('enabled')) return `${after === true ? 'Enabled' : 'Disabled'} ${type} ${label}`;
+  if (fields.includes('extras')) return `Changed editor settings on ${type} ${label}`;
+  const readable = fields.map((field) => fieldLabels[field] ?? field).join(' + ');
+  return `Changed ${type} ${label}: ${readable}`;
 }
 
 function rangeFor(type: CollectionKey, entity: Entity): FrameRange | undefined {
@@ -124,6 +166,18 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
       before: base.name,
       after: candidate.name,
       message: `Renamed project ${base.name} to ${candidate.name}`,
+    }));
+  }
+  if (!same(base.extras, candidate.extras)) {
+    hunks.push(createHunk({
+      baseDigest,
+      entityType: 'project',
+      entityId: base.id,
+      operation: 'modify',
+      fieldGroup: 'extras',
+      before: base.extras,
+      after: candidate.extras,
+      message: 'Changed timeline-wide editor settings',
     }));
   }
 
@@ -175,9 +229,9 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
         if ((type === 'track' && fields[0] === 'itemIds') || (type === 'sequence' && fields[0] === 'trackIds')) {
           const commonIds = type === 'track'
             ? new Set([
-              ...base.clips, ...base.gaps, ...base.captions,
+              ...base.clips, ...base.gaps, ...base.transitions, ...base.captions,
             ].map(({ id }) => id).filter((id) => [
-              ...candidate.clips, ...candidate.gaps, ...candidate.captions,
+              ...candidate.clips, ...candidate.gaps, ...candidate.transitions, ...candidate.captions,
             ].some((item) => item.id === id)))
             : new Set(base.tracks.map(({ id }) => id).filter((id) => candidate.tracks.some((track) => track.id === id)));
           const beforeOrder = (groupValue(before, fields) as string[]).filter((id) => commonIds.has(id));
@@ -208,7 +262,7 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
             fieldGroup: fields.join('+'),
             before: beforeValue,
             after: afterValue,
-            message: describe(type, 'modify', entity, fields),
+            message: describe(type, 'modify', entity, fields, beforeValue, afterValue),
             ...(affected === undefined ? {} : { affectedFrameRange: affected }),
           }));
         }
@@ -225,7 +279,8 @@ function collection(project: Project, type: CollectionKey): Entity[] {
 
 function applyHunk(project: Project, hunk: SemanticHunk): void {
   if (hunk.entityType === 'project') {
-    project.name = String(hunk.after);
+    if (hunk.fieldGroup === 'extras') project.extras = hunk.after as Project['extras'];
+    else project.name = String(hunk.after);
     return;
   }
   const values = collection(project, hunk.entityType);
@@ -235,7 +290,8 @@ function applyHunk(project: Project, hunk: SemanticHunk): void {
     if (hunk.entityType === 'track' && hunk.parentId) {
       const sequence = project.sequences.find(({ id }) => id === hunk.parentId);
       sequence?.trackIds.splice(hunk.orderIndex ?? sequence.trackIds.length, 0, hunk.entityId);
-    } else if ((hunk.entityType === 'clip' || hunk.entityType === 'gap' || hunk.entityType === 'caption') && hunk.parentId) {
+    } else if ((hunk.entityType === 'clip' || hunk.entityType === 'gap'
+      || hunk.entityType === 'transition' || hunk.entityType === 'caption') && hunk.parentId) {
       const track = project.tracks.find(({ id }) => id === hunk.parentId);
       track?.itemIds.splice(hunk.orderIndex ?? track.itemIds.length, 0, hunk.entityId);
     }
