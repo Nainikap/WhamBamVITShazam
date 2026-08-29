@@ -26,7 +26,7 @@ interface Workspace {
   working: Project;
 }
 
-interface MergeSession {
+export interface MergeSession {
   id: string;
   projectId: string;
   targetBranch: string;
