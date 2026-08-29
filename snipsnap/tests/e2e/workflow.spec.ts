@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ProjectService } from '../../src/application';
 
-let application: ElectronApplication;
+let application: ElectronApplication | undefined;
 let page: Page;
 let dataRoot: string;
 let sourcePath: string;
@@ -20,7 +20,7 @@ test.beforeEach(async () => {
   await writeFile(sourcePath, fixture);
   await new ProjectService(dataRoot).importOtio(fixture, sourcePath);
   application = await electron.launch({
-    args: [path.resolve('.')],
+    args: [path.resolve('out', 'SnipSnap-win32-x64', 'resources', 'app.asar')],
     env: { ...process.env, SNIPSNAP_DATA_ROOT: dataRoot },
   });
   page = await application.firstWindow();
@@ -29,7 +29,8 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-  await application.close();
+  if (application) await application.close();
+  application = undefined;
   await rm(dataRoot, { recursive: true, force: true });
 });
 

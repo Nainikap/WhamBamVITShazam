@@ -12,6 +12,9 @@ if (started) app.quit();
 protocol.registerSchemesAsPrivileged([{
   scheme: 'snipsnap-media',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+}, {
+  scheme: 'snipsnap-app',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 
 const dataRoot = process.env.SNIPSNAP_DATA_ROOT || path.join(app.getPath('userData'), 'v1-data');
@@ -40,6 +43,37 @@ function registerMediaProtocol(): void {
       return net.fetch(pathToFileURL(mediaPath).href, { headers: request.headers });
     } catch {
       return new Response('Media unavailable', { status: 404 });
+    }
+  });
+}
+
+function rendererContentType(filePath: string): string {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.html') return 'text/html; charset=utf-8';
+  if (extension === '.js') return 'text/javascript; charset=utf-8';
+  if (extension === '.css') return 'text/css; charset=utf-8';
+  if (extension === '.svg') return 'image/svg+xml';
+  if (extension === '.png') return 'image/png';
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  return 'application/octet-stream';
+}
+
+function registerApplicationProtocol(): void {
+  const rendererRoot = path.resolve(app.getAppPath(), '.vite', 'renderer', MAIN_WINDOW_VITE_NAME);
+  protocol.handle('snipsnap-app', async (request) => {
+    try {
+      const url = new URL(request.url);
+      if (url.hostname !== 'app') return new Response('Not found', { status: 404 });
+      const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
+      if (relative.split('/').includes('..')) return new Response('Not found', { status: 404 });
+      const filePath = path.resolve(rendererRoot, ...relative.split('/'));
+      if (filePath !== rendererRoot && !filePath.startsWith(`${rendererRoot}${path.sep}`)) {
+        return new Response('Not found', { status: 404 });
+      }
+      const contents = await readFile(filePath);
+      return new Response(new Uint8Array(contents), { headers: { 'Content-Type': rendererContentType(filePath) } });
+    } catch {
+      return new Response('Not found', { status: 404 });
     }
   });
 }
@@ -132,17 +166,22 @@ function createWindow(): void {
   });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  window.webContents.on('will-navigate', (event, navigationUrl) => {
-    const currentUrl = window.webContents.getURL();
-    if (currentUrl && navigationUrl !== currentUrl) event.preventDefault();
+  window.webContents.once('did-finish-load', () => {
+    const applicationUrl = window.webContents.getURL();
+    window.webContents.on('will-navigate', (event, navigationUrl) => {
+      if (navigationUrl !== applicationUrl) event.preventDefault();
+    });
   });
 
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) void window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
-  else void window.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
+  const load = window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL || 'snipsnap-app://app/index.html');
+  void load.catch((error: unknown) => {
+    dialog.showErrorBox('SnipSnap renderer failed to load', error instanceof Error ? error.message : String(error));
+  });
 }
 
 app.whenReady().then(() => {
   registerMediaProtocol();
+  registerApplicationProtocol();
   registerIpc();
   void restoreSourceWatchers();
   createWindow();
