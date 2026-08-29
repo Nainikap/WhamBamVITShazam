@@ -1,8 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron';
 import path from 'node:path';
-import { createReadStream } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { createReadStream, existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
+import { promisify } from 'node:util';
 import started from 'electron-squirrel-startup';
 import { ProjectService, SourceWatchService, atomicWriteText } from './application';
 import { channels } from './ipc';
@@ -16,6 +18,8 @@ protocol.registerSchemesAsPrivileged([{
   scheme: 'snipsnap-app',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
+
+const runFile = promisify(execFile);
 
 const dataRoot = process.env.SNIPSNAP_DATA_ROOT || path.join(app.getPath('userData'), 'v1-data');
 const projects = new ProjectService(dataRoot);
@@ -137,6 +141,16 @@ function registerApplicationProtocol(): void {
   });
 }
 
+/** The export script ships beside the app, not inside its asar. */
+function resolveScriptPath(): string {
+  const candidates = [
+    path.join(process.resourcesPath ?? '', 'resolve', 'SnipSnapSync.py'),
+    path.resolve(app.getAppPath(), '..', 'resolve', 'SnipSnapSync.py'),
+    path.resolve(app.getAppPath(), '..', '..', 'resolve', 'SnipSnapSync.py'),
+  ];
+  return candidates.find((candidate) => candidate && existsSync(candidate)) ?? candidates[0] ?? '';
+}
+
 function registerIpc(): void {
   ipcMain.handle(channels.listProjects, () => projects.listProjects());
   ipcMain.handle(channels.listOverviews, () => projects.listProjectOverviews());
@@ -147,6 +161,33 @@ function registerIpc(): void {
     return status;
   });
   ipcMain.handle(channels.resolveRoots, () => projects.resolveRoots());
+  ipcMain.handle(channels.addResolveProjectFile, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Choose a DaVinci Resolve project file',
+      message: 'Pick a .drp file. SnipSnap watches the folder it sits in.',
+      properties: ['openFile'],
+      filters: [{ name: 'DaVinci Resolve project', extensions: ['drp'] }],
+    });
+    const projectFile = selection.filePaths[0];
+    if (selection.canceled || !projectFile) return null;
+    return projects.addResolveProjectFile(projectFile);
+  });
+  ipcMain.handle(channels.exportFromResolve, async () => {
+    const script = resolveScriptPath();
+    try {
+      const { stdout } = await runFile('python3', [script, '--all'], { timeout: 120_000 });
+      const summary = stdout.trim().split('\n').filter(Boolean).at(-2) ?? 'Export finished.';
+      return { ok: !stdout.includes('0 project(s)'), message: summary };
+    } catch (error) {
+      const output = error instanceof Error && 'stdout' in error ? String((error as { stdout: unknown }).stdout) : '';
+      const reason = output.includes('Could not reach DaVinci Resolve')
+        ? 'DaVinci Resolve is not answering. Open it and set Preferences \u203a System \u203a General \u203a '
+          + 'External scripting using to Local. The Mac App Store build blocks scripting entirely \u2014 with '
+          + 'that one, use File \u203a Export \u203a Timeline and save an .otio beside the project instead.'
+        : (error instanceof Error ? error.message : String(error));
+      return { ok: false, message: reason };
+    }
+  });
   ipcMain.handle(channels.addResolveFolder, async () => {
     const selection = await dialog.showOpenDialog({
       title: 'Choose a folder holding Resolve project exports',

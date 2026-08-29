@@ -198,6 +198,8 @@ small { color: var(--muted); font-size: 11px; }
 .state-uncommitted { color: var(--modified); background: var(--modified-soft); }
 .state-resolve-pending { color: var(--added); background: var(--added-soft); }
 .state-new { color: var(--edited); background: var(--edited-soft); }
+.state-blocked { color: var(--modified); background: var(--modified-soft); }
+.db-chip { color: #d5b3ff !important; border-color: #3d3160 !important; background: #241d38 !important; }
 .timeline-chip { color: #b7c1d2 !important; }
 
 .section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }

@@ -10,6 +10,8 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    // The Resolve export script is run as a real process, so it cannot live in the asar.
+    extraResource: ['../resolve'],
   },
   rebuildConfig: {},
   makers: [

@@ -12,6 +12,7 @@ describe('V1 project workflow', () => {
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-app-'));
+    process.env.SNIPSNAP_RESOLVE_DATABASE = path.join(root, 'no-resolve-database');
     service = new ProjectService(root);
   });
 

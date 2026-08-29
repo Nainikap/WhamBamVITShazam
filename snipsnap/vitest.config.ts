@@ -1,7 +1,6 @@
 export default {
   test: {
-    include: ['tests/**/*.integration.test.ts'],
-    testTimeout: 15_000,
+    exclude: ['**/node_modules/**', '**/*.integration.test.ts', 'tests/e2e/**'],
     server: { deps: { external: [/node:sqlite/] } },
   },
   ssr: { external: ['node:sqlite'] },

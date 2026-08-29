@@ -16,6 +16,8 @@ export const channels = {
   listOverviews: 'projects:overviews',
   openProject: 'projects:open',
   addResolveFolder: 'resolve:add-folder',
+  addResolveProjectFile: 'resolve:add-project-file',
+  exportFromResolve: 'resolve:export',
   resolveRoots: 'resolve:roots',
   status: 'projects:status',
   connectOtioSource: 'source:connect-otio',
@@ -47,6 +49,8 @@ export interface SnipSnapApi {
   listOverviews(): Promise<ProjectOverview[]>;
   openProject(projectId: string): Promise<ProjectStatus>;
   addResolveFolder(): Promise<string[] | null>;
+  addResolveProjectFile(): Promise<string[] | null>;
+  exportFromResolve(): Promise<{ ok: boolean; message: string }>;
   resolveRoots(): Promise<string[]>;
   status(projectId: string): Promise<ProjectStatus>;
   connectOtioSource(projectId: string, expectedVersion: number): Promise<SourceScanResult | null>;

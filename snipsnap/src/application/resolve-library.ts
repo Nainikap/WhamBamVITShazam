@@ -1,4 +1,5 @@
-import { access, readdir, readFile, stat } from 'node:fs/promises';
+import { access, copyFile, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
@@ -40,22 +41,68 @@ export interface ResolveTimelineRef {
   isCurrent: boolean;
 }
 
-/** A Resolve project SnipSnap can actually open: a .drp with at least one .otio. */
+export type ResolveProjectKind = 'export' | 'database';
+
+/**
+ * A Resolve project SnipSnap knows about. It is openable once a timeline
+ * export sits beside it; until then it is listed with `activeTimeline` null so
+ * the editor can still see that Resolve has the project.
+ */
 export interface ResolveProjectRef {
   id: string;
   name: string;
+  /** Empty for a project that lives only in Resolve's own database. */
   drpPath: string;
   folder: string;
+  kind: ResolveProjectKind;
   timelines: ResolveTimelineRef[];
-  activeTimeline: ResolveTimelineRef;
+  activeTimeline: ResolveTimelineRef | null;
   updatedAt: string;
-  discoveredVia: 'manifest' | 'scan';
+  discoveredVia: 'manifest' | 'scan' | 'database';
+  /** Timeline names Resolve knows about, even when none has been exported. */
+  knownTimelines?: string[];
   settings?: { fps?: number | undefined; width?: number | undefined; height?: number | undefined };
 }
 
 export function defaultResolveRoot(): string {
   return process.env.SNIPSNAP_RESOLVE_ROOT
     ?? path.join(os.homedir(), 'Library', 'Application Support', 'SnipSnap', 'resolve');
+}
+
+const PROJECT_LIBRARY_TAILS = [
+  ['Resolve Project Library', 'Resolve Projects', 'Users', 'guest', 'Projects'],
+  ['Resolve Disk Database', 'Resolve Projects', 'Users', 'guest', 'Projects'],
+];
+
+/**
+ * Where Resolve keeps its own project database. The App Store build is
+ * sandboxed, so its library sits inside a container rather than the usual
+ * Application Support folder.
+ */
+export function resolveDatabaseRoots(): string[] {
+  if (process.env.SNIPSNAP_RESOLVE_DATABASE) {
+    return process.env.SNIPSNAP_RESOLVE_DATABASE.split(path.delimiter).filter(Boolean);
+  }
+  const home = os.homedir();
+  const bases = [
+    path.join(home, 'Library', 'Application Support'),
+    path.join(home, 'Library', 'Application Support', 'Blackmagic Design', 'DaVinci Resolve'),
+    path.join(home, 'Library', 'Containers', 'com.blackmagic-design.DaVinciResolveLite', 'Data', 'Library', 'Application Support'),
+    path.join(home, 'Library', 'Containers', 'com.blackmagic-design.DaVinciResolve', 'Data', 'Library', 'Application Support'),
+    path.join(home, 'Movies', 'DaVinci Resolve'),
+  ];
+  return bases.flatMap((base) => PROJECT_LIBRARY_TAILS.map((tail) => path.join(base, ...tail)));
+}
+
+/** Folders a .drp is likely to be sitting in, so the list is never empty. */
+export function commonExportRoots(): string[] {
+  if (process.env.SNIPSNAP_RESOLVE_SCAN) return process.env.SNIPSNAP_RESOLVE_SCAN.split(path.delimiter).filter(Boolean);
+  const home = os.homedir();
+  return ['Documents', 'Desktop', 'Movies', 'Downloads'].map((folder) => path.join(home, folder));
+}
+
+export function resolveDatabaseProjectId(folder: string): string {
+  return deterministicUuid(`resolve-database-project:${path.resolve(folder)}`);
 }
 
 /** One SnipSnap project per Resolve project file, stable across re-exports. */
@@ -89,26 +136,129 @@ function toRef(
   timelines: DiscoveredTimeline[],
   discoveredVia: ResolveProjectRef['discoveredVia'],
   settings?: ResolveProjectRef['settings'],
-): ResolveProjectRef | null {
-  if (timelines.length === 0) return null;
+): ResolveProjectRef {
   const refs: ResolveTimelineRef[] = timelines.map((timeline) => ({
     name: timeline.name,
     otioPath: timeline.file.path,
     isCurrent: timeline.isCurrent,
   }));
-  const active = refs.find((timeline) => timeline.isCurrent) ?? refs[0];
-  if (!active) return null;
+  const active = refs.find((timeline) => timeline.isCurrent) ?? refs[0] ?? null;
   return {
     id: resolveProjectId(drp.path),
     name,
     drpPath: drp.path,
     folder: path.dirname(drp.path),
+    kind: 'export',
     timelines: refs,
     activeTimeline: active,
     updatedAt: newest([drp.modifiedAt, ...timelines.map(({ file }) => file.modifiedAt)]),
     discoveredVia,
     ...(settings ? { settings } : {}),
   };
+}
+
+interface SqliteRow { [column: string]: unknown }
+interface SqliteDatabase {
+  prepare(sql: string): { all(): SqliteRow[] };
+  close(): void;
+}
+type SqliteModule = {
+  DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase;
+};
+
+/** Loaded at run time so bundlers do not try to resolve a Node built-in. */
+function loadSqlite(): SqliteModule | null {
+  try {
+    return createRequire(__filename)('node:sqlite') as SqliteModule;
+  } catch {
+    return null;
+  }
+}
+
+interface DatabaseProject {
+  name: string;
+  timelines: string[];
+}
+
+/**
+ * Read a project's name and timeline names straight out of Resolve's own
+ * database, so a project appears with real detail even before any export.
+ * The file is copied first because Resolve may hold it open.
+ */
+async function readProjectDatabase(databasePath: string): Promise<DatabaseProject | null> {
+  const sqlite = loadSqlite();
+  if (!sqlite) return null;
+  const copy = `${databasePath}.snipsnap-read`;
+  try {
+    await copyFile(databasePath, copy);
+    const database = new sqlite.DatabaseSync(copy, { readOnly: true });
+    try {
+      const projects = database.prepare('SELECT ProjectName FROM SM_Project LIMIT 1').all();
+      const timelines = database.prepare('SELECT Name FROM Sm2Timeline ORDER BY ModTimeInSecs DESC').all();
+      const projectName = projects[0]?.ProjectName;
+      return {
+        name: typeof projectName === 'string' ? projectName : '',
+        timelines: timelines
+          .map((row) => row.Name)
+          .filter((name): name is string => typeof name === 'string' && name.length > 0),
+      };
+    } finally {
+      database.close();
+    }
+  } catch {
+    return null;
+  } finally {
+    await rm(copy, { force: true });
+  }
+}
+
+/** Projects Resolve keeps in its own database, which have no .drp of their own. */
+async function fromDatabase(root: string): Promise<ResolveProjectRef[]> {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const refs: ResolveProjectRef[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const folder = path.join(root, entry.name);
+    let contents: string[];
+    try {
+      contents = await readdir(folder);
+    } catch {
+      continue;
+    }
+    // A Resolve project folder carries its database file next to its media.
+    const databaseFile = contents.find((name) => name.toLowerCase().endsWith('.db'));
+    if (!databaseFile) continue;
+    let modifiedAt = new Date(0).toISOString();
+    try {
+      modifiedAt = (await stat(folder)).mtime.toISOString();
+    } catch {
+      continue;
+    }
+    const timelines: DiscoveredTimeline[] = [];
+    for (const name of contents.filter((candidate) => candidate.toLowerCase().endsWith('.otio'))) {
+      const file = await readableFile(path.join(folder, name));
+      if (file) timelines.push({ name: path.basename(name, '.otio'), file, isCurrent: timelines.length === 0 });
+    }
+    const details = await readProjectDatabase(path.join(folder, databaseFile));
+    refs.push({
+      id: resolveDatabaseProjectId(folder),
+      name: details?.name || entry.name,
+      drpPath: '',
+      folder,
+      kind: 'database',
+      timelines: timelines.map(({ name, file, isCurrent }) => ({ name, otioPath: file.path, isCurrent })),
+      activeTimeline: timelines[0] ? { name: timelines[0].name, otioPath: timelines[0].file.path, isCurrent: true } : null,
+      updatedAt: newest([modifiedAt, ...timelines.map(({ file }) => file.modifiedAt)]),
+      discoveredVia: 'database',
+      ...(details?.timelines.length ? { knownTimelines: details.timelines } : {}),
+    });
+  }
+  return refs;
 }
 
 async function fromManifest(root: string): Promise<ResolveProjectRef[]> {
@@ -134,8 +284,7 @@ async function fromManifest(root: string): Promise<ResolveProjectRef[]> {
         isCurrent: timeline.isCurrent === true || timeline.name === project.currentTimeline,
       });
     }
-    const ref = toRef(project.name, drp, timelines, 'manifest', project.settings);
-    if (ref) refs.push(ref);
+    refs.push(toRef(project.name, drp, timelines, 'manifest', project.settings));
   }
   return refs;
 }
@@ -183,8 +332,7 @@ async function fromScan(root: string): Promise<ResolveProjectRef[]> {
       const file = await readableFile(path.join(folder, name));
       if (file) timelines.push({ name: path.basename(name, '.otio'), file, isCurrent: index === 0 });
     }
-    const ref = toRef(base, drp, timelines, 'scan');
-    if (ref) refs.push(ref);
+    refs.push(toRef(base, drp, timelines, 'scan'));
   }
   return refs;
 }
@@ -212,6 +360,11 @@ export class ResolveLibrary {
       // Manifest entries win because they carry real timeline names.
       for (const ref of await fromScan(root)) byId.set(ref.id, ref);
       for (const ref of await fromManifest(root)) byId.set(ref.id, ref);
+    }
+    for (const root of resolveDatabaseRoots()) {
+      for (const ref of await fromDatabase(root)) {
+        if (!byId.has(ref.id)) byId.set(ref.id, ref);
+      }
     }
     return [...byId.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }

@@ -66,7 +66,13 @@ test.beforeEach(async () => {
   await seedResolveExport();
   application = await electron.launch({
     args: [packagedAppPath()],
-    env: { ...process.env, SNIPSNAP_DATA_ROOT: dataRoot, SNIPSNAP_RESOLVE_ROOT: resolveRoot },
+    env: {
+      ...process.env,
+      SNIPSNAP_DATA_ROOT: dataRoot,
+      SNIPSNAP_RESOLVE_ROOT: resolveRoot,
+      // Keep the machine's own Resolve database out of the fixture.
+      SNIPSNAP_RESOLVE_DATABASE: path.join(resolveRoot, 'no-database'),
+    },
   });
   page = await application.firstWindow();
   await page.waitForLoadState('domcontentloaded');

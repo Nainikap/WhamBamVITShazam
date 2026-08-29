@@ -11,6 +11,7 @@ const stateLabel: Record<ProjectOverview['state'], string> = {
 };
 
 function StatePill({ project }: { project: ProjectOverview }) {
+  if (!project.openable) return <span className="state-pill state-blocked">Needs timeline export</span>;
   return project.linked
     ? <span className={`state-pill state-${project.state}`}>{stateLabel[project.state]}</span>
     : <span className="state-pill state-new">New from Resolve</span>;
@@ -45,7 +46,10 @@ function Poster({ project }: { project: ProjectOverview }) {
 function Meta({ project }: { project: ProjectOverview }) {
   return <div className="project-meta">
     {project.linked && <span className="branch-chip">⑂ {project.branch}</span>}
-    <span className="timeline-chip">▤ {project.resolve.timelineName}</span>
+    {project.kind === 'database' && <span className="db-chip">Resolve database</span>}
+    {project.openable
+      ? <span className="timeline-chip">▤ {project.resolve.timelineName}</span>
+      : project.knownTimelines.map((name) => <span className="timeline-chip" key={name}>▤ {name}</span>)}
     {project.durationFrames > 0 && <span>{durationLabel(project.durationFrames, project.fps)}</span>}
     {project.width > 0 && <span>{project.width}×{project.height}</span>}
     {project.fps > 0 && <span>{frameRateLabel(project.fps)}</span>}
@@ -68,13 +72,16 @@ export function Dashboard() {
       <div className="empty-icon" aria-hidden="true">⌁</div>
       <h2>No Resolve projects found yet</h2>
       <p>
-        SnipSnap lists a project once DaVinci Resolve has exported it: a <code>.drp</code> project
-        file with its timeline beside it as <code>.otio</code>. Run <code>SnipSnapSync.py</code>
-        from Resolve&rsquo;s Workspace &rsaquo; Scripts menu to export them, or point SnipSnap at a
-        folder where you already keep those exports.
+        SnipSnap reads DaVinci Resolve&rsquo;s own project library, plus any <code>.drp</code> project
+        file with an <code>.otio</code> timeline beside it. Nothing turned up here, so pick a
+        <code>.drp</code> file or a folder that holds one. To create the timeline export, run
+        <code>SnipSnapSync.py</code> from Resolve&rsquo;s Workspace &rsaquo; Scripts menu, or use
+        File &rsaquo; Export &rsaquo; Timeline and save it next to the project.
       </p>
       <div className="empty-actions">
-        <button className="primary" onClick={() => void store.addResolveFolder()}>Choose an export folder</button>
+        <button className="primary" onClick={() => void store.addResolveProjectFile()}>Choose a .drp file</button>
+        <button onClick={() => void store.addResolveFolder()}>Choose a folder</button>
+        <button onClick={() => void store.exportFromResolve()}>Export from Resolve</button>
         <button onClick={() => void store.refreshLibrary()}>Look again</button>
       </div>
     </main>;
@@ -94,7 +101,9 @@ export function Dashboard() {
           value={store.filter}
           onChange={(event) => store.setFilter(event.target.value)}
         />
+        <button onClick={() => void store.addResolveProjectFile()}>Add .drp</button>
         <button onClick={() => void store.addResolveFolder()}>Add folder</button>
+        <button onClick={() => void store.exportFromResolve()}>Export from Resolve</button>
         <button className="primary" onClick={() => void store.refreshLibrary()}>Refresh</button>
       </div>
     </header>
@@ -105,8 +114,8 @@ export function Dashboard() {
       <span className="eyebrow">CONTINUE WHERE YOU LEFT OFF</span>
       <button
         className="latest-card"
-        aria-label={`Open ${latest.name}`}
-        onClick={() => void store.openProject(latest.id)}
+        aria-label={latest.openable ? `Open ${latest.name}` : `Export ${latest.name} from Resolve`}
+        onClick={() => void (latest.openable ? store.openProject(latest.id) : store.exportFromResolve())}
       >
         <Poster project={latest} />
         <div className="latest-body">
@@ -118,16 +127,20 @@ export function Dashboard() {
           <p className="latest-commit">
             {latest.linked
               ? <><code>{shortId(latest.headCommit)}</code> {latest.headMessage}</>
-              : <>Open it to import the timeline and start versioning.</>}
+              : latest.openable
+                ? <>Open it to import the timeline and start versioning.</>
+                : <>Resolve has this project{latest.knownTimelines.length
+                  ? ` with ${latest.knownTimelines.length} timeline${latest.knownTimelines.length === 1 ? '' : 's'}`
+                  : ''}, but none has been exported as OTIO yet. Export it from Resolve to start versioning.</>}
           </p>
-          <p className="latest-path" title={latest.resolve.drpPath}>{latest.resolve.drpPath}</p>
-          <p className="latest-path" title={latest.resolve.otioPath}>{latest.resolve.otioPath}</p>
+          <p className="latest-path" title={latest.resolve.drpPath || latest.path}>{latest.resolve.drpPath || latest.path}</p>
+          {latest.resolve.otioPath && <p className="latest-path" title={latest.resolve.otioPath}>{latest.resolve.otioPath}</p>}
           <div className="latest-foot">
             <span>{relativeTime(latest.updatedAt)}</span>
             {latest.linked && <span>{latest.commitCount} commit{latest.commitCount === 1 ? '' : 's'}</span>}
             {latest.linked && <span>{latest.branchCount} branch{latest.branchCount === 1 ? '' : 'es'}</span>}
             {latest.changeCount > 0 && <span className="change-count">{latest.changeCount} pending change{latest.changeCount === 1 ? '' : 's'}</span>}
-            <span className="open-hint">Open project →</span>
+            <span className="open-hint">{latest.openable ? 'Open project →' : 'Export its timeline →'}</span>
           </div>
         </div>
       </button>
@@ -142,8 +155,8 @@ export function Dashboard() {
         {earlier.map((project) => <li key={project.id}>
           <button
             className="project-row"
-            aria-label={`Open ${project.name}`}
-            onClick={() => void store.openProject(project.id)}
+            aria-label={project.openable ? `Open ${project.name}` : `Export ${project.name} from Resolve`}
+            onClick={() => void (project.openable ? store.openProject(project.id) : store.exportFromResolve())}
           >
             <Poster project={project} />
             <div className="project-row-body">
@@ -152,7 +165,7 @@ export function Dashboard() {
                 <StatePill project={project} />
               </div>
               <Meta project={project} />
-              <small className="project-row-path" title={project.resolve.drpPath}>{project.resolve.drpPath}</small>
+              <small className="project-row-path" title={project.resolve.drpPath || project.path}>{project.resolve.drpPath || project.path}</small>
             </div>
             <div className="project-row-side">
               <span>{relativeTime(project.updatedAt)}</span>

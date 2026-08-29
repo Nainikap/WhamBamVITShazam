@@ -29,6 +29,8 @@ interface AppStore {
   openProject(id: string): Promise<void>;
   goToDashboard(): Promise<void>;
   addResolveFolder(): Promise<void>;
+  addResolveProjectFile(): Promise<void>;
+  exportFromResolve(): Promise<void>;
   refreshLibrary(): Promise<void>;
   connectSource(): Promise<void>;
   scanSource(): Promise<void>;
@@ -162,6 +164,26 @@ export const useAppStore = create<AppStore>((set, get) => {
           ? `Watching ${roots.length} folder${roots.length === 1 ? '' : 's'}. Found ${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'}.`
           : 'No .drp file with a matching .otio export was found in that folder.',
       });
+    }),
+
+    addResolveProjectFile: () => run(async () => {
+      const roots = await window.snipsnap.addResolveProjectFile();
+      if (!roots) return;
+      const overviews = await window.snipsnap.listOverviews();
+      set({
+        overviews,
+        notice: overviews.length
+          ? `Found ${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'}.`
+          : 'That project file has no .otio timeline export beside it yet.',
+      });
+    }),
+
+    exportFromResolve: () => run(async () => {
+      const result = await window.snipsnap.exportFromResolve();
+      const overviews = await window.snipsnap.listOverviews();
+      set({ overviews });
+      if (result.ok) set({ notice: result.message });
+      else set({ error: result.message });
     }),
 
     refreshLibrary: () => run(async () => {

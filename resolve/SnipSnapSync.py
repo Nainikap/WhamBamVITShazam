@@ -32,6 +32,13 @@ import time
 from datetime import datetime, timezone
 
 DEFAULT_OUTPUT = os.path.expanduser("~/Library/Application Support/SnipSnap/resolve")
+LIBRARY_CANDIDATES = [
+    os.environ.get("RESOLVE_SCRIPT_LIB"),
+    "/Applications/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
+    "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
+    "C:\\Program Files\\Blackmagic Design\\DaVinci Resolve\\fusionscript.dll",
+    "/opt/resolve/libs/Fusion/fusionscript.so",
+]
 MODULE_CANDIDATES = [
     os.environ.get("RESOLVE_SCRIPT_API"),
     "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
@@ -46,6 +53,13 @@ MODULE_CANDIDATES = [
 
 def connect():
     """Return the Resolve application object, or None when it is not running."""
+    # The bundled module looks for fusionscript.so under a path that does not
+    # match every install, so point it at the copy that is actually here.
+    if not os.environ.get("RESOLVE_SCRIPT_LIB"):
+        for candidate in LIBRARY_CANDIDATES:
+            if candidate and os.path.exists(candidate):
+                os.environ["RESOLVE_SCRIPT_LIB"] = candidate
+                break
     try:
         import DaVinciResolveScript as script_module  # type: ignore
     except ImportError:

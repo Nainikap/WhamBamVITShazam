@@ -40,6 +40,7 @@ describe('Resolve library', () => {
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-resolve-'));
+    process.env.SNIPSNAP_RESOLVE_DATABASE = path.join(root, 'no-resolve-database');
     library = path.join(root, 'library');
     await mkdir(library, { recursive: true });
     service = new ProjectService(path.join(root, 'data'), new ResolveLibrary([library]));
@@ -49,20 +50,52 @@ describe('Resolve library', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it('lists a project only when its .drp and .otio are both present', async () => {
+  it('lists every Resolve project it finds, flagging the ones with no timeline export', async () => {
     const complete = await exportResolveProject('Launch Promo');
     const orphanFolder = path.join(library, 'No Timeline');
     await mkdir(orphanFolder, { recursive: true });
     await writeFile(path.join(orphanFolder, 'No Timeline.drp'), 'archive without a timeline');
+    // An .otio with no project file beside it is not a Resolve project.
     const timelineOnly = path.join(library, 'No Project');
     await mkdir(timelineOnly, { recursive: true });
     await writeFile(path.join(timelineOnly, 'stray.otio'), exportOtio(createDemoProject('Stray')));
 
     const discovered = await service.discoverResolveProjects();
-    expect(discovered.map(({ name }) => name)).toEqual(['Launch Promo']);
-    expect(discovered[0]?.drpPath).toBe(complete.drp);
-    expect(discovered[0]?.activeTimeline.otioPath).toBe(complete.otio);
-    expect(await service.listProjectOverviews()).toHaveLength(1);
+    expect(discovered.map(({ name }) => name).sort()).toEqual(['Launch Promo', 'No Timeline']);
+    const ready = discovered.find(({ name }) => name === 'Launch Promo');
+    expect(ready?.drpPath).toBe(complete.drp);
+    expect(ready?.activeTimeline?.otioPath).toBe(complete.otio);
+    expect(discovered.find(({ name }) => name === 'No Timeline')?.activeTimeline).toBeNull();
+
+    const overviews = await service.listProjectOverviews();
+    expect(overviews.map(({ name, openable }) => `${name}:${openable}`).sort())
+      .toEqual(['Launch Promo:true', 'No Timeline:false']);
+  });
+
+  it('refuses to open a project that has no timeline export yet', async () => {
+    const folder = path.join(library, 'Awaiting Export');
+    await mkdir(folder, { recursive: true });
+    const drp = path.join(folder, 'Awaiting Export.drp');
+    await writeFile(drp, 'archive without a timeline');
+
+    await expect(service.openResolveProjectById(resolveProjectId(drp)))
+      .rejects.toThrow(/no timeline export yet/u);
+  });
+
+  it('watches the folder around a project file chosen by hand', async () => {
+    const elsewhere = path.join(root, 'elsewhere');
+    await mkdir(elsewhere, { recursive: true });
+    const drp = path.join(elsewhere, 'Picked By Hand.drp');
+    await writeFile(drp, 'DaVinci Resolve project archive');
+    await writeFile(path.join(elsewhere, 'Picked By Hand.otio'), exportOtio(createDemoProject('Picked By Hand')));
+
+    const service2 = new ProjectService(path.join(root, 'data2'), new ResolveLibrary(async () => []));
+    expect(await service2.discoverResolveProjects()).toEqual([]);
+
+    const withFolder = new ProjectService(path.join(root, 'data2'));
+    await withFolder.addResolveProjectFile(drp);
+    const roots = await withFolder.resolveRoots();
+    expect(roots).toContain(elsewhere);
   });
 
   it('drops a project again once its Resolve files are gone', async () => {
@@ -87,7 +120,7 @@ describe('Resolve library', () => {
 
     const [discovered] = await service.discoverResolveProjects();
     expect(discovered?.name).toBe('Brand Film');
-    expect(discovered?.activeTimeline.name).toBe('Brand Film — Director Cut');
+    expect(discovered?.activeTimeline?.name).toBe('Brand Film — Director Cut');
     expect(discovered?.discoveredVia).toBe('manifest');
   });
 

@@ -133,6 +133,11 @@ export interface ProjectOverview {
   path: string;
   /** Resolve files exist; false until SnipSnap has imported them once. */
   linked: boolean;
+  /** False when the project has no timeline export to read yet. */
+  openable: boolean;
+  kind: 'export' | 'database';
+  /** Timeline names Resolve knows about, listed even before any export. */
+  knownTimelines: string[];
   resolve: ResolveBinding;
   branch: string;
   headCommit: string;
@@ -891,6 +896,11 @@ export class ProjectService {
     return this.resolveRoots();
   }
 
+  /** Watch the folder holding a project file the editor picked by hand. */
+  async addResolveProjectFile(projectFile: string): Promise<string[]> {
+    return this.addResolveRoot(path.dirname(path.resolve(projectFile)));
+  }
+
   async openResolveProjectById(projectId: string): Promise<ProjectStatus> {
     const reference = (await this.library.discover()).find(({ id }) => id === projectId);
     if (!reference) {
@@ -908,8 +918,8 @@ export class ProjectService {
     return {
       projectName: reference.name,
       drpPath: reference.drpPath,
-      otioPath: reference.activeTimeline.otioPath,
-      timelineName: reference.activeTimeline.name,
+      otioPath: reference.activeTimeline?.otioPath ?? '',
+      timelineName: reference.activeTimeline?.name ?? 'No timeline export',
       timelineCount: reference.timelines.length,
       folder: reference.folder,
     };
@@ -920,6 +930,12 @@ export class ProjectService {
    * time and picking up any later export after that.
    */
   async openResolveProject(reference: ResolveProjectRef): Promise<ProjectStatus> {
+    if (!reference.activeTimeline) {
+      throw new Error(
+        `${reference.name} has no timeline export yet. Open it in DaVinci Resolve and run `
+        + 'SnipSnapSync, or put an .otio export beside its .drp file.',
+      );
+    }
     const binding = this.bindingFor(reference);
     const existing = await this.readMetadata(reference.id);
     if (!existing) {
@@ -960,6 +976,9 @@ export class ProjectService {
       name: reference.name,
       path: reference.folder,
       linked: false,
+      openable: reference.activeTimeline !== null,
+      kind: reference.kind,
+      knownTimelines: reference.knownTimelines ?? reference.timelines.map(({ name }) => name),
       resolve: binding,
       branch: 'main',
       headCommit: '',
@@ -1019,6 +1038,9 @@ export class ProjectService {
       name: status.project.name,
       path: this.projectRoot(projectId),
       linked: true,
+      openable: true,
+      kind: binding.drpPath ? 'export' : 'database',
+      knownTimelines: [binding.timelineName],
       resolve: binding,
       branch: status.branch,
       headCommit: status.headCommit,
@@ -1074,6 +1096,8 @@ export class ProjectService {
           ...await this.overview(reference.id),
           name: reference.name,
           linked: true,
+          openable: reference.activeTimeline !== null,
+          kind: reference.kind,
           resolve: this.bindingFor(reference),
         });
       } catch {
