@@ -13,6 +13,7 @@ interface AppStore {
   busy: boolean;
   error: string | null;
   notice: string | null;
+  selectedCommit: string | null;
   initialize(): Promise<void>;
   selectProject(id: string): Promise<void>;
   createDemo(): Promise<void>;
@@ -30,6 +31,7 @@ interface AppStore {
   abortMerge(): Promise<void>;
   tag(name: string): Promise<void>;
   exportOtio(): Promise<void>;
+  setSelectedCommit(commitId: string | null): Promise<void>;
   clearError(): void;
 }
 
@@ -150,6 +152,9 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!currentProjectId || !status) return;
       const result = await window.snipsnap.exportOtio(currentProjectId, status.headCommit);
       if (!result.canceled) set({ notice: `Exported immutable commit ${result.commitId?.slice(0, 10)}.` });
+    }),
+    setSelectedCommit: (commitId) => run(async () => {
+      set({ selectedCommit: commitId });
     }),
     clearError: () => set({ error: null }),
   };

@@ -10,12 +10,89 @@ function HunkCard({ hunk, action, label }: { hunk: SemanticHunk; action(): void;
   </article>;
 }
 
+function CommitNode({ commit, depth, onSelect }: { commit: any; depth: number; onSelect: (commitId: string) => void }) {
+  const indent = depth * 20;
+  return (
+    <div style={{ paddingLeft: indent, marginBottom: 4 }} key={commit.id}>
+      <div
+        onClick={() => onSelect(commit.id)}
+        style={{
+          cursor: 'pointer',
+          userSelect: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}
+      >
+        <span
+          style={{
+            width: 12,
+            height: 12,
+            borderRadius: '50%',
+            background: commit.selected ? 'var(--primary)' : 'transparent',
+            border: '1px solid var(--primary)',
+          }}
+        />
+        <span
+          style={{ fontFamily: 'monospace', color: commit.selected ? 'white' : 'var(--on-surface)' }}
+        >
+          {commit.id.slice(0, 8)}
+        </span>
+        <span style={{ flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {commit.message.split('\n')[0]}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function CommitTree({ commits, onSelect }: { commits: any[]; onSelect: (commitId: string) => void }) {
+  const buildTree = (commits: any[], parentId: string | null): any[] => {
+    const map = new Map(commits.map(c => [c.id, { ...c, children: [], selected: false }]));
+    const roots = [];
+    for (const commit of map.values()) {
+      if (commit.parents.includes(parentId) || (parentId === null && commit.parents.length === 0)) {
+        roots.push(commit);
+      }
+    }
+    for (const root of roots) {
+      const children = map.values().filter(c => c.parents.includes(root.id) && c.id !== root.id);
+      root.children = children.length > 0 ? buildTree(children, root.id) : [];
+      for (const child of root.children) {
+        child.selected = false;
+      }
+    }
+    return roots;
+  };
+
+  const tree = buildTree(commits, null);
+  return (
+    <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #30363d', borderRadius: 4, background: '#1e2124', padding: 8 }}>
+      {tree.map((node) => (
+        <>
+          <CommitNode commit={node} depth={0} onSelect={onSelect} />
+          {node.children.length > 0 && (
+            <div style={{ marginLeft: 20, marginTop: 4 }}>
+              {node.children.map((child) => (
+                <div key={child.id}>
+                  <CommitNode commit={child} depth={1} onSelect={onSelect} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ))}
+    </div>
+  );
+}
+
 export function App() {
   const store = useAppStore();
   const [commitMessage, setCommitMessage] = useState('');
   const [branchName, setBranchName] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [tagName, setTagName] = useState('');
+  const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
 
   useEffect(() => { void store.initialize(); }, []);
 
@@ -47,7 +124,6 @@ export function App() {
     </header>
 
     {store.error && <div className="alert error" role="alert"><span>{store.error}</span><button onClick={store.clearError}>×</button></div>}
-    {store.notice && <div className="alert notice">{store.notice}</div>}
     {store.busy && <div className="progress" aria-label="Working" />}
 
     {!status ? <main className="empty-state">
@@ -123,6 +199,17 @@ export function App() {
         <section className="panel history-panel">
           <span className="eyebrow">HISTORY</span>
           {status.history.slice(0, 12).map((commit, index) => <div className="commit-row" key={commit.id}><div className="graph-dot">{index === 0 ? '●' : '○'}</div><div><strong>{commit.message}</strong><small>{commit.id.slice(0, 8)} · {commit.parents.length} parent{commit.parents.length === 1 ? '' : 's'}</small></div></div>)}
+        </section>
+        <section className="panel commit-tree-panel">
+          <span className="eyebrow">COMMIT TREE</span>
+          <CommitTree commits={status.history} onSelect={(commitId) => {
+            setSelectedCommitId(commitId);
+            window.snipsnap.exportOtio(store.currentProjectId!, commitId);
+          }} />
+          {selectedCommitId && <div className="selected-commit-info">
+            <h4>Selected commit: {selectedCommitId.slice(0, 8)}</h4>
+            <button onClick={() => void window.snipsnap.exportOtio(store.currentProjectId!, selectedCommitId)}>Export as OTIO</button>
+          </div>}
         </section>
       </aside>
     </main>}
