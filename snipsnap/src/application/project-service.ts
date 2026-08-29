@@ -22,7 +22,13 @@ import {
   type PreviewMediaAvailability,
   type TimelineDiff,
 } from '../preview';
-import { ResolveLibrary, defaultResolveRoots, type ResolveProjectRef } from './resolve-library';
+import { writeTimelineExports } from './resolve-database';
+import {
+  ResolveLibrary,
+  defaultResolveRoots,
+  generatedExportFolder,
+  type ResolveProjectRef,
+} from './resolve-library';
 import { atomicWriteJson, readJson } from './storage';
 import {
   PendingSyncSchema,
@@ -901,8 +907,34 @@ export class ProjectService {
     return this.addResolveRoot(path.dirname(path.resolve(projectFile)));
   }
 
+  /**
+   * Rebuild timelines from any Resolve project database that has no export
+   * beside it, so a project can be opened without Resolve running.
+   */
+  async rebuildTimelinesFromResolveDatabase(): Promise<{ projects: number; timelines: number }> {
+    let projects = 0;
+    let timelines = 0;
+    for (const reference of await this.library.discover()) {
+      if (reference.kind !== 'database' || reference.activeTimeline) continue;
+      const databaseFile = path.join(reference.folder, 'Project.db');
+      const folder = generatedExportFolder(reference.folder);
+      await mkdir(folder, { recursive: true });
+      const written = await writeTimelineExports(databaseFile, folder);
+      if (written.length > 0) {
+        projects += 1;
+        timelines += written.length;
+      }
+    }
+    return { projects, timelines };
+  }
+
   async openResolveProjectById(projectId: string): Promise<ProjectStatus> {
-    const reference = (await this.library.discover()).find(({ id }) => id === projectId);
+    let reference = (await this.library.discover()).find(({ id }) => id === projectId);
+    if (reference && !reference.activeTimeline && reference.kind === 'database') {
+      // Nothing exported this project yet, so rebuild it from Resolve's database.
+      await this.rebuildTimelinesFromResolveDatabase();
+      reference = (await this.library.discover()).find(({ id }) => id === projectId);
+    }
     if (!reference) {
       throw new Error('That Resolve project is no longer on disk. Export it again from Resolve.');
     }

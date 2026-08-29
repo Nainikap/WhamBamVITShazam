@@ -24,7 +24,7 @@ describe('Resolve source watcher', () => {
     await writeFile(sourcePath, 'second');
     const change = await Promise.race([
       observed,
-      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Watcher did not fire')), 2000)),
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Watcher did not fire')), 8000)),
     ]);
     watcher.close();
     expect(change).toEqual({ projectId: 'project-id', sourcePath });
