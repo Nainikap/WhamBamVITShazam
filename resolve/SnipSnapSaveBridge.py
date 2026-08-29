@@ -13,6 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import resolve_connection  # noqa: E402  Needs the line above to be importable.
+
 
 POLL_SECONDS = 0.5
 RECONNECT_SECONDS = 1.0
@@ -23,17 +27,7 @@ def emit(event: dict[str, Any]) -> None:
 
 
 def load_resolve_module() -> Any:
-    try:
-        import DaVinciResolveScript as resolve_script  # type: ignore[import-not-found]
-        return resolve_script
-    except ImportError:
-        api_root = os.environ.get("RESOLVE_SCRIPT_API")
-        if api_root:
-            modules = str(Path(api_root) / "Modules")
-            if modules not in sys.path:
-                sys.path.insert(0, modules)
-        import DaVinciResolveScript as resolve_script  # type: ignore[import-not-found]
-        return resolve_script
+    return resolve_connection.load_resolve_module(globals().get("resolve"))
 
 
 def saved_marker(project_manager: Any, project: Any, timeline: Any) -> str | None:
@@ -69,7 +63,11 @@ def export_atomic(resolve: Any, timeline: Any, output_path: Path) -> None:
 
 
 def run(output_path: Path) -> None:
-    resolve_script = load_resolve_module()
+    try:
+        resolve_script = load_resolve_module()
+    except ImportError as error:
+        emit({"type": "status", "state": "no-scripting-module", "message": str(error)})
+        return
     last_marker: str | None = None
     last_status: str | None = None
     next_connect_at = 0.0

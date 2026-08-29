@@ -21,12 +21,23 @@ describe('Resolve source watcher', () => {
     const watcher = new SourceWatchService((change) => notify?.(change), 30);
     watcher.watch('project-id', sourcePath);
 
-    await writeFile(sourcePath, 'second');
-    const change = await Promise.race([
-      observed,
-      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Watcher did not fire')), 8000)),
-    ]);
-    watcher.close();
-    expect(change).toEqual({ projectId: 'project-id', sourcePath });
+    // fs.watch arms itself asynchronously, so a single write can land before it
+    // is listening. Keep exporting until it reports, which is also what a real
+    // Resolve export loop looks like.
+    let settled = false;
+    void observed.then(() => { settled = true; });
+    const rewrite = setInterval(() => {
+      if (!settled) void writeFile(sourcePath, `second-${Date.now()}`);
+    }, 150);
+    try {
+      const change = await Promise.race([
+        observed,
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Watcher did not fire')), 10_000)),
+      ]);
+      expect(change).toEqual({ projectId: 'project-id', sourcePath });
+    } finally {
+      clearInterval(rewrite);
+      watcher.close();
+    }
   });
 });

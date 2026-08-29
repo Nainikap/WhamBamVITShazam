@@ -30,6 +30,11 @@ import re
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import resolve_connection  # noqa: E402  Needs the line above to be importable.
 
 DEFAULT_OUTPUT = os.path.expanduser("~/Library/Application Support/SnipSnap/resolve")
 LIBRARY_CANDIDATES = [
@@ -52,58 +57,8 @@ MODULE_CANDIDATES = [
 
 
 def connect():
-    """Return the Resolve application object, or None when it is not running.
-
-    Run from Resolve's own Scripts menu the application is already in scope,
-    which is the only way in on builds that block external scripting.
-    """
-    injected = globals().get("resolve")
-    if injected is not None:
-        return injected
-    try:
-        import bmd  # type: ignore  # Provided by Resolve to scripts it runs itself.
-
-        application = bmd.scriptapp("Resolve")
-        if application is not None:
-            return application
-    except Exception:
-        pass
-    try:
-        import fusionscript as script_module  # type: ignore  # In-process on some builds.
-
-        application = script_module.scriptapp("Resolve")
-        if application is not None:
-            return application
-    except Exception:
-        pass
-    # The bundled module looks for fusionscript.so under a path that does not
-    # match every install, so point it at the copy that is actually here.
-    if not os.environ.get("RESOLVE_SCRIPT_LIB"):
-        for candidate in LIBRARY_CANDIDATES:
-            if candidate and os.path.exists(candidate):
-                os.environ["RESOLVE_SCRIPT_LIB"] = candidate
-                break
-    try:
-        import DaVinciResolveScript as script_module  # type: ignore
-    except ImportError:
-        script_module = None
-        for base in MODULE_CANDIDATES:
-            if not base:
-                continue
-            modules = os.path.join(base, "Modules")
-            if os.path.isdir(modules):
-                sys.path.append(modules)
-                try:
-                    import DaVinciResolveScript as script_module  # type: ignore
-                    break
-                except ImportError:
-                    script_module = None
-        if script_module is None:
-            return None
-    try:
-        return script_module.scriptapp("Resolve")
-    except Exception:
-        return None
+    """Return the Resolve application object, or None when it is not running."""
+    return resolve_connection.connect(globals().get("resolve"))
 
 
 def slugify(value: str) -> str:

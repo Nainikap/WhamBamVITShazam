@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ProjectService, ResolveLibrary, resolveProjectId } from '../src/application';
 
 const HARNESS = path.resolve(__dirname, '../../resolve/tests/run_with_fake_resolve.py');
+const SYNC = path.resolve(__dirname, '../../resolve/SnipSnapSync.py');
+const BRIDGE = path.resolve(__dirname, '../../resolve/SnipSnapSaveBridge.py');
 const FIXTURE = path.resolve(__dirname, 'fixtures/resolve-real-export.otio');
 const hasPython = spawnSync('python3', ['--version'], { stdio: 'ignore' }).status === 0;
 
@@ -69,5 +71,30 @@ describe.runIf(hasPython)('SnipSnapSync output', () => {
     expect(status.history).toHaveLength(1);
     expect(status.project.tracks.map(({ kind }) => kind)).toEqual(['video', 'audio']);
     expect(status.unstaged).toEqual([]);
+  });
+
+  it('reports a missing Resolve rather than failing to import its module', () => {
+    // Point the loader at nothing so it takes the same path as a machine
+    // without Resolve installed.
+    const environment = { ...process.env, RESOLVE_SCRIPT_API: path.join(root, 'no-resolve') };
+
+    const sync = spawnSync('python3', [SYNC, '--output', path.join(root, 'out')], {
+      encoding: 'utf8',
+      env: environment,
+      timeout: 30_000,
+    });
+    expect(sync.stderr).not.toContain('Traceback');
+    expect(sync.stderr).not.toContain('ModuleNotFoundError');
+
+    const bridge = spawnSync('python3', [BRIDGE, '--output', path.join(root, 'timeline.otio')], {
+      encoding: 'utf8',
+      env: environment,
+      timeout: 6_000,
+    });
+    expect(bridge.stderr).not.toContain('Traceback');
+    expect(bridge.stderr).not.toContain('ModuleNotFoundError');
+    const first = bridge.stdout.split('\n').filter(Boolean)[0] ?? '';
+    // Every state it can be in is reported as one JSON status line.
+    expect(JSON.parse(first)).toMatchObject({ type: 'status', state: expect.any(String) });
   });
 });
