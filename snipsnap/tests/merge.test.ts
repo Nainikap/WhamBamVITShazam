@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { reduceCommand } from '../src/commands';
 import { createDemoProject, deterministicUuid } from '../src/domain';
-import { completeMerge, mergeThreeWay, resolveMerge } from '../src/merge';
+import { combinePlan, completeMerge, describeConflict, mergeOrders, mergeThreeWay, resolveMerge } from '../src/merge';
 
 describe('conservative three-way merge', () => {
   it('combines independent edits without losing either branch', () => {
@@ -113,5 +113,155 @@ describe('conservative three-way merge', () => {
         return merged.clips[0]?.gainDb === gainDb && merged.clips[1]?.preset === preset;
       },
     ));
+  });
+});
+
+describe('keeping both branches', () => {
+  it('widens a contested trim to every frame both cuts use', () => {
+    const base = createDemoProject();
+    const clip = base.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    const ours = reduceCommand(base, { type: 'trimClip', clipId: clip.id, start: 0, duration: 100 });
+    const theirs = reduceCommand(base, { type: 'trimClip', clipId: clip.id, start: 24, duration: 144 });
+
+    const result = mergeThreeWay(base, ours, theirs);
+    const conflict = result.conflicts.find(({ fieldGroup }) => fieldGroup === 'sourceRange');
+    if (!conflict) throw new Error('Expected a timing conflict');
+    expect(combinePlan(conflict).kind).toBe('value');
+
+    const resolved = resolveMerge(result, [{ conflictId: conflict.id, choice: 'both' }]);
+    expect(resolved.conflicts).toEqual([]);
+    expect(completeMerge(resolved).clips[0]?.sourceRange).toEqual({ start: 0, duration: 168 });
+  });
+
+  it('keeps footage that one branch cut and the other edited', () => {
+    const base = createDemoProject();
+    const clip = base.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    const ours = structuredClone(base);
+    ours.clips = ours.clips.filter(({ id }) => id !== clip.id);
+    const oursTrack = ours.tracks[0];
+    if (!oursTrack) throw new Error('Fixture track missing');
+    oursTrack.itemIds = oursTrack.itemIds.filter((id) => id !== clip.id);
+    const theirs = reduceCommand(base, { type: 'setClipPreset', clipId: clip.id, preset: 'mono' });
+
+    const result = mergeThreeWay(base, ours, theirs);
+    const conflict = result.conflicts.find(({ type }) => type === 'delete-modify');
+    if (!conflict) throw new Error('Expected a delete-modify conflict');
+
+    const merged = completeMerge(resolveMerge(result, [{ conflictId: conflict.id, choice: 'both' }]));
+    expect(merged.clips.find(({ id }) => id === clip.id)?.preset).toBe('mono');
+    expect(merged.tracks[0]?.itemIds).toEqual(base.tracks[0]?.itemIds);
+  });
+
+  it('keeps every item from both running orders', () => {
+    const base = createDemoProject();
+    const track = base.tracks[0];
+    if (!track) throw new Error('Fixture track missing');
+    const gapId = deterministicUuid(`${track.id}:gap`);
+    base.gaps.push({ id: gapId, type: 'gap', trackId: track.id, durationFrames: 12 });
+    track.itemIds.push(gapId);
+    const [first, second, third] = track.itemIds;
+    if (!first || !second || !third) throw new Error('Fixture order missing');
+    const ours = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [second, first, third] });
+    const theirs = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [first, third, second] });
+
+    const result = mergeThreeWay(base, ours, theirs);
+    const conflict = result.conflicts.find(({ type }) => type === 'order');
+    if (!conflict) throw new Error('Expected an order conflict');
+
+    const merged = completeMerge(resolveMerge(result, [{ conflictId: conflict.id, choice: 'both' }]));
+    expect(merged.tracks[0]?.itemIds).toHaveLength(3);
+    expect([...merged.tracks[0]?.itemIds ?? []].sort()).toEqual([first, second, third].sort());
+  });
+
+  it('keeps both takes when the branches point one clip at different footage', () => {
+    const base = createDemoProject();
+    const clip = base.clips[0];
+    const [, interviewAsset, musicAsset] = base.assets;
+    if (!clip || !interviewAsset || !musicAsset) throw new Error('Fixture is incomplete');
+    const withAsset = (assetId: string) => {
+      const next = structuredClone(base);
+      const target = next.clips.find(({ id }) => id === clip.id);
+      if (!target) throw new Error('Fixture clip missing');
+      target.assetId = assetId;
+      return next;
+    };
+
+    const result = mergeThreeWay(base, withAsset(interviewAsset.id), withAsset(musicAsset.id));
+    const conflict = result.conflicts.find(({ fieldGroup }) => fieldGroup === 'assetId');
+    if (!conflict) throw new Error('Expected a footage conflict');
+    expect(combinePlan(conflict).kind).toBe('duplicate');
+
+    const merged = completeMerge(resolveMerge(result, [{ conflictId: conflict.id, choice: 'both' }]));
+    const track = merged.tracks[0];
+    if (!track) throw new Error('Merged track missing');
+    expect(track.itemIds).toHaveLength(3);
+    expect(track.itemIds[0]).toBe(clip.id);
+    const duplicate = merged.clips.find(({ id }) => id === track.itemIds[1]);
+    expect(merged.clips.find(({ id }) => id === clip.id)?.assetId).toBe(interviewAsset.id);
+    expect(duplicate?.assetId).toBe(musicAsset.id);
+    expect(duplicate?.trackId).toBe(track.id);
+  });
+
+  it('refuses to invent a combination for a single-value field', () => {
+    const base = createDemoProject();
+    const clip = base.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    const ours = reduceCommand(base, { type: 'setClipGain', clipId: clip.id, gainDb: -3 });
+    const theirs = reduceCommand(base, { type: 'setClipGain', clipId: clip.id, gainDb: -9 });
+
+    const result = mergeThreeWay(base, ours, theirs);
+    const conflict = result.conflicts[0];
+    if (!conflict) throw new Error('Expected a level conflict');
+    expect(combinePlan(conflict).kind).toBe('unavailable');
+    expect(() => resolveMerge(result, [{ conflictId: conflict.id, choice: 'both' }]))
+      .toThrow(/Cannot keep both sides/u);
+  });
+
+  it('merges two orders without losing or duplicating an identity', () => {
+    expect(mergeOrders(['b', 'a', 'c'], ['a', 'c', 'b'])).toEqual(['b', 'a', 'c']);
+    expect(mergeOrders(['a', 'b'], ['a', 'x', 'b', 'y'])).toEqual(['a', 'x', 'b', 'y']);
+  });
+});
+
+describe('conflict briefs', () => {
+  it('names the audio track and both timestamps behind a timing conflict', () => {
+    const base = createDemoProject();
+    const voice = base.clips.find(({ name }) => name === 'Interview VO');
+    if (!voice) throw new Error('Fixture audio clip missing');
+    const ours = reduceCommand(base, { type: 'trimClip', clipId: voice.id, start: 240, duration: 200 });
+    const theirs = reduceCommand(base, { type: 'trimClip', clipId: voice.id, start: 260, duration: 244 });
+
+    const result = mergeThreeWay(base, ours, theirs);
+    const conflict = result.conflicts.find(({ fieldGroup }) => fieldGroup === 'sourceRange');
+    if (!conflict) throw new Error('Expected a timing conflict');
+    const brief = describeConflict(conflict, result.alternatives);
+
+    expect(brief.category).toBe('timing');
+    expect(brief.scope).toBe('audio');
+    expect(brief.trackName).toBe('A1');
+    expect(brief.current.summary).toContain('00:00:10:00');
+    expect(brief.incoming.summary).toContain('00:00:10:20');
+    expect(brief.combination.available).toBe(true);
+  });
+
+  it('explains why a level conflict cannot be combined', () => {
+    const base = createDemoProject();
+    const clip = base.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    const result = mergeThreeWay(
+      base,
+      reduceCommand(base, { type: 'setClipGain', clipId: clip.id, gainDb: -3 }),
+      reduceCommand(base, { type: 'setClipGain', clipId: clip.id, gainDb: -9 }),
+    );
+    const conflict = result.conflicts[0];
+    if (!conflict) throw new Error('Expected a level conflict');
+    const brief = describeConflict(conflict, result.alternatives);
+
+    expect(brief.category).toBe('level');
+    expect(brief.scope).toBe('video');
+    expect(brief.current.summary).toBe('-3 dB');
+    expect(brief.combination.available).toBe(false);
   });
 });

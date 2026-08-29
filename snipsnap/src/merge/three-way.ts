@@ -1,5 +1,6 @@
 import { digestText, ProjectSchema, validateProject, type Project } from '../domain';
 import type { EntityType } from '../diff';
+import { combinePlan, duplicateId, projectRate } from './combine';
 
 export type MergeConflictType = 'same-field' | 'delete-modify' | 'order' | 'validation';
 
@@ -23,7 +24,7 @@ export interface MergeResult {
   alternatives: { base: Project; ours: Project; theirs: Project };
 }
 
-export type ConflictChoice = 'base' | 'ours' | 'theirs' | 'manual';
+export type ConflictChoice = 'base' | 'ours' | 'theirs' | 'both' | 'manual';
 
 export interface ConflictResolution {
   conflictId: string;
@@ -271,7 +272,7 @@ function applyResolution(project: Project, conflictItem: MergeConflict, value: u
     } else if (index >= 0) items[index] = clone(value as Entity);
     else items.push(clone(value as Entity));
     if (value !== null) {
-      const relation = choice === 'manual' ? undefined : conflictItem.relation?.[choice];
+      const relation = choice === 'manual' || choice === 'both' ? undefined : conflictItem.relation?.[choice];
       const entity = value as Entity;
       if (conflictItem.entityType === 'track') {
         const parentId = relation?.parentId ?? String(entity.sequenceId);
@@ -295,6 +296,73 @@ function applyResolution(project: Project, conflictItem: MergeConflict, value: u
   assign(entity, conflictItem.fieldGroup.split('+'), value);
 }
 
+/** Every timeline item that currently belongs to a track, in no particular order. */
+function itemsOf(project: Project): Array<Entity & { trackId: string }> {
+  return [...project.clips, ...project.gaps, ...project.captions] as unknown as Array<Entity & { trackId: string }>;
+}
+
+/** Apply a combined order while dropping identities the merge did not keep. */
+function assignCombinedOrder(project: Project, conflictItem: MergeConflict, order: string[]): void {
+  if (conflictItem.fieldGroup === 'trackIds') {
+    const sequence = project.sequences.find(({ id }) => id === conflictItem.entityId);
+    if (!sequence) throw new Error(`Cannot combine order for missing sequence ${conflictItem.entityId}`);
+    const valid = project.tracks.filter(({ sequenceId }) => sequenceId === sequence.id).map(({ id }) => id);
+    sequence.trackIds = order.filter((id) => valid.includes(id));
+    for (const id of valid) if (!sequence.trackIds.includes(id)) sequence.trackIds.push(id);
+    return;
+  }
+  const track = project.tracks.find(({ id }) => id === conflictItem.entityId);
+  if (!track) throw new Error(`Cannot combine order for missing track ${conflictItem.entityId}`);
+  const valid = itemsOf(project).filter((item) => item.trackId === track.id).map(({ id }) => id);
+  track.itemIds = order.filter((id) => valid.includes(id));
+  for (const id of valid) if (!track.itemIds.includes(id)) track.itemIds.push(id);
+}
+
+/** Keep both takes by giving the incoming item a fresh identity next to the current one. */
+function applyDuplicate(project: Project, conflictItem: MergeConflict, incoming: unknown): void {
+  if (conflictItem.entityType === 'project' || conflictItem.entityType === 'sequence'
+    || conflictItem.entityType === 'track' || conflictItem.entityType === 'asset') {
+    throw new Error(`Cannot keep both ${conflictItem.entityType}s`);
+  }
+  const items = entityCollection(project, conflictItem.entityType);
+  const current = items.find(({ id }) => id === conflictItem.entityId);
+  if (!current) throw new Error(`Cannot keep both: ${conflictItem.entityType} ${conflictItem.entityId} is missing`);
+  const duplicate = conflictItem.fieldGroup === 'entity'
+    ? clone(incoming as Entity)
+    : { ...clone(current), [conflictItem.fieldGroup]: clone(incoming) };
+  duplicate.id = duplicateId(conflictItem.id);
+  const trackId = typeof duplicate.trackId === 'string'
+    && project.tracks.some(({ id }) => id === duplicate.trackId)
+    ? String(duplicate.trackId)
+    : String(current.trackId);
+  duplicate.trackId = trackId;
+  items.push(duplicate);
+  const track = project.tracks.find(({ id }) => id === trackId);
+  if (!track) throw new Error(`Cannot keep both: track ${trackId} is missing`);
+  const after = track.itemIds.indexOf(conflictItem.entityId);
+  track.itemIds.splice(after >= 0 ? after + 1 : track.itemIds.length, 0, duplicate.id);
+}
+
+function applyCombination(project: Project, conflictItem: MergeConflict): void {
+  const plan = combinePlan(conflictItem, projectRate(project));
+  switch (plan.kind) {
+    case 'value':
+      applyResolution(project, conflictItem, plan.value, 'manual');
+      return;
+    case 'survivor':
+      applyResolution(project, conflictItem, plan.value, conflictItem.ours === null ? 'theirs' : 'ours');
+      return;
+    case 'order':
+      assignCombinedOrder(project, conflictItem, plan.order);
+      return;
+    case 'duplicate':
+      applyDuplicate(project, conflictItem, plan.value);
+      return;
+    default:
+      throw new Error(`Cannot keep both sides: ${plan.summary}`);
+  }
+}
+
 export function resolveMerge(result: MergeResult, resolutions: ConflictResolution[]): MergeResult {
   const provisional = clone(result.provisional);
   const byId = new Map(result.conflicts.map((item) => [item.id, item]));
@@ -303,6 +371,11 @@ export function resolveMerge(result: MergeResult, resolutions: ConflictResolutio
   for (const resolution of resolutions) {
     const item = byId.get(resolution.conflictId);
     if (!item) continue;
+    if (resolution.choice === 'both') {
+      applyCombination(provisional, item);
+      resolved.add(item.id);
+      continue;
+    }
     const value = resolution.choice === 'manual'
       ? resolution.value
       : item[resolution.choice];
