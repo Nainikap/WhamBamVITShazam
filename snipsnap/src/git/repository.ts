@@ -270,7 +270,7 @@ export class GitRepository {
   async history(limit = 100): Promise<CommitInfo[]> {
     const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
     const format = '%H%x00%P%x00%an <%ae>%x00%aI%x00%s%x1e';
-    const output = await runGit(this.path, ['log', '--all', `--max-count=${safeLimit}`, `--format=${format}`]);
+    const output = await runGit(this.path, ['log', '--all', '--topo-order', `--max-count=${safeLimit}`, `--format=${format}`]);
     return output.stdout.split('\x1e').map((record) => record.trim()).filter(Boolean).map((record) => {
       const [id, parents = '', author = '', authoredAt = '', message = ''] = record.split('\0');
       if (!id) throw new Error('Git returned an invalid history record');

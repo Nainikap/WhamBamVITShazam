@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { z } from 'zod';
@@ -15,7 +15,13 @@ import {
   type ConflictResolution,
   type MergeResult,
 } from '../merge';
-import { buildPreviewPlan, type PreviewPlan, type PreviewMediaAvailability } from '../preview';
+import {
+  buildPreviewPlan,
+  buildTimelineDiff,
+  type PreviewPlan,
+  type PreviewMediaAvailability,
+  type TimelineDiff,
+} from '../preview';
 import { atomicWriteJson, readJson } from './storage';
 import {
   PendingSyncSchema,
@@ -94,6 +100,40 @@ export interface ProjectSummary {
   name: string;
 }
 
+/** Everything the dashboard shows about a video project without opening it. */
+export interface ProjectOverview {
+  id: string;
+  name: string;
+  path: string;
+  branch: string;
+  headCommit: string;
+  headMessage: string;
+  headAuthoredAt: string;
+  updatedAt: string;
+  commitCount: number;
+  branchCount: number;
+  state: 'clean' | 'staged' | 'uncommitted' | 'resolve-pending';
+  changeCount: number;
+  fps: number;
+  width: number;
+  height: number;
+  durationFrames: number;
+  trackCounts: { video: number; audio: number; caption: number };
+  clipCount: number;
+  sourceFileName: string | null;
+  sourceState: SourceSyncStatus['state'];
+  poster: { mediaUrl: string; sourceStart: number; fps: number } | null;
+  missingMedia: number;
+}
+
+/** Two committed timelines side by side, with the lane-level differences between them. */
+export interface TimelineComparison {
+  base: { commit: CommitInfo; plan: PreviewPlan };
+  head: { commit: CommitInfo; plan: PreviewPlan };
+  diff: TimelineDiff;
+  hunks: SemanticHunk[];
+}
+
 export interface SourceSyncStatus {
   connected: boolean;
   fileName?: string;
@@ -126,6 +166,8 @@ export interface RevisionDetails {
 
 export interface ProjectStatus {
   project: Project;
+  /** Where this project's repository and workspace live on disk. */
+  path: string;
   workspaceVersion: number;
   branch: string;
   headCommit: string;
@@ -337,6 +379,7 @@ export class ProjectService {
     ]);
     return {
       project: workspace.working,
+      path: this.projectRoot(projectId),
       workspaceVersion: workspace.version,
       branch,
       headCommit,
@@ -782,6 +825,102 @@ export class ProjectService {
     const commitId = await repository.resolve(revision);
     const mediaLinks = await this.readMediaLinks(projectId);
     return { commitId, contents: exportOtio(await repository.readSnapshot(commitId), { mediaLinks }) };
+  }
+
+  private async overviewUnlocked(projectId: string): Promise<ProjectOverview> {
+    const status = await this.statusUnlocked(projectId);
+    const availability = await this.previewAvailability(projectId, status.project);
+    const plan = buildPreviewPlan(
+      status.project,
+      status.branch,
+      status.headCommit,
+      projectDigest(status.project),
+      availability,
+    );
+    const head = status.history.find(({ id }) => id === status.headCommit);
+    let workspaceModifiedAt = head?.authoredAt ?? new Date(0).toISOString();
+    try {
+      workspaceModifiedAt = (await stat(this.workspacePath(projectId))).mtime.toISOString();
+    } catch {
+      // A missing workspace file simply leaves the commit time as the last activity.
+    }
+    const poster = plan.segments.find((segment) => segment.kind === 'clip' && segment.available && segment.mediaUrl);
+    const state: ProjectOverview['state'] = status.source.pending ? 'resolve-pending'
+      : status.unstaged.length > 0 ? 'uncommitted'
+        : status.staged.length > 0 ? 'staged' : 'clean';
+
+    return {
+      id: projectId,
+      name: status.project.name,
+      path: this.projectRoot(projectId),
+      branch: status.branch,
+      headCommit: status.headCommit,
+      headMessage: head?.message ?? '',
+      headAuthoredAt: head?.authoredAt ?? workspaceModifiedAt,
+      updatedAt: [head?.authoredAt, workspaceModifiedAt]
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .at(-1) ?? workspaceModifiedAt,
+      commitCount: status.history.length,
+      branchCount: status.branches.length,
+      state,
+      changeCount: status.staged.length + status.unstaged.length + (status.source.pending?.changeCount ?? 0),
+      fps: plan.fps,
+      width: plan.width,
+      height: plan.height,
+      durationFrames: plan.totalFrames,
+      trackCounts: {
+        video: plan.tracks.filter(({ kind }) => kind === 'video').length,
+        audio: plan.tracks.filter(({ kind }) => kind === 'audio').length,
+        caption: plan.tracks.filter(({ kind }) => kind === 'caption').length,
+      },
+      clipCount: status.project.clips.length,
+      sourceFileName: status.source.fileName ?? null,
+      sourceState: status.source.state,
+      poster: poster?.mediaUrl
+        ? { mediaUrl: poster.mediaUrl, sourceStart: poster.sourceStart, fps: plan.fps }
+        : null,
+      missingMedia: plan.missingAssets.length,
+    };
+  }
+
+  async overview(projectId: string): Promise<ProjectOverview> {
+    return this.mutex.run(projectId, async () => this.overviewUnlocked(projectId));
+  }
+
+  /** Dashboard listing, most recently worked on first. */
+  async listProjectOverviews(): Promise<ProjectOverview[]> {
+    const summaries = await this.listProjects();
+    const overviews: ProjectOverview[] = [];
+    for (const summary of summaries) overviews.push(await this.overview(summary.id));
+    return overviews.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  /** Build the split comparison between two immutable commits. */
+  async compareTimelines(projectId: string, baseRevision: string, headRevision: string): Promise<TimelineComparison> {
+    const repository = this.repository(projectId);
+    const [baseCommit, headCommit] = await Promise.all([
+      repository.resolve(baseRevision),
+      repository.resolve(headRevision),
+    ]);
+    const [baseInfo, headInfo, baseSnapshot, headSnapshot] = await Promise.all([
+      repository.commitInfo(baseCommit),
+      repository.commitInfo(headCommit),
+      repository.readSnapshot(baseCommit),
+      repository.readSnapshot(headCommit),
+    ]);
+    const [baseAvailability, headAvailability] = await Promise.all([
+      this.previewAvailability(projectId, baseSnapshot),
+      this.previewAvailability(projectId, headSnapshot),
+    ]);
+    const basePlan = buildPreviewPlan(baseSnapshot, baseCommit, baseCommit, projectDigest(baseSnapshot), baseAvailability);
+    const headPlan = buildPreviewPlan(headSnapshot, headCommit, headCommit, projectDigest(headSnapshot), headAvailability);
+    return {
+      base: { commit: baseInfo, plan: basePlan },
+      head: { commit: headInfo, plan: headPlan },
+      diff: buildTimelineDiff(basePlan, headPlan),
+      hunks: semanticDiff(baseSnapshot, headSnapshot),
+    };
   }
 
   async verify(projectId: string): Promise<void> {

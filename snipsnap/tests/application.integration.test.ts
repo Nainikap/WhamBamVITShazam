@@ -24,6 +24,78 @@ describe('V1 project workflow', () => {
     return service.stage(projectId, status.unstaged.map(({ id }) => id), status.indexDigest);
   }
 
+  it('summarises every project for the dashboard, most recently worked on first', async () => {
+    const older = createDemoProject('Older Cut');
+    const newer = createDemoProject('Newer Cut');
+    await service.createProject(older);
+    await service.createProject(newer);
+    const status = await service.status(newer.id);
+    const clip = newer.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    await service.edit(newer.id, { type: 'setClipPreset', clipId: clip.id, preset: 'warm' }, status.workspaceVersion);
+
+    const overviews = await service.listProjectOverviews();
+    expect(overviews.map(({ name }) => name)).toEqual(['Newer Cut', 'Older Cut']);
+    const [latest, previous] = overviews;
+    expect(latest).toMatchObject({
+      branch: 'main',
+      state: 'uncommitted',
+      changeCount: 1,
+      fps: 24,
+      width: 1920,
+      height: 1080,
+      durationFrames: 504,
+      commitCount: 1,
+      branchCount: 1,
+      trackCounts: { video: 1, audio: 1, caption: 1 },
+    });
+    expect(latest?.path).toContain(newer.id);
+    expect(latest?.poster).toBeNull();
+    expect(latest?.missingMedia).toBe(3);
+    expect(previous?.state).toBe('clean');
+    expect(previous?.changeCount).toBe(0);
+  });
+
+  it('compares two commits into playable plans and highlighted lane differences', async () => {
+    const project = createDemoProject();
+    await service.createProject(project);
+    const clip = project.clips[0];
+    const voice = project.clips.find(({ name }) => name === 'Interview VO');
+    if (!clip || !voice) throw new Error('Fixture clips missing');
+    const first = await service.status(project.id);
+    let status = await service.edit(project.id, { type: 'trimClip', clipId: clip.id, start: 0, duration: 96 }, first.workspaceVersion);
+    status = await service.edit(project.id, { type: 'setClipGain', clipId: voice.id, gainDb: -9 }, status.workspaceVersion);
+    status = await stageAll(project.id);
+    status = await service.commit(project.id, 'Tighten the intro', status.headCommit);
+
+    const comparison = await service.compareTimelines(project.id, first.headCommit, status.headCommit);
+    expect(comparison.base.commit.id).toBe(first.headCommit);
+    expect(comparison.head.commit.id).toBe(status.headCommit);
+    expect(comparison.base.plan.totalFrames).toBe(504);
+    expect(comparison.head.plan.totalFrames).toBe(504);
+
+    const video = comparison.diff.tracks.find(({ kind }) => kind === 'video');
+    const audio = comparison.diff.tracks.find(({ kind }) => kind === 'audio');
+    expect(video?.segments[0]).toMatchObject({ change: 'modified', timingChanged: true });
+    expect(video?.segments[1]).toMatchObject({ change: 'modified', changedFields: ['position'] });
+    expect(audio?.segments.find(({ name }) => name === 'Interview VO')).toMatchObject({
+      change: 'modified',
+      changedFields: ['gain'],
+      timingChanged: false,
+    });
+    expect(comparison.hunks.length).toBeGreaterThan(0);
+  });
+
+  it('refuses a commit that would repeat the latest version', async () => {
+    const project = createDemoProject();
+    await service.createProject(project);
+    const status = await service.status(project.id);
+
+    expect(status.staged).toHaveLength(0);
+    await expect(service.commit(project.id, 'Nothing changed', status.headCommit)).rejects.toThrow(/Nothing is staged/u);
+    expect((await service.status(project.id)).history).toHaveLength(1);
+  });
+
   it('keeps HEAD, INDEX, and WORKING distinct and commits only staged hunks', async () => {
     const project = createDemoProject();
     await service.createProject(project);

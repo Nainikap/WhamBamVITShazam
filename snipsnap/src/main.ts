@@ -80,6 +80,7 @@ function registerApplicationProtocol(): void {
 
 function registerIpc(): void {
   ipcMain.handle(channels.listProjects, () => projects.listProjects());
+  ipcMain.handle(channels.listOverviews, () => projects.listProjectOverviews());
   ipcMain.handle(channels.createDemo, async () => {
     const name = `Launch Cut ${new Date().toISOString().replace(/[:.]/gu, '-')}`;
     return projects.createProject(createDemoProject(name), 'Create demo timeline');
@@ -121,6 +122,7 @@ function registerIpc(): void {
   ipcMain.handle(channels.restoreRevision, (_event, projectId, revision, version, discard) => projects.restoreRevisionToWorking(projectId, revision, version, discard));
   ipcMain.handle(channels.revisionDetails, (_event, projectId, revision, parentIndex) => projects.revisionDetails(projectId, revision, parentIndex));
   ipcMain.handle(channels.compare, (_event, projectId, base, head) => projects.compare(projectId, base, head));
+  ipcMain.handle(channels.compareTimelines, (_event, projectId, base, head) => projects.compareTimelines(projectId, base, head));
   ipcMain.handle(channels.merge, (_event, projectId, target, source) => projects.merge(projectId, target, source));
   ipcMain.handle(channels.resolveConflict, (_event, projectId, sessionId, resolution) => projects.resolveConflict(projectId, sessionId, resolution));
   ipcMain.handle(channels.completeMerge, (_event, projectId, sessionId) => projects.completeMerge(projectId, sessionId));

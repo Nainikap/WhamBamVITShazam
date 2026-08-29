@@ -3,6 +3,7 @@ import { channels, type SnipSnapApi } from './ipc';
 
 const api: SnipSnapApi = {
   listProjects: () => ipcRenderer.invoke(channels.listProjects),
+  listOverviews: () => ipcRenderer.invoke(channels.listOverviews),
   createDemo: () => ipcRenderer.invoke(channels.createDemo),
   importOtio: () => ipcRenderer.invoke(channels.importOtio),
   status: (projectId) => ipcRenderer.invoke(channels.status, projectId),
@@ -24,6 +25,7 @@ const api: SnipSnapApi = {
   restoreRevision: (projectId, revision, expectedVersion, discardChanges) => ipcRenderer.invoke(channels.restoreRevision, projectId, revision, expectedVersion, discardChanges),
   revisionDetails: (projectId, revision, parentIndex) => ipcRenderer.invoke(channels.revisionDetails, projectId, revision, parentIndex),
   compare: (projectId, base, head) => ipcRenderer.invoke(channels.compare, projectId, base, head),
+  compareTimelines: (projectId, base, head) => ipcRenderer.invoke(channels.compareTimelines, projectId, base, head),
   merge: (projectId, target, source) => ipcRenderer.invoke(channels.merge, projectId, target, source),
   resolveConflict: (projectId, sessionId, resolution) => ipcRenderer.invoke(channels.resolveConflict, projectId, sessionId, resolution),
   completeMerge: (projectId, sessionId) => ipcRenderer.invoke(channels.completeMerge, projectId, sessionId),

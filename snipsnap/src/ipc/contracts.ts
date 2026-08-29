@@ -1,9 +1,19 @@
-import type { ProjectStatus, ProjectSummary, MergeOutcome, MergeSession, RevisionDetails, SourceScanResult } from '../application';
+import type {
+  MergeOutcome,
+  MergeSession,
+  ProjectOverview,
+  ProjectStatus,
+  ProjectSummary,
+  RevisionDetails,
+  SourceScanResult,
+  TimelineComparison,
+} from '../application';
 import type { SemanticHunk } from '../diff';
 import type { ConflictResolution } from '../merge';
 
 export const channels = {
   listProjects: 'projects:list',
+  listOverviews: 'projects:overviews',
   createDemo: 'projects:create-demo',
   importOtio: 'projects:import-otio',
   status: 'projects:status',
@@ -21,6 +31,7 @@ export const channels = {
   restoreRevision: 'projects:restore-revision',
   revisionDetails: 'projects:revision-details',
   compare: 'projects:compare',
+  compareTimelines: 'projects:compare-timelines',
   merge: 'projects:merge',
   resolveConflict: 'projects:resolve-conflict',
   completeMerge: 'projects:complete-merge',
@@ -32,6 +43,7 @@ export const channels = {
 
 export interface SnipSnapApi {
   listProjects(): Promise<ProjectSummary[]>;
+  listOverviews(): Promise<ProjectOverview[]>;
   createDemo(): Promise<ProjectSummary>;
   importOtio(): Promise<(ProjectSummary & { unsupportedCount: number }) | null>;
   status(projectId: string): Promise<ProjectStatus>;
@@ -49,6 +61,7 @@ export interface SnipSnapApi {
   restoreRevision(projectId: string, revision: string, expectedVersion: number, discardChanges: boolean): Promise<ProjectStatus>;
   revisionDetails(projectId: string, revision: string, parentIndex?: number): Promise<RevisionDetails>;
   compare(projectId: string, base: string, head: string): Promise<SemanticHunk[]>;
+  compareTimelines(projectId: string, base: string, head: string): Promise<TimelineComparison>;
   merge(projectId: string, target: string, source: string): Promise<MergeOutcome>;
   resolveConflict(projectId: string, sessionId: string, resolution: ConflictResolution): Promise<MergeSession>;
   completeMerge(projectId: string, sessionId: string): Promise<ProjectStatus>;
