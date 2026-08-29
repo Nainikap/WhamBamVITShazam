@@ -1,6 +1,6 @@
 # VideoGit V1/V1.5 implementation status
 
-> Updated: 2026-08-29
+> Updated: 2026-08-30
 >
 > This is an evidence map, not a replacement for the authoritative
 > [`VideoGit_Engineering_Plan.md`](./VideoGit_Engineering_Plan.md). The implementation is in
@@ -18,8 +18,10 @@ React/Zustand renderer
   -> canonical model / OTIO / semantic diff / three-way merge / native Git
 ```
 
-SnipSnap contains no video-editing controls. Resolve remains the editor. A connected OTIO export
-is watched and imported as a validated pending update; commits are previewed from locally linked,
+SnipSnap contains no video-editing controls. Resolve remains the editor. The save bridge observes
+Resolve's persisted `lastModifiedDate`, atomically exports once per distinct save marker, and makes
+only the newest validated snapshot WORKING. `HEAD -> WORKING` is shown as separate semantic hunks;
+only an explicit SnipSnap commit creates history. Manual OTIO watching remains a fallback. Commits are previewed from locally linked,
 browser-compatible media through a restricted Electron protocol. There is no Fastify server,
 managed media CAS, FFmpeg proxy worker, SQLite queue, hosted auth, or cross-NLE adapter. Those
 remain V2 work.
@@ -37,7 +39,7 @@ remain V2 work.
 | Distinct HEAD / INDEX / WORKING snapshots | HEAD is read from a commit, semantic INDEX is the real Git index, WORKING is atomically persisted application state | selective-stage integration test proves a commit contains only one of two working edits | Automated |
 | Semantic status and atomic staging | `src/diff/` emits stable-ID hunks for trims, ranges, fields, entities, and order; hunk IDs bind the base digest | diff/command unit tests cover selective staging, atomic trim/order, and stale hunk rejection | Automated |
 | No in-app video editing | renderer contains only Resolve sync, review, staging, history, branch, export, and preview controls; the legacy pure command reducer remains headless test/merge support and is not exposed over preload | typecheck plus packaged Electron journeys | Automated |
-| Resolve OTIO change detection | application source binding, directory watcher, debounce, content digest, pending candidate, identity reconciliation, explicit apply/dismiss, and stale-workspace guard | source-sync unit tests, watcher integration, invalid/partial export and branch-specific application integration | Automated |
+| Resolve save synchronization | a supervised Python bridge polls only Resolve's persisted save marker (not edit events), atomically hands off one OTIO per new marker, validates JSON-line events, replaces latest WORKING without moving HEAD/INDEX, and exposes cumulative `HEAD -> WORKING` hunks; manual OTIO watch/apply remains a fallback | save-bridge unit/process integration, multi-hunk application integration, source-sync fallback tests | Automated except live Resolve gate |
 | Conservative field-level three-way merge | `src/merge/` implements one-sided, same-value, different-field, same-field, delete/modify, order, and whole-project validation rules | unit/property tests cover independent edits, same-field choice, delete/modify restoration, incompatible order, and invalid combined timing | Automated |
 | Persisted conflict resolution, validation gate, and safe abort | atomic merge-session files store immutable base/parent IDs and provisional state; complete uses target-ref CAS | application integration and Electron E2E conflict flow | Automated |
 | Dirty checkout guard and restart safety | checkout requires no pending Resolve candidate, staged changes, or working changes unless explicitly discarded; workspace/index/head validate after restart | application integration tests | Automated |
@@ -74,16 +76,16 @@ The test layers deliberately prove different things:
 
 ## Honest validation boundary
 
-DaVinci Resolve and representative camera codecs are not installed in the automated environment.
-Therefore this repository does not claim that a live Resolve export or every codec has been
-previewed. The checked OTIO fixture is synthetic and generated files are accepted by official
+Representative camera codecs are not available in the automated gate. The checked fixtures include
+synthetic and sanitized Resolve-shaped exports, but the suite does not claim every Resolve build or codec has been
+previewed. Generated files are accepted by official
 OpenTimelineIO 0.18.1. Before calling V1.5 release-ready, run this manual gate:
 
-1. Export a timeline containing multiple tracks, clips, and gaps from the supported Resolve
-   version.
-2. Import it into SnipSnap and inspect the explicit unsupported-content count.
-3. Change the timeline in Resolve, overwrite the connected export, confirm automatic detection,
-   selectively stage, commit, and inspect the commit's semantic parent diff.
+1. Open a timeline containing multiple tracks, clips, and gaps in the supported Resolve version.
+2. Start save sync in SnipSnap, save the Resolve project once, and confirm the bridge reports the
+   correct project/timeline without requiring a manually named OTIO file.
+3. Change at least two supported fields, save once, and confirm WORKING automatically shows two or
+   more cumulative `HEAD -> WORKING` hunks while HEAD and INDEX remain unchanged.
 4. Relink representative MP4/MOV media and verify seek, ordered playback, missing-media recovery,
    and switching between at least two historical commit previews.
 5. Create a branch from an old commit, export that immutable commit, import it into Resolve, and compare clip order plus source
@@ -94,6 +96,10 @@ OpenTimelineIO 0.18.1. Before calling V1.5 release-ready, run this manual gate:
 OTIO core has no portable caption schema. V1 preserves SnipSnap captions through namespaced OTIO
 metadata and tests that semantic round trip, but it does not claim that Resolve recreates native
 caption objects. That fidelity must remain explicit rather than silently advertised.
+
+Resolve's scripting/OTIO APIs also do not expose a portable, complete Color-page node graph. Color
+grades are therefore reported as unsupported rather than falsely versioned; supported editorial,
+audio, transition, marker, metadata, and caption fields produce independent semantic hunks.
 
 ## Storage and security notes
 

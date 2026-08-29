@@ -36,6 +36,18 @@ python3 resolve/SnipSnapSync.py --watch 15  # keep exporting every 15 seconds
 `--all` loads each project in turn and restores the one you started on, so run it
 between edits rather than during one.
 
+## Live save sync
+
+Open a versioned project in SnipSnap and press **Start save sync**. SnipSnap launches
+`SnipSnapSaveBridge.py`, which observes only Resolve's persisted `lastModifiedDate`.
+It does not debounce individual edits and it does not export on a timer. Each distinct
+project save causes one atomic OTIO handoff; the newest saved timeline replaces SnipSnap
+WORKING, while HEAD and the staging index remain unchanged.
+
+External scripting must be enabled for this mode. In Resolve choose **Preferences ›
+System › General › External scripting using: Local**. Manual OTIO file connection remains
+available in the editor if the installed Resolve edition blocks external scripting.
+
 Scripting must be enabled in Resolve: **Preferences › System › General › External
 scripting using** set to `Local`.
 
