@@ -1,9 +1,8 @@
 # VideoGit — End-to-End Robust System Architecture
 ## V1: GitHub for DaVinci (Single-Platform Version Control) → V2: Cross-Platform Universal Hub
 
-> **Status:** Build-ready blueprint. Synthesized from `VideoGit_Feature_Implementation_Guide.docx` (purpose + core decisions + full workflow `Guide:012-019`) + competitive research (OTIO, AAF/EDL/XML, Frame.io/Postlab/Vit/VideoFlow).  
-> **Pipeline you defined:** **V1** = all GitHub functionality on a single NLE (DaVinci as primary). **V2** = cross-platform exchange + remainder specs.  
-> **This doc fixes the missed intermediary steps** — auth, clone/push, PR lifecycle, relink, recovery, protection, observability, DaVinci sync — so the system is robust, not just screens.
+> **Status:** V1-to-V2 roadmap. `VideoGit_Engineering_Plan.md` is the authoritative V1 implementation plan and wins if the documents conflict.
+> **V1:** focused local DaVinci timeline version control. **V2:** companion HTTP API, media services, cross-NLE exchange, and hosted collaboration.
 
 ---
 
@@ -11,7 +10,7 @@
 
 ### Platform Verdict: **Standalone Desktop Hybrid — NOT a Chrome Extension, NOT a DaVinci-only Plugin**
 
-**Choice:** **Electron-wrapped Web App (React/Vite frontend + Node/Fastify backend) with DaVinci Companion Script.**
+**Choice:** **Electron desktop app (React/Vite renderer + typed preload IPC + Node main process).** A Fastify adapter and DaVinci companion script are optional V2 integrations over the same application services.
 
 *   **Why not Chrome Extension?** No file system, cannot spawn `Git`/`FFmpeg`/`ffprobe` with arg arrays `Guide:201`, cannot handle GB media, no DaVinci API access, sandbox kills SSE + SQLite + CAS. Rejected outright. Useful only for future "comment overlay" — not for V1.
 *   **Why not plugin-only (Resolve Panel / Fusion Script / Workflow Integration)?**
@@ -19,48 +18,47 @@
     *   Plugin cannot own Git repo, SQLite WAL, or FFmpeg sandbox safely; debugging is painful; locks you to Blackmagic release cycle.
     *   Engineering Plan explicitly chose **C1 Standalone React/Vite** over **C2 NLE panel** for NLE-agnostic & portable `Engineering Plan axes C`. V2 would require rewriting for Premiere.
     *   Hybrid avoids the trap: core stays portable, DaVinci sync is a thin companion.
-*   **Why Electron Hybrid wins:**
-    *   `Guide` stack is already web-native: React/Vite/TS + Fastify + Zod + native Git CLI + FFmpeg + SQLite WAL + SSE + Pino `Guide:028-056`. Electron just packages that local backend for offline, file system, and atomic moves. Same codebase runs headless on ECS/S3/Postgres for hosted `Guide:246`.
-    *   DaVinci integration via **file watch + OTIO/FCPXML + one-click Python script** (`Workspace > Scripts > VideoGit Sync`) — user cuts in Resolve, hits Sync, Hub ingests/exports. No reverse-engineering `.drp`.
+*   **Why Electron wins:**
+    *   The sandboxed React renderer stays portable while Electron main owns Node filesystem, crypto, Git subprocesses, file dialogs, and atomic writes.
+    *   Local V1 imports and exports OTIO through file dialogs. A later companion script can call an optional localhost adapter without changing domain or application services.
     *   Installer friction < plugin review friction. Auto-update via Electron updater. V2: add `adapters/premiere` without new plugin.
 
 **Delivery:**
-*   **V1 local:** `VideoGit.app` (Electron) = bundled `fastify` + `git` + pinned `ffmpeg` + local CAS folder + SQLite file. Opens `http://localhost:<port>` in Electron WebView.
-*   **V1 hosted (optional):** Same backend container on ECS, S3 for CAS, Postgres for jobs.
-*   **DaVinci companion:** `videogit_sync.py` copied to `.../DaVinci Resolve/Fusion/Scripts/Comp/` — calls `POST /api/ingest/otio` and `GET /api/export/otio`.
+*   **V1 local:** `VideoGit.app` uses typed IPC and native Git. Footage remains external; the app stores canonical timeline snapshots and exports OTIO.
+*   **V2 local integration:** optional Fastify localhost adapter plus `videogit_sync.py`.
+*   **V2 hosted:** backend container, Postgres operational state, object storage, workers, and authentication.
 
 ### Tech Stack (Final)
 
 | Layer | Choice | Why (ties to Guide) |
 |---|---|---|
 | **App shell** | **Electron 30 + Vite + React 18 + TypeScript 5 strict** | Guide: `React, Vite, TypeScript` for fast typed timeline `Guide:029`. Electron gives file system + spawn without browser sandbox. |
-| **Client state** | **TanStack Query (server) + Zustand (local timeline/selection)** | Guide: exact split `Guide:032`. Query handles job polling + SSE cache. |
+| **Client state** | **Zustand for V1; TanStack Query with the V2 HTTP adapter** | V1 state follows IPC commands; V2 query state handles jobs and SSE-backed resources. |
 | **Styling** | Tailwind + shadcn/ui | Timeline scrubber, diff cards, conflict resolver need dense UI primitives. |
-| **API** | **Node 20 + Fastify 4** | Guide: TS integration + streaming `Guide:035`. |
+| **Local API** | **Typed Electron preload + IPC** | Keeps Node capabilities out of the renderer without adding a localhost server. |
 | **Validation** | **Zod 3 (single source)** | Guide: same schemas for commands, tracked state, merge, render `Guide:038`. |
-| **Version control** | **Native Git CLI via `child_process.spawn` arg arrays, shell disabled** | Guide: real commits/branches/tags/refs/index/merge-base/two-parent `Guide:041`. Atomic `update-ref --expected-old-oid` for CAS. |
-| **Media** | **FFmpeg 6 pinned + ffprobe, allowlisted filter compiler** | Guide: `Guide:047`. Server owns filter graph, not user text `Guide:088`. |
-| **Storage (mutable)** | **SQLite WAL (V1 local) → Postgres 15 (hosted)** via **Prisma** | Guide: SQLite WAL for single-node `Guide:044`. Abstract via repo interface so `Guide:246` switch is config. |
-| **Storage (media)** | **SHA-256 Content-Addressed Store** on FS → **S3/MinIO** | Guide: `SHA-256 CAS, one object per unique asset, independent of branches` `Guide:050`. S3-swappable. |
-| **Queue/worker** | **In-process worker + SQLite leases (V1) → BullMQ/SQS (V2)** | Guide: durable job rows, lease claim `Guide:186`. |
-| **Realtime** | **SSE** (Fastify `event-source`) | Guide: simple one-way progress `Guide:053`, no WS needed v1. |
+| **Version control** | **Native Git CLI via `child_process.spawn` arg arrays, shell disabled** | Guide: real commits/branches/tags/refs/index/merge-base/two-parent `Guide:041`. Atomic `update-ref <ref> <new-oid> <expected-old-oid>` for CAS. |
+| **External API (V2)** | **Fastify localhost/hosted adapter** | Needed only by a companion script, CLI, or remote client. |
+| **Media/render (V2)** | **SHA-256 CAS + pinned FFmpeg/ffprobe** | Added when in-app proxy, preview, or render is in scope. |
+| **Operational storage (V2)** | **SQLite WAL → Postgres** | Jobs and merge sessions only; Git remains timeline history. |
+| **Queue/realtime (V2)** | **Worker leases + SSE** | Added with media processing or hosted clients. |
 | **Logging** | **Pino + correlation IDs** | Guide: `Guide:210` — project/commit/job/Git cmd/FFmpeg exit without leaking paths. |
 | **Testing** | **Vitest + fast-check + Playwright** | Guide: `Guide:056` — property-based diff/merge + browser E2E. |
-| **Auth (new)** | **OIDC (hosted) / OS keychain token (local)** + JWT 15m + httpOnly refresh | Missed in Guide — needed for GitHub-like perms. |
-| **Packaging** | Electron Builder + pinned ffmpeg static build | Reproducible `Guide:181` |
+| **Auth (V2 hosted)** | **OIDC + short-lived access tokens** | Not required for the single-user IPC-only V1. |
+| **Packaging** | Electron Forge | Package the IPC-based desktop app; add a pinned FFmpeg build only with V2 rendering. |
 
-> **Rule:** Any new technology must not replace Zod/Git/FFmpeg/CAS core. Surrounding tech stays boring so domain model + merge behavior stays testable `Guide:024`.
+> **Rule:** Zod schemas, canonical serialization, native Git ancestry, and pure semantic diff/merge are the stable core. V2 services must wrap this core rather than replace it.
 
 ---
 
 ## 1. Goals & Non-Goals
 
-### V1: GitHub for DaVinci — Version Everything, Lose Nothing
-**Goal:** Prove separate edits on *one NLE* (DaVinci) can be **committed, branched, compared, merged, conflict-resolved, and exported** with GitHub-grade guarantees. Offline, restart-safe, byte-pinned.
+### V1: Core Git workflow for DaVinci
+**Goal:** Prove that Resolve OTIO timelines can be imported, semantically diffed, staged, committed, branched, checked out, merged, conflict-resolved, and exported accurately. V1 does not attempt every GitHub product feature.
 
-**Full GitHub feature map for video (what "all functionality of GitHub" means):**
+**Roadmap feature map:** Core commit/branch/status/stage/history/checkout/merge capabilities are V1. Review, remotes, protected branches, render jobs, issues, notifications, and hosted permissions are V2.
 
-| GitHub concept | VideoGit V1 mapping | Guide anchor |
+| GitHub concept | VideoGit roadmap mapping | Guide anchor |
 |---|---|---|
 | Repository | DaVinci Project (≈ one timeline + asset set) | `Guide:069-075` canonical JSON |
 | Clone / Fork | `Import DaVinci export (OTIO/FCPXML) → canonical → Git repo` | `Guide:061-068` ingest |
@@ -81,7 +79,7 @@
 | Issues | Deferred to V2 (post house review) — not in V1 | `Guide:226` |
 | Notifications | SSE progress + Pino + metrics | `Guide:184-188` |
 
-**Non-goals V1:** Multicam, keyframed effects, nested sequences, live cursors, arbitrary FFmpeg filters, cloud asset transfer, org permissions, review approvals, OTIO full fidelity — explicitly postponed `Guide:222-227` `Engineering Plan`. V1 supports: 1 video track + linked audio, 1 caption track, trim/order, caption text/timing, 1 preset/clip, gain `Guide:021`.
+**Non-goals V1:** Media copying, proxy generation, MP4 rendering, companion HTTP API, SQLite jobs, cross-NLE adapters, hosted collaboration, multicam, keyframed effects, nested sequences, live cursors, cloud transfer, permissions, and full OTIO fidelity. V1 supports the cut-only Resolve OTIO subset defined by the Engineering Plan.
 
 ### V2: Cross-Platform Universal Hub
 **Goal:** Same repo, now with **NLE adapters** (`OTIO` hub + `FCP7 XML` for Premiere + `FCPXML` for Final Cut + optional `AAF/EDL` fallback). Edit in Premiere, merge from Resolve/DaVinci, honest fidelity. Add: relink resolver, hosted infra, protected branches, team roles.
@@ -89,6 +87,8 @@
 ---
 
 ## 2. System Overview
+
+The following diagram is the **V2 target architecture**. Local V1 contains only the Resolve OTIO adapter, canonical model, Git service, semantic diff/merge, Electron IPC boundary, and React UI.
 
 ```mermaid
 flowchart TB
@@ -100,7 +100,7 @@ flowchart TB
 
     DAV -- "Sync Script<br/>OTIO + media" --> ADAPTER
 
-    subgraph HUB[VideoGit Hub - Electron + Fastify]
+    subgraph HUB[VideoGit V2 Hub - Electron + optional Fastify]
         ADAPTER[NLE Adapter Layer<br/>pure TS, Rational time<br/>OTIO / xmeml / fcpxml / edl]
         CANON[Canonical Model<br/>Zod + UUID + integer frames<br/>canonical JSON]
         GIT[Git Service<br/>spawn arg arrays<br/>CAS update-ref<br/>merge-base / commit-tree]
@@ -160,13 +160,15 @@ AdapterAnnotation { clipId, field, sourceFormat, fidelity: L0|L1|L2|L3, dropped:
 
 ### 3.2 Git Service (`packages/git-service`) — The Hard Part `Guide:215`
 
-*   **Primitives:** `spawn("git", ["commit-tree", ...], {shell:false})` everywhere `Guide:201`. `write-tree`, `commit-tree`, `update-ref --expected-old-oid`, `merge-base`, `rev-parse`, `for-each-ref`, `log --graph --parents`.
-*   **Repo layout per project:** `<data>/repos/<projectId>/.git/` + `<data>/repos/<projectId>/project.json` (working project copy). Index owns staged state.
-*   **Mutex:** per-project async `Mutex` + CAS `update-ref`. Staging that loses race → `stale` error, client refetches `Guide:103`.
-*   **Atomicity:** `Validate index snapshot → write tree → create commit (parent = HEAD) → CAS update-ref` `Guide:109`. Never move branch on invalid snapshot.
+*   **Primitives:** `spawn("git", ["commit-tree", ...], {shell:false})` everywhere `Guide:201`. `hash-object`, `update-index --cacheinfo`, `write-tree`, `commit-tree`, `update-ref <ref> <new-oid> <expected-old-oid>`, `merge-base`, `rev-parse`, `for-each-ref`, `log --graph --parents`.
+*   **Stored state:** each Git commit contains a complete canonical `timeline.json` snapshot. Semantic diffs are derived by comparing snapshots; Git must never text-merge this file.
+*   **Runtime state:** VideoGit maintains validated canonical `HEAD`, `INDEX`, and `WORKING` snapshots. `diff(HEAD, INDEX)` is staged and `diff(INDEX, WORKING)` is unstaged. Semantic staging applies an atomic hunk to the complete `INDEX` snapshot.
+*   **Repo layout per project:** `<data>/repos/<projectId>/.git/` plus application-owned working state. The semantic `INDEX` is stored as a complete canonical `timeline.json` blob in Git's real `.git/index`, updated programmatically with `hash-object` and `update-index --cacheinfo`.
+*   **Mutex:** per-project async `Mutex` + CAS `update-ref`. A mutation that loses the expected-HEAD race returns a stale-state error.
+*   **Atomicity:** `validate INDEX → serialize canonical timeline → write Git tree → create commit (parent = HEAD) → CAS update-ref`. Never move a branch on an invalid snapshot.
 *   **Merge:** `resolve heads → find merge-base → load base/ours/theirs → pure TS merge → validate provisional → either create tree+2-parent commit or open resolver session in SQLite` `Guide:127-129`.
 
-### 3.3 Media Store (`packages/media-store`) — `Guide:061-068` `Guide:216`
+### 3.3 Media Store (V2) (`packages/media-store`) — `Guide:061-068` `Guide:216`
 
 ```
 CAS layout: <data>/cas/sha256/<aa>/<bb>/<sha256>.ext  (original immutable)
@@ -174,7 +176,7 @@ proxies:     <data>/cas/sha256/<aa>/<bb>/<sha256>.proxy.mp4 (CFR 720p30 H.264 yu
 renders:     <data>/renders/<commitSha>-<profile>-<rendererVer>.mp4 (cache key = commit+profile+assetHashes `Guide:186`)
 ```
 
-*   **Ingest pipeline V1 (DaVinci):** `Resolver export OTIO/FCPXML + media folder → Hub streams upload while SHA-256 hashing → ffprobe rejects unreadable + records duration/dims/fps/codecs → move original to CAS after validation → FFmpeg CFR proxy → verify proxy → AssetDescriptor into working project` `Guide:065`. Dedup before transcode if SHA exists `Guide:066`.
+*   **Ingest pipeline V2:** `Resolve export + media folder → stream and hash → ffprobe → CAS → verified proxy → AssetDescriptor`. Deduplicate before transcoding. V1 stores media references and does not copy footage.
 *   **V2 ingest:** Same pipeline, adapters normalize to canonical first, then CAS.
 
 ### 3.4 Semantic Diff & Hunks (`packages/diff`) — `Guide:093-104` `Guide:123`
@@ -199,7 +201,7 @@ renders:     <data>/renders/<commitSha>-<profile>-<rendererVer>.mp4 (cache key =
 | Combined fails whole validation | **Conflict** | Independent edits → invalid timeline |
 
 *   Validate full provisional timeline after field merges — individually safe ≠ jointly safe.
-*   **Resolver:** stores `{entity, field, type, base, ours, theirs, validationErrors}`. UI offers base/ours/theirs/manual; delete-vs-modify → delete/keep+edit; ordering → drag final order. Each choice → update provisional + re-validate. Completion blocked until zero conflicts and valid `Guide:161`. Abort removes SQLite session, leaves target branch unchanged `Guide:165`. If target moved during resolve → stop & recompute `Guide:166`.
+*   **Resolver:** stores `{entity, field, type, base, ours, theirs, validationErrors}`. UI offers base/ours/theirs/manual; each choice updates and revalidates the provisional timeline. V1 persists this state atomically in application storage; V2 may move it to SQLite. Completion is blocked until the timeline is valid, abort leaves the target unchanged, and a moved target ref forces recomputation.
 
 ### 3.6 Command / Reducer Layer (`packages/commands`)
 
@@ -229,14 +231,14 @@ Portable hub: every NLE has `import(adapterFormat) → canonical` and `export(ca
 
 ---
 
-## 4. DaVinci Integration — V1 Detail (What You Asked: Single Platform = DaVinci)
+## 4. DaVinci Integration — V1 Files, V2 Companion
 
 ### Why DaVinci first (not Premiere)
 *   OTIO native since 18+ (import+export) — one adapter covers V1.
 *   Resolve API script story simpler than Premiere CEP.
 *   Color pipeline complexity actually favors starting with Resolve: if hub normalizes to CFR proxy, color decisions can stay as `preset enum` rather than attempting to port Color page nodes (explicitly excluded `Guide:222-224`).
 
-### Integration architecture (no heavy plugin)
+### Optional V2 integration architecture (no heavy plugin)
 
 ```
 [Resolve] -- File > Export > OTIO (or FCPXML) --> ~/VideoGit/inbox/<project>/*.otio + media/
@@ -246,7 +248,7 @@ Portable hub: every NLE has `import(adapterFormat) → canonical` and `export(ca
    [VideoGit UI — shows DaVinci project + status]
 ```
 
-**Companion Script `tools/resolve_sync.py` (50 lines, Studio + free):**
+**Optional V2 companion script `tools/resolve_sync.py`:**
 ```python
 # Workspace > Scripts > Comp > VideoGit Sync
 # 1. getMediaPool().GetCurrentTimeline().Export(path, "otio") — fallback to fcpxml
@@ -256,7 +258,7 @@ Portable hub: every NLE has `import(adapterFormat) → canonical` and `export(ca
 # Export side: GET /api/projects/:id/export?format=otio&commit=HEAD → download .otio → Fusion Scripts Comp > Import
 ```
 
-**V1 DaVinci workflow (full GitHub flow on one NLE):**
+**V2 companion workflow:**
 1.  Create project in Hub → `videogit_sync.py: Export from Resolve` → Hub ingests OTIO → hashes media → proxy → `working project` = committed `HEAD` initially.
 2.  Edit in Resolve (trim/reorder/captions/gain/preset) → Sync → Hub sees `working` vs `index` vs `HEAD` diff → semantic status `Guide:093`.
 3.  Stage selected hunks in Hub UI, commit with message, branch `feature-grade`, compare two commits with two synced proxy players `Guide:120`.
@@ -267,9 +269,11 @@ Portable hub: every NLE has `import(adapterFormat) → canonical` and `export(ca
 
 ---
 
-## 5. End-to-End Flows (with missed intermediary steps highlighted)
+## 5. V2 HTTP and Media Flows
 
-### 5.1 Import DaVinci Project (V1) — Including points Guide glosses over
+These flows describe the optional Fastify/media layer. Local V1 invokes equivalent timeline application services through Electron IPC and does not upload or proxy media.
+
+### 5.1 Import DaVinci Project Through the V2 Adapter
 
 ```
 User: Resolve > VideoGit Sync
@@ -322,7 +326,7 @@ Resolver loop `Guide:161-163`: POST /api/merge/:id/resolve {choice: base|ours|th
 Tag release `Guide:115`: POST /api/tags {name, commitId, message} → `git tag -a` immutable by default.
 ```
 
-### 5.4 Preview & Export (V1 DaVinci back-sync) + Job Lifecycle
+### 5.4 V2 Preview, Render, and DaVinci Back-Sync
 
 ```
 Preview `Guide:169-175`: GET /api/preview?revision=HEAD|commitId|working 
@@ -330,16 +334,18 @@ Preview `Guide:169-175`: GET /api/preview?revision=HEAD|commitId|working
 
 Export committed revision `Guide:176-183`:
   → POST /api/renders {commitId, profile="720p30"} → BE: resolve commit, validate, confirm all media in CAS, compile RenderIR → allowlisted FFmpeg arg array (shell disabled) → temp file → ffprobe + decode-check (streams/duration) → atomic publish only if pass → notify SSE
-  → Additional V1 back-export: GET /api/export?commitId&format=otio → compile OTIO from canonical + `lossReport` → download .otio (+ BUNDLE zip if requested) → Resolve imports
+  → Companion back-export: GET /api/export?commitId&format=otio → compile OTIO from canonical + `lossReport` → download .otio (+ BUNDLE zip if requested) → Resolve imports
 
-Job progress `Guide:184-188`: POST creates job row before spawn → worker claims lease (SQLite WAL `SELECT ... FOR UPDATE`) → spawn FFmpeg reading progress `stderr` → SSE to UI → Cancel = mark canceled + SIGTERM, escalate after timeout `Guide:186` → Retry = new attempt linked to request → Cache hit on key
+Job progress `Guide:184-188`: POST creates job row before spawn → worker claims a SQLite WAL lease using `BEGIN IMMEDIATE` plus a conditional `UPDATE ... RETURNING` → spawn FFmpeg reading progress `stderr` → SSE to UI → Cancel = mark canceled + SIGTERM, escalate after timeout `Guide:186` → Retry = new attempt linked to request → Cache hit on key
 
 Missed robust points added: **idempotency key** on all `/stage /commit /merge/complete /renders` (retry safe), **SSE reconnect with Last-Event-ID**, **job expiry + temp cleanup** `Guide:192`.
 ```
 
 ---
 
-## 6. Full API Surface (Robust — includes missed intermediary endpoints)
+## 6. Optional V2 HTTP API Surface
+
+This is an adapter over application services, not the local V1 boundary. The authoritative V1 boundary is typed preload IPC.
 
 ```
 # Projects & Media
@@ -388,7 +394,7 @@ GET    /api/health                      -> {gitOk, casOk, dbOk, ffmpegVersion}
 
 ---
 
-## 7. Data Model & Schemas (SQLite WAL V1 → Postgres V2)
+## 7. V2 Operational Data Model (SQLite WAL → Postgres)
 
 ```sql
 -- projects
@@ -473,12 +479,12 @@ CREATE TABLE translation_cache (srcSha TEXT, targetFormat TEXT, resultSha TEXT, 
 
 ## 10. Non-Functional & Deployment
 
-### V1 Local (default for hackathon/college)
+### V1 Local (authoritative MVP)
 
 ```
-[Electron] -> [Fastify :4000 localhost] -> [git @ <data>/repos] + [CAS @ <data>/cas] + [SQLite @ <data>/hub.db] + [FFmpeg static]
+[React renderer] -> [typed preload IPC] -> [Electron main/application services] -> [Git repositories + atomic app state]
 ```
-*   Single worker thread, WAL mode, auto-migrate, health at `/api/health`.
+*   No localhost server, media CAS, FFmpeg worker, SQLite job queue, or authentication in V1.
 
 ### Hosted Evolution (`Guide:246` — keep same Git/timeline semantics)
 
@@ -506,7 +512,7 @@ CREATE TABLE translation_cache (srcSha TEXT, targetFormat TEXT, resultSha TEXT, 
 
 ---
 
-## 12. Build Sequence — Vertical Slices (incorporates missed steps)
+## 12. Build Sequence — Vertical Slices
 
 Do not polish editor before proving timeline can be committed+merged `Guide:212-213`.
 
@@ -514,13 +520,14 @@ Do not polish editor before proving timeline can be committed+merged `Guide:212-
 |---|---|---|---|
 | **S0 Model freeze** | UUIDs, Rational frames half-open, canonical JSON + Zod, Gan<->B1 rules doc | Same logical timeline → same state (property test) | `Guide:214` |
 | **S1 Git+merge headless** | Repo service, CAS `update-ref`, merge-base, 2-parent commit, no UI | Two branches independent/conflicting edits → merge or conflicts | `Guide:215` |
-| **S2 DaVinci ingest → proxy → preview** | Companion script + OTIO adapter (minimal), SHA/hash/probe/proxy pipeline, PreviewPlan | Import 1 clip, preview 2 commits, no media dup | `Guide:216` |
-| **S3 Edit+commit loop + dirty guard** | Typed commands → reducer → status (staged/unstaged) → stage hunks (atomic + stale) → commit → branch → checkout guard → history (log + summaries) | Index/staged/working distinct, commit only staged, checkout refuses dirty | `Guide:217` |
-| **S4 Compare + Merge Request** | Compare API (hunks + affected frames, synced players) + fast-forward + 3-way + resolver gated validation + tags | Clean merge auto, conflicts → resolver, merge cannot finish invalid | `Guide:218` |
-| **S5 Export back to DaVinci** | RenderIR → allowlisted FFmpeg → temp→probe→atomic publish + OTIO back-export + lossReport | MP4 probe+decode pass, OTIO re-imports in Resolve | `Guide:176-183` |
-| **S6 Harden + DaVinci sync DX** | Cancel/retry/SSE, startup reconcile, demo reset, safe spawn limits, Pino, file watch + script one-click, idempotency, 409 handling | Cancel/restart never publish partial, seed reset in <10s | `Guide:219` |
-| **S7 V2 adapters** | `xmeml` + `fcpxml` + `edl`, BUNDLE/REMOTE_URLS, relink resolver UI | Premiere→Hub→Resolve round-trip preserves cuts 1-frame | — |
-| **S8 Hosted** | S3/Postgres/SQS, OIDC, branch protection, hosted demo | Same repo survives `local → hosted` migrate | `Guide:246` |
+| **S2 Resolve OTIO round trip** | Minimal OTIO adapter, real Resolve fixtures, canonical import/export, structured unsupported-content report | Supported clips, gaps, tracks, and timing re-import within one frame | `Engineering Plan` |
+| **S3 Edit+commit loop + dirty guard** | Typed commands → reducer → `HEAD`/`INDEX`/`WORKING` → semantic stage → Git commit → branch → checkout → history | Commit contains the complete staged snapshot only; checkout refuses dirty state | `Guide:217` |
+| **S4 Compare + merge** | Semantic change cards + merge-base + conservative three-way merge + validation-gated resolver | Clean merge succeeds; conflicts cannot complete while invalid | `Guide:218` |
+| **S5 OTIO checkout/export** | Resolve an immutable commit, validate it, serialize OTIO, and export through a file dialog | Export re-imports in Resolve with supported timing intact | `Engineering Plan` |
+| **S6 V1 hardening** | Atomic state writes, expected-old ref updates, restart recovery, fixtures, property tests, Playwright flow | Full local workflow repeats offline without corrupting history | `Engineering Plan` |
+| **S7 V2 media + companion** | Optional Fastify adapter, Resolve script, CAS, proxy/render worker, SQLite jobs, SSE | Media work survives cancel/restart and never enters Git | `Guide:216` |
+| **S8 V2 adapters** | `xmeml` + `fcpxml` + `edl`, bundle delivery, relink resolver | Premiere→Hub→Resolve round trip preserves supported cuts within one frame | — |
+| **S9 V2 hosted** | Object storage, Postgres, queue, OIDC, branch protection | Same canonical/Git history works behind hosted adapters | `Guide:246` |
 
 **Missed step that would have broken you:** Without `hunk atomic grouping + stale guard + CAS + dirty checkout guard`, a user on DaVinci would silently overwrite the other editor's trim or lose experimental preset — now it's a 409.
 
@@ -541,9 +548,9 @@ Do not polish editor before proving timeline can be committed+merged `Guide:212-
 
 ## 14. Open Decisions to Lock Before Build
 
-1.  **DaVinci sync direction V1:** File watch auto-ingest vs explicit "Sync" button? (Recommend button + watch — explicit is safer for Git dirty guard)
+1.  **DaVinci companion sync direction (V2):** File watch auto-ingest vs explicit "Sync" button? (Recommend explicit sync plus an optional watch mode.)
 2.  **Single local worker vs queue abstraction day-1?** `Guide` says single-node first, abstract boundary now (`Engineering Plan` open Q). **Decision: abstract `JobQueue` interface on day 1, implement `SqliteQueue`; V2 injects `SqsQueue` without rewrite.**
-3.  **Preset enum allowlist scope** — lock early `Guide` open Q — drives CSS + FFmpeg compiler. V1: `{none, warm, cool, bw, contrast}` fixed 5?
+3.  **Preset enum allowlist scope (V2 render):** lock before implementing preview/render because it drives both CSS and the FFmpeg compiler.
 4.  **Demo seed as Git bundle vs scripted fixture** `Engineering Plan` open Q — recommend **scripted fixture + checked fixtures in `tests/fixtures/`** (deterministic in CI, not binary bundle).
 5.  **Checkout dirty strategy UX:** `commit / discard (explicit confirm) / cancel` — which is default? Recommend `commit` default to prevent data loss `Guide:112`.
 
@@ -554,7 +561,7 @@ Do not polish editor before proving timeline can be committed+merged `Guide:212-
 `Guide:228-244` + `Engineering Plan` DoD — release ready when *branch-and-merge story works repeatedly*, not when screens exist:
 
 *   [ ] Commits/branches/refs/merge-bases/tags/2-parent merges are real Git objects, survive restart `Guide:230`.
-*   [ ] Original media immutable, SHA-256 CAS outside Git, not duplicated across branch/commit `Guide:231`.
+*   [ ] Footage never enters Git; commits contain canonical timeline snapshots and stable media references only.
 *   [ ] HEAD / index / working distinct; commit = only staged edits `Guide:232`.
 *   [ ] Every edit has human semantic diff tied to stable clip/caption ID `Guide:233`.
 *   [ ] Independent DaVinci edits auto-merge without loss `Guide:234`.
@@ -562,12 +569,10 @@ Do not polish editor before proving timeline can be committed+merged `Guide:212-
 *   [ ] Merge cannot finish with conflicts or invalid provisional `Guide:236`.
 *   [ ] Abort leaves target unchanged; stale client cannot overwrite moved branch `Guide:237`.
 *   [ ] Checkout refuses to destroy uncommitted work without explicit choice `Guide:238`.
-*   [ ] Preview & export from same state; historical actions resolve to commit IDs `Guide:239`.
-*   [ ] Exported MP4 playable, expected streams/duration, passes ffprobe+decode `Guide:240`.
-*   [ ] Cancel/FFmpeg fail/timeout/restart never publish partial or corrupt repo `Guide:241`.
-*   [ ] Tests cover serialization/diff/merge/Git/history/dedupe/output `Guide:242`.
+*   [ ] OTIO checkout/export resolves immutable commit IDs and passes Resolve round-trip fixtures.
+*   [ ] Tests cover canonical serialization, OTIO, semantic diff/merge, Git history, and stale-ref protection.
 *   [ ] Playwright passes clean-merge + conflict-resolution from reset seed `Guide:243`.
-*   [ ] Full DaVinci loop: `ingest → edit → stage → commit → branch → compare → merge → resolve → export OTIO → re-import in Resolve` succeeds repeatedly offline `Guide:244` (OTIO variant of original demo).
+*   [ ] Full local loop: `import → diff → stage → commit → branch → compare → merge → resolve → export OTIO → re-import in Resolve` succeeds repeatedly offline.
 
 ---
 
@@ -603,7 +608,4 @@ Live multi-user cursors, arbitrary FFmpeg filters/plugins, smart order auto-merg
 
 ---
 
-**Next action:** Confirm open decisions (Section 14), then `npm create vite@latest` + Fastify scaffold + Zod model freeze. The hardest code is `packages/merge` + `packages/diff` — start there, not the timeline UI.
-
-Generated by Muse Spark Builder — 2026-08-29
-File: `C:\Users\naini\VideoGit_System_Architecture_V1_V2.md`
+**Next action:** Follow the authoritative Engineering Plan: scaffold Electron Forge with Vite/TypeScript, freeze the Zod canonical model, and prove the Resolve OTIO round trip before building the timeline UI. Add Fastify only with the V2 companion/API slice.

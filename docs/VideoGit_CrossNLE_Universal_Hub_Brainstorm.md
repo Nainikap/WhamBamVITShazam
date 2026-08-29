@@ -4,6 +4,8 @@
 > Generated: 2026-08-29 | Skill: `brainstorm` (Stages 1-5)
 > Idea lead: Common platform for different video editing platforms (e.g., Adobe Premiere -> DaVinci Resolve) to exchange assets/videos without breaking, built on VideoGit.
 
+> **Status:** Future product research, not the current implementation plan. `VideoGit_Engineering_Plan.md` is authoritative for V1. Cross-NLE adapters, media CAS, relinking, Fastify, FFmpeg jobs, and hosted infrastructure are V2 candidates.
+
 ---
 
 ## Table of Contents
@@ -33,7 +35,7 @@
 
 **Viability: HIGH wedge, MEDIUM moat.** Wedge = Asset Relink Service + one-shot Universal Hub (Premiere <-> Resolve). Moat = Git-versioned branching/merging across NLEs + SHA dedup + reproducible renders. Proven API shape exists (`videogen.io` BUNDLE/REMOTE_URLS) but they lack Git/merge.
 
-**Recommended build:** Start with **Universal Hub (OTIO + FCP7 XML + FCPXML, L0-L1)** -> **Relink Service** -> then **Git-backed merge across NLEs**. Defer AAF binary and unlimited effects to v1.1.
+**Recommended roadmap after V1:** First prove local Resolve OTIO versioning from the Engineering Plan. Then add **Universal Hub (OTIO + FCP7 XML + FCPXML, L0-L1)** -> **Relink Service** -> **Git-backed merge across NLEs**. Defer AAF binary and unlimited effects until the adapter model is proven.
 
 ---
 
@@ -60,7 +62,7 @@
 
 ### 1.3 Core insight from VideoGit
 
-`Guide.docx:010-011` — *Video editing tools are good at changing a timeline, weak at showing what changed or combining work. VideoGit applies Git workflow to editing decisions.* The **important boundary** `Guide.docx:011` is: *Git does NOT store video, does NOT merge raw JSON as text. Git owns history/branches/index/ancestry. VideoGit understands clips/trims/captions/order/presets/gain.*
+`Guide.docx:010-011` — *Video editing tools are good at changing a timeline, weak at showing what changed or combining work. VideoGit applies Git workflow to editing decisions.* The **important boundary** is: Git stores complete canonical timeline JSON snapshots and owns commits, parents, branches, tags, refs, and merge-base discovery. Git does not store footage and must never text-merge timeline JSON. VideoGit computes semantic diffs, staging, and merges in TypeScript.
 
 That **canonical model** is exactly the hub needed for cross-NLE exchange. Today you need `N*(N-1)` translators. With hub: `N` adapters.
 
@@ -81,9 +83,9 @@ Per `Guide.docx:021-022,222-227`: **No** arbitrary FFmpeg filters, keyframed Fus
 
 ### 2.1 Architecture decision
 
-**Don't build another NLE. Build a Canonical Timeline Hub + Content-Addressed Asset Layer + NLE Adapter Kit, with VideoGit's Git workflow as audit/merge layer.**
+**V2 direction:** Don't build another NLE. Extend the proven V1 core into a Canonical Timeline Hub + Content-Addressed Asset Layer + NLE Adapter Kit, with VideoGit's Git workflow as the audit/merge layer.
 
-Reuses VideoGit's chosen axes `Engineering_Plan.md:10-18`: **A1** Native Git, **B1** Conservative 3-way, **C1** Standalone React, **D1** Local SHA-256 CAS + FFmpeg proxy.
+Reuses VideoGit's chosen axes: **A1** Native Git snapshots/ancestry, **B1** conservative TypeScript three-way merge, and **C1** Electron + React with typed IPC. **D1** media CAS + FFmpeg proxy is a V2 addition.
 
 ### 2.2 Diagram
 
