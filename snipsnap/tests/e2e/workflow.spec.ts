@@ -1,20 +1,31 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { ProjectService } from '../../src/application';
 
 let application: ElectronApplication;
 let page: Page;
 let dataRoot: string;
+let sourcePath: string;
+let sourceDocument: {
+  tracks: { children: Array<{ children: Array<{ name?: string; source_range?: { duration: { value: number } } }> }> };
+};
 
 test.beforeEach(async () => {
   dataRoot = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-e2e-'));
+  sourcePath = path.join(dataRoot, 'resolve-export.otio');
+  const fixture = await readFile(path.join(__dirname, '..', 'fixtures', 'resolve-basic.otio'), 'utf8');
+  sourceDocument = JSON.parse(fixture) as typeof sourceDocument;
+  await writeFile(sourcePath, fixture);
+  await new ProjectService(dataRoot).importOtio(fixture, sourcePath);
   application = await electron.launch({
     args: [path.resolve('.')],
     env: { ...process.env, SNIPSNAP_DATA_ROOT: dataRoot },
   });
   page = await application.firstWindow();
   await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('heading', { name: 'Resolve Basic Cut' })).toBeVisible();
 });
 
 test.afterEach(async () => {
@@ -22,73 +33,51 @@ test.afterEach(async () => {
   await rm(dataRoot, { recursive: true, force: true });
 });
 
-async function createDemo(): Promise<void> {
-  await page.getByRole('button', { name: 'Create demo repository' }).click();
-  await expect(page.getByText('WORKING TIMELINE')).toBeVisible();
-  await expect(page.getByText('Create demo timeline')).toBeVisible();
+async function exportResolveTrim(frames: number): Promise<void> {
+  const opening = sourceDocument.tracks.children[0]?.children.find(({ name }) => name === 'Opening');
+  if (!opening?.source_range) throw new Error('Fixture opening range missing');
+  opening.source_range.duration.value = frames;
+  await writeFile(sourcePath, JSON.stringify(sourceDocument));
 }
 
-async function stageAndCommit(message: string): Promise<void> {
+async function applyStageAndCommit(message: string): Promise<void> {
+  await expect(page.getByText(/Resolve change detected/u)).toBeVisible();
+  await page.getByRole('button', { name: 'Apply to WORKING' }).click();
   await page.getByRole('button', { name: 'Stage' }).first().click();
-  await expect(page.getByText('Stage a complete semantic decision.')).toBeVisible();
   await page.getByLabel('Commit message').fill(message);
   await page.getByRole('button', { name: 'Commit', exact: true }).click();
-  await expect(page.getByText(message)).toBeVisible();
+  await expect(page.getByRole('button', { name: `View commit ${message}` })).toBeVisible();
 }
 
-async function createBranch(name: string): Promise<void> {
-  await page.getByLabel('New branch').fill(name);
-  await page.getByRole('button', { name: 'Create branch' }).click();
-  await expect(page.getByRole('button', { name: new RegExp(name, 'u') })).toBeVisible();
-}
+test('detects a Resolve export, stages its semantic diff, and previews the real commit', async () => {
+  await expect(page.getByText('watching', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Commit video preview' })).toBeVisible();
+  await expect(page.getByText('Opening · media offline')).toBeVisible();
 
-test('edit, semantic stage, commit, branch, and clean merge', async () => {
-  await createDemo();
-  await createBranch('caption-copy');
+  await exportResolveTrim(90);
+  await applyStageAndCommit('Tighten the opening');
 
-  await page.getByRole('button', { name: 'none' }).first().click();
-  await expect(page.getByText('Changed clip Intro: preset')).toBeVisible();
-  await stageAndCommit('Warm the opening');
-
-  await page.getByRole('button', { name: /caption-copy/u }).click();
-  await expect(page.getByText(/Checked out caption-copy/u)).toBeVisible();
-  await page.getByRole('button', { name: 'Ship the story, not the files.' }).click();
-  await expect(page.getByText(/Changed caption text/u)).toBeVisible();
-  await stageAndCommit('Rewrite caption');
-
-  await page.getByRole('button', { name: /main/u }).click();
-  await page.getByLabel('Compare branch').selectOption('caption-copy');
-  await page.getByRole('button', { name: 'Compare', exact: true }).click();
-  await expect(page.getByText(/Changed caption text/u)).toBeVisible();
-  await page.getByRole('button', { name: /Merge into main/u }).click();
-  await expect(page.getByText('Merge result: merged.')).toBeVisible();
-  await expect(page.getByText('2 parents')).toBeVisible();
+  await page.getByRole('button', { name: 'View commit Tighten the opening' }).click();
+  await expect(page.getByText('Compared with', { exact: false })).toBeVisible();
+  await expect(page.getByText('Trimmed clip Opening')).toBeVisible();
+  await expect(page.getByText(/COMMIT [a-f0-9]{8}/u)).toBeVisible();
 });
 
-test('conflict resolver blocks completion until an explicit choice', async () => {
-  await createDemo();
-  await createBranch('alternate-trim');
+test('creates a branch from an old commit, switches branches, and restores history safely', async () => {
+  await exportResolveTrim(88);
+  await applyStageAndCommit('Shorten opening for main');
 
-  await page.getByLabel('Trim Intro').click();
-  await stageAndCommit('Main trim');
+  await page.getByRole('button', { name: 'View commit Import Resolve OTIO' }).click();
+  await expect(page.getByText('Initial timeline snapshot')).toBeVisible();
+  await page.getByLabel('Branch from selected commit').fill('alternate-cut');
+  await page.getByRole('button', { name: 'Create branch here' }).click();
+  await expect(page.getByText(/Created and switched to alternate-cut/u)).toBeVisible();
+  await expect(page.getByText('alternate-cut', { exact: true }).first()).toBeVisible();
 
-  await page.getByRole('button', { name: /alternate-trim/u }).click();
-  await expect(page.getByText(/Checked out alternate-trim/u)).toBeVisible();
-  await page.getByLabel('Trim Intro').click();
-  await expect(page.getByText('1–144f')).toBeVisible();
-  await page.getByLabel('Trim Intro').click();
-  await expect(page.getByText('2–144f')).toBeVisible();
-  await stageAndCommit('Alternate trim');
-
-  await page.getByRole('button', { name: /main/u }).click();
-  await expect(page.getByText(/Checked out main/u)).toBeVisible();
-  await page.getByLabel('Compare branch').selectOption('alternate-trim');
-  await page.getByRole('button', { name: /Merge into main/u }).click();
-  const resolver = page.getByRole('dialog', { name: 'Merge conflicts' });
-  await expect(resolver).toBeVisible();
-  await expect(resolver.getByRole('button', { name: 'Complete merge' })).toBeDisabled();
-  await resolver.getByRole('button', { name: 'Theirs' }).click();
-  await expect(resolver.getByRole('button', { name: 'Complete merge' })).toBeEnabled();
-  await resolver.getByRole('button', { name: 'Complete merge' }).click();
-  await expect(page.getByText('Two-parent merge commit created.')).toBeVisible();
+  await page.getByRole('button', { name: 'Switch to branch main' }).click();
+  await expect(page.getByText('Switched to main.')).toBeVisible();
+  await page.getByRole('button', { name: 'View commit Import Resolve OTIO' }).click();
+  await page.getByRole('button', { name: 'Restore to WORKING' }).click();
+  await expect(page.getByText(/Restored [a-f0-9]{8} into WORKING/u)).toBeVisible();
+  await expect(page.getByText('Trimmed clip Opening')).toBeVisible();
 });
