@@ -675,9 +675,13 @@ export class ProjectService {
     const timelines = await readResolveTimelines(source.databasePath);
     const timeline = timelines.find(({ name }) => name === source.timelineName) ?? timelines[0];
     if (!timeline) throw new Error('Resolve database save did not contain a readable timeline');
+    const savedProject = ProjectSchema.parse({
+      ...timeline.project,
+      name: source.projectName,
+    });
     const snapshotPath = this.resolveBridgeSnapshotPath(projectId);
     await mkdir(path.dirname(snapshotPath), { recursive: true });
-    await atomicWriteText(snapshotPath, exportOtio(timeline.project, { mediaLinks: timeline.mediaLinks }));
+    await atomicWriteText(snapshotPath, exportOtio(savedProject, { mediaLinks: timeline.mediaLinks }));
     return this.applyResolveBridgeSnapshot(projectId, {
       path: snapshotPath,
       marker,
