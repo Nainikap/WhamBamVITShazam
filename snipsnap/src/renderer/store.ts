@@ -50,7 +50,7 @@ export const useAppStore = create<AppStore>((set, get) => {
   }
 
   async function refresh(projectId: string): Promise<void> {
-    set({ status: await window.snipsnap.status(projectId), currentProjectId: projectId });
+    set({ status: await window.snipsnap.status(projectId), currentProjectId: projectId, comparison: [] });
   }
 
   return {

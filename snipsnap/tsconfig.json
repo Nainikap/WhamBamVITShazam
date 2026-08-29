@@ -13,6 +13,7 @@
     "sourceMap": true,
     "baseUrl": ".",
     "outDir": "dist",
+    "ignoreDeprecations": "6.0",
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "types": ["node", "vite/client"]

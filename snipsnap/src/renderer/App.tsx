@@ -128,5 +128,6 @@ export function App() {
     </main>}
 
     {store.mergeSession && <div className="modal-backdrop"><section className="modal" role="dialog" aria-label="Merge conflicts"><span className="eyebrow">MERGE PAUSED</span><h2>Resolve editorial conflicts</h2><p>The target branch is unchanged until every conflict is resolved and the provisional timeline validates.</p>{store.mergeSession.result.conflicts.map((conflict) => <article className="conflict-card" key={conflict.id}><span className="operation delete">{conflict.type}</span><strong>{conflict.message}</strong>{conflict.validationErrors?.map((error) => <small key={error}>{error}</small>)}{conflict.type !== 'validation' && <div className="conflict-actions"><button onClick={() => void store.resolve(conflict.id, 'base')}>Base</button><button onClick={() => void store.resolve(conflict.id, 'ours')}>Ours</button><button onClick={() => void store.resolve(conflict.id, 'theirs')}>Theirs</button></div>}</article>)}<div className="modal-actions"><button onClick={() => void store.abortMerge()}>Abort safely</button><button className="primary" disabled={store.mergeSession.result.conflicts.length > 0} onClick={() => void store.completeMerge()}>Complete merge</button></div></section></div>}
+{store.notice && <div className="sidebar-notice alert notice" role="alert"><span>{store.notice}</span></div>}
   </div>;
 }
