@@ -22,14 +22,14 @@ import {
   type PreviewMediaAvailability,
   type TimelineDiff,
 } from '../preview';
-import { writeTimelineExports } from './resolve-database';
+import { readResolveTimelines, writeTimelineExports } from './resolve-database';
 import {
   ResolveLibrary,
   defaultResolveRoots,
   generatedExportFolder,
   type ResolveProjectRef,
 } from './resolve-library';
-import { atomicWriteJson, readJson } from './storage';
+import { atomicWriteJson, atomicWriteText, readJson } from './storage';
 import {
   PendingSyncSchema,
   SourceBindingSchema,
@@ -641,6 +641,53 @@ export class ProjectService {
       const value: { state: typeof state; error?: string } = { state };
       if (error) value.error = error.slice(0, 2000);
       await atomicWriteJson(this.resolveBridgeStatePath(projectId), value);
+    });
+  }
+
+  /** Resolve database backing for a project that has no standalone .drp file. */
+  async resolveDatabaseBridgeSource(projectId: string): Promise<{
+    databasePath: string;
+    projectName: string;
+    timelineName: string;
+  } | null> {
+    const metadata = await this.readMetadata(projectId);
+    const binding = metadata?.resolve;
+    if (!binding || binding.drpPath) return null;
+    return {
+      databasePath: path.join(binding.folder, 'Project.db'),
+      projectName: binding.projectName,
+      timelineName: binding.timelineName,
+    };
+  }
+
+  /**
+   * Windows Resolve can refuse external scripting while still saving a local
+   * Project.db. Rebuild that saved timeline into the managed bridge snapshot
+   * and send it through the exact same HEAD/INDEX/WORKING path.
+   */
+  async applyResolveDatabaseBridgeSnapshot(
+    projectId: string,
+    marker: string,
+    savedAt: string,
+  ): Promise<boolean> {
+    const source = await this.resolveDatabaseBridgeSource(projectId);
+    if (!source) return false;
+    const timelines = await readResolveTimelines(source.databasePath);
+    const timeline = timelines.find(({ name }) => name === source.timelineName) ?? timelines[0];
+    if (!timeline) throw new Error('Resolve database save did not contain a readable timeline');
+    const savedProject = ProjectSchema.parse({
+      ...timeline.project,
+      name: source.projectName,
+    });
+    const snapshotPath = this.resolveBridgeSnapshotPath(projectId);
+    await mkdir(path.dirname(snapshotPath), { recursive: true });
+    await atomicWriteText(snapshotPath, exportOtio(savedProject, { mediaLinks: timeline.mediaLinks }));
+    return this.applyResolveBridgeSnapshot(projectId, {
+      path: snapshotPath,
+      marker,
+      savedAt,
+      projectName: source.projectName,
+      timelineName: timeline.name,
     });
   }
 
