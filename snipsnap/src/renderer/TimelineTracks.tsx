@@ -88,7 +88,10 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
               title={`${segment.name} · ${framesToTimecode(segment.timelineStart, plan.fps)} → ${framesToTimecode(segment.timelineStart + segment.duration, plan.fps)} · ${segment.duration} frames`}
               onClick={(event) => {
                 event.stopPropagation();
-                onSeek(segment.timelineStart);
+                // Seek to the frame under the pointer, not to the start of the clip.
+                const bounds = event.currentTarget.getBoundingClientRect();
+                const ratio = bounds.width > 0 ? (event.clientX - bounds.left) / bounds.width : 0;
+                onSeek(Math.round(segment.timelineStart + ratio * segment.duration));
                 onSelectSegment?.(segment, track);
               }}
             >

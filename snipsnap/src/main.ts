@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { createReadStream } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import started from 'electron-squirrel-startup';
 import { ProjectService, SourceWatchService, atomicWriteText } from './application';
 import { createDemoProject } from './domain';
@@ -33,6 +34,65 @@ async function restoreSourceWatchers(): Promise<void> {
   }
 }
 
+const mediaTypes: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/x-m4v',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
+  '.mxf': 'application/mxf',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+};
+
+/**
+ * Serve media with byte-range support. Without 206 responses Chromium can play a
+ * clip from the start but cannot seek, so every scrub snaps back to frame zero.
+ */
+async function serveMedia(filePath: string, rangeHeader: string | null): Promise<Response> {
+  const { size } = await stat(filePath);
+  const headers: Record<string, string> = {
+    'Accept-Ranges': 'bytes',
+    'Content-Type': mediaTypes[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+    'Cache-Control': 'no-store',
+  };
+  const unsatisfiable = () => new Response(null, {
+    status: 416,
+    headers: { ...headers, 'Content-Range': `bytes */${size}` },
+  });
+  const match = /^bytes=(\d*)-(\d*)$/u.exec((rangeHeader ?? '').trim());
+
+  if (!match || size === 0) {
+    return new Response(Readable.toWeb(createReadStream(filePath)) as ReadableStream, {
+      status: 200,
+      headers: { ...headers, 'Content-Length': String(size) },
+    });
+  }
+
+  const [, startText = '', endText = ''] = match;
+  let start: number;
+  let end: number;
+  if (startText === '') {
+    const suffix = Number(endText);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return unsatisfiable();
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(startText);
+    if (!Number.isSafeInteger(start) || start >= size) return unsatisfiable();
+    end = endText === '' ? size - 1 : Math.min(Number(endText), size - 1);
+  }
+  if (!Number.isSafeInteger(end) || end < start) return unsatisfiable();
+
+  return new Response(Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream, {
+    status: 206,
+    headers: { ...headers, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${size}` },
+  });
+}
+
 function registerMediaProtocol(): void {
   protocol.handle('snipsnap-media', async (request) => {
     try {
@@ -40,7 +100,7 @@ function registerMediaProtocol(): void {
       const [projectId, fingerprint] = url.pathname.split('/').filter(Boolean);
       if (url.hostname !== 'asset' || !projectId || !fingerprint) return new Response('Not found', { status: 404 });
       const mediaPath = await projects.resolveMediaFile(projectId, fingerprint);
-      return net.fetch(pathToFileURL(mediaPath).href, { headers: request.headers });
+      return await serveMedia(mediaPath, request.headers.get('Range'));
     } catch {
       return new Response('Media unavailable', { status: 404 });
     }

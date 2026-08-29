@@ -104,6 +104,7 @@ export interface DiffViewProps {
 
 export function DiffView({ comparison, history, onSelectBase, onSelectHead, onClose }: DiffViewProps) {
   const [playhead, setPlayhead] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const { diff } = comparison;
   const changed = useMemo(
     () => diff.tracks.flatMap((track) => track.segments
@@ -143,6 +144,8 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
           label={`${index === 0 ? 'Base' : 'Compared'} commit video preview`}
           playhead={playhead}
           onPlayheadChange={setPlayhead}
+          playing={playing}
+          onPlayingChange={setPlaying}
         />
       </div>)}
     </div>

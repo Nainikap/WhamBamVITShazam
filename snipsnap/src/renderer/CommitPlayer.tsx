@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PreviewPlan, PreviewSegment } from '../preview';
 import { framesToTimecode } from './format';
 
@@ -18,9 +18,16 @@ export interface CommitPlayerProps {
   label?: string;
   onPlayheadChange?(frame: number): void;
   playhead?: number;
+  /** Announced when the viewer starts or stops, so a linked player can follow. */
+  onPlayingChange?(playing: boolean): void;
+  /** Drives play and pause from a linked player. */
+  playing?: boolean;
 }
 
-export function CommitPlayer({ plan, onRelink, variant = 'full', label, onPlayheadChange, playhead: external }: CommitPlayerProps) {
+export function CommitPlayer({
+  plan, onRelink, variant = 'full', label,
+  onPlayheadChange, playhead: external, onPlayingChange, playing: externalPlaying,
+}: CommitPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -34,16 +41,36 @@ export function CommitPlayer({ plan, onRelink, variant = 'full', label, onPlayhe
     setActiveIndex(0);
   }, [plan.commitId]);
 
-  useEffect(() => {
-    onPlayheadChange?.(playhead);
-  }, [playhead]);
+  // Track what this player last announced so an echo of our own value is ignored.
+  const emitted = useRef<number | null>(null);
+  const announce = useCallback((frame: number) => {
+    emitted.current = frame;
+    onPlayheadChange?.(frame);
+  }, [onPlayheadChange]);
 
+  /** Move this player to a timeline frame, including the underlying media. */
+  const applyFrame = useCallback((frame: number, index: number) => {
+    setPlayhead(frame);
+    if (index !== activeIndex) {
+      setActiveIndex(index);
+      return;
+    }
+    const segment = plan.segments[index];
+    const video = videoRef.current;
+    if (!video || !segment || !segment.available) return;
+    video.currentTime = (segment.sourceStart + Math.max(0, frame - segment.timelineStart)) / plan.fps;
+  }, [activeIndex, plan]);
+
+  // An external playhead (a linked player, or the timeline being scrubbed) seeks
+  // the media as well as the marker, and never echoes back as a new seek.
   useEffect(() => {
-    if (external === undefined || Math.abs(external - playhead) < 0.5) return;
+    if (external === undefined) return;
+    if (emitted.current !== null && Math.abs(external - emitted.current) < 0.5) return;
+    if (Math.abs(external - playhead) < 0.5) return;
     const located = segmentAt(plan, external);
-    setPlayhead(external);
-    if (located && located.index !== activeIndex) setActiveIndex(located.index);
-  }, [external]);
+    emitted.current = external;
+    applyFrame(external, located ? located.index : activeIndex);
+  }, [external, applyFrame, plan]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -59,13 +86,26 @@ export function CommitPlayer({ plan, onRelink, variant = 'full', label, onPlayhe
     video.load();
   }, [active?.id, active?.mediaUrl, active?.available, active?.gainDb]);
 
+  // A linked player mirrors play and pause without re-announcing them.
+  useEffect(() => {
+    if (externalPlaying === undefined || externalPlaying === playing) return;
+    setPlaying(externalPlaying);
+    const video = videoRef.current;
+    if (!video) return;
+    if (externalPlaying) void video.play().catch(() => setPlaying(false));
+    else video.pause();
+  }, [externalPlaying]);
+
   useEffect(() => {
     if (!playing || canPlayMedia || !active) return undefined;
     const interval = window.setInterval(() => {
       setPlayhead((current) => {
         const next = current + plan.fps / 10;
         const end = active.timelineStart + active.duration;
-        if (next < end) return next;
+        if (next < end) {
+          announce(next);
+          return next;
+        }
         const nextIndex = activeIndex + 1;
         if (nextIndex >= plan.segments.length) {
           setPlaying(false);
@@ -89,14 +129,8 @@ export function CommitPlayer({ plan, onRelink, variant = 'full', label, onPlayhe
     const clamped = Math.min(Math.max(frame, 0), Math.max(0, plan.totalFrames - 1));
     const located = segmentAt(plan, clamped);
     if (!located) return;
-    setPlayhead(clamped);
-    if (located.index !== activeIndex) {
-      setActiveIndex(located.index);
-      return;
-    }
-    if (located.segment.available && videoRef.current) {
-      videoRef.current.currentTime = (located.segment.sourceStart + clamped - located.segment.timelineStart) / plan.fps;
-    }
+    announce(clamped);
+    applyFrame(clamped, located.index);
   }
 
   function advance(): void {
@@ -104,10 +138,13 @@ export function CommitPlayer({ plan, onRelink, variant = 'full', label, onPlayhe
     if (nextIndex >= plan.segments.length) {
       setPlaying(false);
       setPlayhead(plan.totalFrames);
+      announce(plan.totalFrames);
       return;
     }
+    const start = plan.segments[nextIndex]?.timelineStart ?? plan.totalFrames;
     setActiveIndex(nextIndex);
-    setPlayhead(plan.segments[nextIndex]?.timelineStart ?? plan.totalFrames);
+    setPlayhead(start);
+    announce(start);
   }
 
   function togglePlayback(): void {
@@ -118,6 +155,7 @@ export function CommitPlayer({ plan, onRelink, variant = 'full', label, onPlayhe
     }
     const nextPlaying = !playing;
     setPlaying(nextPlaying);
+    onPlayingChange?.(nextPlaying);
     if (nextPlaying && canPlayMedia && videoRef.current) {
       videoRef.current.currentTime = ((active?.sourceStart ?? 0) + activeOffset) / plan.fps;
       void videoRef.current.play().catch(() => setPlaying(false));
@@ -143,7 +181,10 @@ export function CommitPlayer({ plan, onRelink, variant = 'full', label, onPlayhe
           const elapsed = Math.max(0, video.currentTime * plan.fps - active.sourceStart);
           const next = active.timelineStart + elapsed;
           if (elapsed >= active.duration - 0.25) advance();
-          else setPlayhead(next);
+          else {
+            setPlayhead(next);
+            announce(next);
+          }
         }}
         onEnded={advance}
       />
