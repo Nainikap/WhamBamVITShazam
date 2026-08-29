@@ -14,8 +14,9 @@ import type { ConflictResolution } from '../merge';
 export const channels = {
   listProjects: 'projects:list',
   listOverviews: 'projects:overviews',
-  createDemo: 'projects:create-demo',
-  importOtio: 'projects:import-otio',
+  openProject: 'projects:open',
+  addResolveFolder: 'resolve:add-folder',
+  resolveRoots: 'resolve:roots',
   status: 'projects:status',
   connectOtioSource: 'source:connect-otio',
   scanOtioSource: 'source:scan-otio',
@@ -44,8 +45,9 @@ export const channels = {
 export interface SnipSnapApi {
   listProjects(): Promise<ProjectSummary[]>;
   listOverviews(): Promise<ProjectOverview[]>;
-  createDemo(): Promise<ProjectSummary>;
-  importOtio(): Promise<(ProjectSummary & { unsupportedCount: number }) | null>;
+  openProject(projectId: string): Promise<ProjectStatus>;
+  addResolveFolder(): Promise<string[] | null>;
+  resolveRoots(): Promise<string[]>;
   status(projectId: string): Promise<ProjectStatus>;
   connectOtioSource(projectId: string, expectedVersion: number): Promise<SourceScanResult | null>;
   scanOtioSource(projectId: string): Promise<SourceScanResult>;

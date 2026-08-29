@@ -22,6 +22,7 @@ import {
   type PreviewMediaAvailability,
   type TimelineDiff,
 } from '../preview';
+import { ResolveLibrary, defaultResolveRoot, type ResolveProjectRef } from './resolve-library';
 import { atomicWriteJson, readJson } from './storage';
 import {
   PendingSyncSchema,
@@ -100,11 +101,39 @@ export interface ProjectSummary {
   name: string;
 }
 
+/** Where a project came from in DaVinci Resolve. */
+export interface ResolveBinding {
+  projectName: string;
+  drpPath: string;
+  otioPath: string;
+  timelineName: string;
+  timelineCount: number;
+  folder: string;
+}
+
+const ResolveBindingSchema = z.object({
+  projectName: z.string().min(1),
+  drpPath: z.string().min(1),
+  otioPath: z.string().min(1),
+  timelineName: z.string().min(1),
+  timelineCount: z.number().int().nonnegative(),
+  folder: z.string().min(1),
+}).strict();
+
+const ProjectMetadataSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  resolve: ResolveBindingSchema.optional(),
+}).strict();
+
 /** Everything the dashboard shows about a video project without opening it. */
 export interface ProjectOverview {
   id: string;
   name: string;
   path: string;
+  /** Resolve files exist; false until SnipSnap has imported them once. */
+  linked: boolean;
+  resolve: ResolveBinding;
   branch: string;
   headCommit: string;
   headMessage: string;
@@ -168,6 +197,8 @@ export interface ProjectStatus {
   project: Project;
   /** Where this project's repository and workspace live on disk. */
   path: string;
+  /** The Resolve project this timeline came from, when it came from one. */
+  resolve?: ResolveBinding;
   workspaceVersion: number;
   branch: string;
   headCommit: string;
@@ -202,7 +233,11 @@ export class StaleWorkspaceError extends Error {
 export class ProjectService {
   private readonly mutex = new KeyedMutex();
 
-  constructor(readonly root: string) {}
+  readonly library: ResolveLibrary;
+
+  constructor(readonly root: string, library?: ResolveLibrary) {
+    this.library = library ?? new ResolveLibrary(() => this.resolveRoots());
+  }
 
   private projectRoot(projectId: string): string {
     if (!z.string().uuid().safeParse(projectId).success) throw new Error('Invalid project ID');
@@ -314,13 +349,17 @@ export class ProjectService {
     const results: ProjectSummary[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory() || !z.string().uuid().safeParse(entry.name).success) continue;
-      const metadata = z.object({ id: z.string().uuid(), name: z.string() }).parse(await readJson(this.metadataPath(entry.name)));
-      results.push(metadata);
+      const metadata = ProjectMetadataSchema.parse(await readJson(this.metadataPath(entry.name)));
+      results.push({ id: metadata.id, name: metadata.name });
     }
     return results.sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  async createProject(project: Project, initialMessage = 'Import timeline'): Promise<ProjectSummary> {
+  async createProject(
+    project: Project,
+    initialMessage = 'Import timeline',
+    resolve?: ResolveBinding,
+  ): Promise<ProjectSummary> {
     const parsed = ProjectSchema.parse(project);
     return this.mutex.run(parsed.id, async () => {
       const projectRoot = this.projectRoot(parsed.id);
@@ -341,7 +380,11 @@ export class ProjectService {
         const repository = await GitRepository.create(path.join(projectRoot, 'repo'));
         await repository.createInitialCommit(parsed, initialMessage);
         await this.writeWorkspace(parsed.id, { version: 0, working: parsed });
-        await atomicWriteJson(this.metadataPath(parsed.id), { id: parsed.id, name: parsed.name });
+        await atomicWriteJson(this.metadataPath(parsed.id), {
+          id: parsed.id,
+          name: parsed.name,
+          ...(resolve ? { resolve } : {}),
+        });
       } catch (error) {
         await rm(projectRoot, { recursive: true, force: true });
         throw error;
@@ -364,6 +407,7 @@ export class ProjectService {
   }
 
   private async statusUnlocked(projectId: string): Promise<ProjectStatus> {
+    const metadata = await this.readMetadata(projectId).catch(() => null);
     const repository = this.repository(projectId);
     const [branch, headCommit, index, workspace, branches, history] = await Promise.all([
       repository.currentBranch(),
@@ -380,6 +424,7 @@ export class ProjectService {
     return {
       project: workspace.working,
       path: this.projectRoot(projectId),
+      ...(metadata?.resolve ? { resolve: metadata.resolve } : {}),
       workspaceVersion: workspace.version,
       branch,
       headCommit,
@@ -827,6 +872,117 @@ export class ProjectService {
     return { commitId, contents: exportOtio(await repository.readSnapshot(commitId), { mediaLinks }) };
   }
 
+  private resolveRootsPath(): string {
+    return path.join(this.root, 'resolve-roots.json');
+  }
+
+  /** The default export folder plus any folder the editor pointed us at. */
+  async resolveRoots(): Promise<string[]> {
+    const value = await this.readOptionalJson(this.resolveRootsPath());
+    const extra = value === undefined ? [] : z.array(z.string().min(1)).parse(value);
+    return [...new Set([defaultResolveRoot(), ...extra.map((entry) => path.resolve(entry))])];
+  }
+
+  async addResolveRoot(folder: string): Promise<string[]> {
+    const value = await this.readOptionalJson(this.resolveRootsPath());
+    const extra = value === undefined ? [] : z.array(z.string().min(1)).parse(value);
+    const next = [...new Set([...extra.map((entry) => path.resolve(entry)), path.resolve(folder)])];
+    await atomicWriteJson(this.resolveRootsPath(), next);
+    return this.resolveRoots();
+  }
+
+  async openResolveProjectById(projectId: string): Promise<ProjectStatus> {
+    const reference = (await this.library.discover()).find(({ id }) => id === projectId);
+    if (!reference) {
+      throw new Error('That Resolve project is no longer on disk. Export it again from Resolve.');
+    }
+    return this.openResolveProject(reference);
+  }
+
+  private async readMetadata(projectId: string): Promise<z.infer<typeof ProjectMetadataSchema> | null> {
+    const value = await this.readOptionalJson(this.metadataPath(projectId));
+    return value === undefined ? null : ProjectMetadataSchema.parse(value);
+  }
+
+  private bindingFor(reference: ResolveProjectRef): ResolveBinding {
+    return {
+      projectName: reference.name,
+      drpPath: reference.drpPath,
+      otioPath: reference.activeTimeline.otioPath,
+      timelineName: reference.activeTimeline.name,
+      timelineCount: reference.timelines.length,
+      folder: reference.folder,
+    };
+  }
+
+  /**
+   * Open a project discovered from Resolve, importing its timeline the first
+   * time and picking up any later export after that.
+   */
+  async openResolveProject(reference: ResolveProjectRef): Promise<ProjectStatus> {
+    const binding = this.bindingFor(reference);
+    const existing = await this.readMetadata(reference.id);
+    if (!existing) {
+      const contents = await readFile(binding.otioPath, 'utf8');
+      const imported = importOtio(contents);
+      const project = ProjectSchema.parse({ ...imported.project, id: reference.id, name: reference.name });
+      await this.createProject(project, `Import ${binding.timelineName} from Resolve`, binding);
+      await this.writeMediaLinks(reference.id, imported.mediaLinks);
+      const digest = digestText(contents);
+      await atomicWriteJson(this.sourceBindingPath(reference.id), {
+        format: 'otio',
+        path: binding.otioPath,
+        lastSeenDigest: digest,
+        lastAppliedDigest: digest,
+      });
+      return this.status(reference.id);
+    }
+
+    if (existing.resolve?.otioPath !== binding.otioPath || existing.name !== reference.name) {
+      await atomicWriteJson(this.metadataPath(reference.id), {
+        id: reference.id,
+        name: reference.name,
+        resolve: binding,
+      });
+    }
+    const current = await this.sourceBinding(reference.id);
+    if (current?.path !== binding.otioPath) {
+      await atomicWriteJson(this.sourceBindingPath(reference.id), { format: 'otio', path: binding.otioPath });
+    }
+    // Pick up anything Resolve exported since the last time this was opened.
+    return (await this.scanOtioSource(reference.id)).status;
+  }
+
+  private unlinkedOverview(reference: ResolveProjectRef): ProjectOverview {
+    const binding = this.bindingFor(reference);
+    return {
+      id: reference.id,
+      name: reference.name,
+      path: reference.folder,
+      linked: false,
+      resolve: binding,
+      branch: 'main',
+      headCommit: '',
+      headMessage: 'Not versioned yet',
+      headAuthoredAt: reference.updatedAt,
+      updatedAt: reference.updatedAt,
+      commitCount: 0,
+      branchCount: 0,
+      state: 'clean',
+      changeCount: 0,
+      fps: reference.settings?.fps ?? 0,
+      width: reference.settings?.width ?? 0,
+      height: reference.settings?.height ?? 0,
+      durationFrames: 0,
+      trackCounts: { video: 0, audio: 0, caption: 0 },
+      clipCount: 0,
+      sourceFileName: path.basename(binding.otioPath),
+      sourceState: 'not-connected',
+      poster: null,
+      missingMedia: 0,
+    };
+  }
+
   private async overviewUnlocked(projectId: string): Promise<ProjectOverview> {
     const status = await this.statusUnlocked(projectId);
     const availability = await this.previewAvailability(projectId, status.project);
@@ -849,10 +1005,21 @@ export class ProjectService {
       : status.unstaged.length > 0 ? 'uncommitted'
         : status.staged.length > 0 ? 'staged' : 'clean';
 
+    const metadata = await this.readMetadata(projectId);
+    const binding = metadata?.resolve ?? {
+      projectName: status.project.name,
+      drpPath: '',
+      otioPath: status.source.filePath ?? '',
+      timelineName: status.project.sequences[0]?.name ?? 'Timeline',
+      timelineCount: 1,
+      folder: this.projectRoot(projectId),
+    };
     return {
       id: projectId,
       name: status.project.name,
       path: this.projectRoot(projectId),
+      linked: true,
+      resolve: binding,
       branch: status.branch,
       headCommit: status.headCommit,
       headMessage: head?.message ?? '',
@@ -888,12 +1055,36 @@ export class ProjectService {
     return this.mutex.run(projectId, async () => this.overviewUnlocked(projectId));
   }
 
-  /** Dashboard listing, most recently worked on first. */
+  /**
+   * Dashboard listing, most recently worked on first. Only projects whose
+   * Resolve project file and timeline export are both present are listed: a
+   * project SnipSnap cannot open is not a project it should offer.
+   */
   async listProjectOverviews(): Promise<ProjectOverview[]> {
-    const summaries = await this.listProjects();
+    const references = await this.library.discover();
     const overviews: ProjectOverview[] = [];
-    for (const summary of summaries) overviews.push(await this.overview(summary.id));
+    for (const reference of references) {
+      const metadata = await this.readMetadata(reference.id).catch(() => null);
+      if (!metadata) {
+        overviews.push(this.unlinkedOverview(reference));
+        continue;
+      }
+      try {
+        overviews.push({
+          ...await this.overview(reference.id),
+          name: reference.name,
+          linked: true,
+          resolve: this.bindingFor(reference),
+        });
+      } catch {
+        overviews.push(this.unlinkedOverview(reference));
+      }
+    }
     return overviews.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async discoverResolveProjects(): Promise<ResolveProjectRef[]> {
+    return this.library.discover();
   }
 
   /** Build the split comparison between two immutable commits. */

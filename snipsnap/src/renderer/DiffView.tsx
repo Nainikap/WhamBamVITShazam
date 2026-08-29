@@ -5,18 +5,25 @@ import type { TimelineDiffSegment, TimelineDiffTrack } from '../preview';
 import { CommitPlayer } from './CommitPlayer';
 import { framesToTimecode, relativeTime, shortId } from './format';
 
-/** Retiming earns the timestamp colour; other edits get their own, quieter one. */
-type Tone = 'added' | 'removed' | 'retimed' | 'edited' | 'unchanged';
+/**
+ * Footage that only one commit holds is green or red at the exact frames that
+ * differ. Only a whole item that moved without gaining or losing frames gets
+ * the timestamp colour, and edits that change no timing get their own.
+ */
+type Tone = 'added' | 'removed' | 'trimmed' | 'moved' | 'edited' | 'unchanged';
 
 function toneOf(segment: TimelineDiffSegment): Tone {
-  if (segment.change === 'modified') return segment.timingChanged ? 'retimed' : 'edited';
-  return segment.change;
+  if (segment.change === 'added' || segment.change === 'removed') return segment.change;
+  if (segment.addedFrames > 0 || segment.removedFrames > 0) return 'trimmed';
+  if (segment.changedFields.includes('position')) return 'moved';
+  return segment.change === 'modified' ? 'edited' : 'unchanged';
 }
 
 const toneLabel: Record<Tone, string> = {
   added: 'added',
   removed: 'removed',
-  retimed: 'retimed',
+  trimmed: 'trimmed',
+  moved: 'moved',
   edited: 'edited',
   unchanged: 'unchanged',
 };
@@ -29,7 +36,19 @@ const fieldLabel: Record<string, string> = {
   look: 'look',
   name: 'name',
   text: 'caption text',
+  enabled: 'enabled state',
+  markers: 'markers',
+  effects: 'effects',
+  settings: 'editor settings',
 };
+
+function frameSummary(segment: TimelineDiffSegment, fps: number): string | null {
+  const parts: string[] = [];
+  const seconds = (frames: number) => `${(frames / (fps || 1)).toFixed(2).replace(/\.?0+$/u, '')}s`;
+  if (segment.addedFrames > 0) parts.push(`+${segment.addedFrames} frames (${seconds(segment.addedFrames)}) of new footage`);
+  if (segment.removedFrames > 0) parts.push(`−${segment.removedFrames} frames (${seconds(segment.removedFrames)}) cut`);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
 
 function timing(segment: TimelineDiffSegment, fps: number): string {
   const range = (state: { timelineStart: number; duration: number } | undefined) => (state
@@ -58,7 +77,7 @@ function RevisionPicker({ label, value, options, onChange }: {
 }
 
 function tally(segments: TimelineDiffSegment[]): Record<Tone, number> {
-  const counts: Record<Tone, number> = { added: 0, removed: 0, retimed: 0, edited: 0, unchanged: 0 };
+  const counts: Record<Tone, number> = { added: 0, removed: 0, trimmed: 0, moved: 0, edited: 0, unchanged: 0 };
   for (const segment of segments) counts[toneOf(segment)] += 1;
   return counts;
 }
@@ -72,21 +91,33 @@ function Lane({ track, laneFrames, fps }: { track: TimelineDiffTrack; laneFrames
       <small>{track.kind.toUpperCase()}</small>
     </div>
     <div className="lane">
-      {track.segments.map((segment) => <span
-        key={segment.id}
-        className={`chip diff-chip diff-${toneOf(segment)}`}
-        style={{
-          left: `${(segment.laneStart / total) * 100}%`,
-          width: `${(segment.laneDuration / total) * 100}%`,
-        }}
-        title={`${segment.name} — ${toneLabel[toneOf(segment)]} · ${timing(segment, fps)}`}
-      >
-        <span className="chip-label">{segment.name}</span>
-      </span>)}
+      {track.segments.map((segment) => {
+        const tone = toneOf(segment);
+        return <span
+          key={segment.id}
+          className={`chip diff-chip diff-item diff-${tone}`}
+          style={{
+            left: `${(segment.laneStart / total) * 100}%`,
+            width: `${(segment.laneDuration / total) * 100}%`,
+          }}
+          title={`${segment.name} — ${toneLabel[tone]} · ${timing(segment, fps)}${frameSummary(segment, fps) ? ` · ${frameSummary(segment, fps)}` : ''}`}
+        >
+          {segment.parts.map((part) => <i
+            key={`${part.change}-${part.laneStart}`}
+            className={`diff-part part-${part.change} ${part.change === 'kept' ? `kept-${tone}` : ''}`}
+            style={{
+              left: `${((part.laneStart - segment.laneStart) / Math.max(1, segment.laneDuration)) * 100}%`,
+              width: `${(part.laneDuration / Math.max(1, segment.laneDuration)) * 100}%`,
+            }}
+          />)}
+          <span className="chip-label">{segment.name}</span>
+        </span>;
+      })}
     </div>
     <div className="lane-tally">
       {counts.added > 0 && <em className="diff-added">+{counts.added}</em>}
-      {counts.retimed > 0 && <em className="diff-retimed">↔{counts.retimed}</em>}
+      {counts.trimmed > 0 && <em className="diff-trimmed">✂{counts.trimmed}</em>}
+      {counts.moved > 0 && <em className="diff-moved">↔{counts.moved}</em>}
       {counts.edited > 0 && <em className="diff-edited">~{counts.edited}</em>}
       {counts.removed > 0 && <em className="diff-removed">−{counts.removed}</em>}
       {track.change === 'unchanged' && <em className="diff-none">no change</em>}
@@ -124,8 +155,8 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
       </div>
       <div className="diff-legend">
         <span><i className="swatch diff-added" />added footage</span>
-        <span><i className="swatch diff-retimed" />changed timestamp</span>
         <span><i className="swatch diff-removed" />removed footage</span>
+        <span><i className="swatch diff-moved" />changed timestamp</span>
         <span><i className="swatch diff-edited" />other edit</span>
       </div>
       <button onClick={onClose} aria-label="Close comparison">Close diff</button>
@@ -154,10 +185,11 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
       <div className="diff-lanes-head">
         <h3>Timeline differences</h3>
         <span className="diff-counts">
-          <em className="diff-added">{totals.added} added</em>
-          <em className="diff-retimed">{totals.retimed} retimed</em>
+          <em className="diff-added">+{diff.counts.addedFrames}f added</em>
+          <em className="diff-removed">−{diff.counts.removedFrames}f cut</em>
+          <em className="diff-trimmed">{totals.trimmed} trimmed</em>
+          <em className="diff-moved">{totals.moved} moved</em>
           <em className="diff-edited">{totals.edited} edited</em>
-          <em className="diff-removed">{totals.removed} removed</em>
         </span>
       </div>
       {identical
@@ -173,6 +205,7 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
           <div>
             <strong>{track.name} · {segment.name}</strong>
             <small>{timing(segment, diff.fps)}</small>
+            {frameSummary(segment, diff.fps) && <small className="frames">{frameSummary(segment, diff.fps)}</small>}
             {segment.changedFields.length > 0 && <small className="fields">
               {segment.changedFields.map((field) => fieldLabel[field] ?? field).join(', ')}
             </small>}

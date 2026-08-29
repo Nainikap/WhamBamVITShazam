@@ -10,6 +10,12 @@ const stateLabel: Record<ProjectOverview['state'], string> = {
   'resolve-pending': 'Resolve update',
 };
 
+function StatePill({ project }: { project: ProjectOverview }) {
+  return project.linked
+    ? <span className={`state-pill state-${project.state}`}>{stateLabel[project.state]}</span>
+    : <span className="state-pill state-new">New from Resolve</span>;
+}
+
 /** Show a real frame of the project's own footage, or an honest offline placeholder. */
 function Poster({ project }: { project: ProjectOverview }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -38,11 +44,13 @@ function Poster({ project }: { project: ProjectOverview }) {
 
 function Meta({ project }: { project: ProjectOverview }) {
   return <div className="project-meta">
-    <span className="branch-chip">⑂ {project.branch}</span>
-    <span>{durationLabel(project.durationFrames, project.fps)}</span>
-    <span>{project.width}×{project.height}</span>
-    <span>{frameRateLabel(project.fps)}</span>
-    <span>{project.trackCounts.video}V · {project.trackCounts.audio}A</span>
+    {project.linked && <span className="branch-chip">⑂ {project.branch}</span>}
+    <span className="timeline-chip">▤ {project.resolve.timelineName}</span>
+    {project.durationFrames > 0 && <span>{durationLabel(project.durationFrames, project.fps)}</span>}
+    {project.width > 0 && <span>{project.width}×{project.height}</span>}
+    {project.fps > 0 && <span>{frameRateLabel(project.fps)}</span>}
+    {project.linked && <span>{project.trackCounts.video}V · {project.trackCounts.audio}A</span>}
+    {project.resolve.timelineCount > 1 && <span>{project.resolve.timelineCount} timelines</span>}
   </div>;
 }
 
@@ -58,11 +66,16 @@ export function Dashboard() {
   if (store.overviews.length === 0) {
     return <main className="dashboard empty-state">
       <div className="empty-icon" aria-hidden="true">⌁</div>
-      <h2>See every cut. Keep every version.</h2>
-      <p>Import the OTIO file DaVinci Resolve exports. SnipSnap commits, branches, compares, and merges the timeline without ever touching your footage.</p>
+      <h2>No Resolve projects found yet</h2>
+      <p>
+        SnipSnap lists a project once DaVinci Resolve has exported it: a <code>.drp</code> project
+        file with its timeline beside it as <code>.otio</code>. Run <code>SnipSnapSync.py</code>
+        from Resolve&rsquo;s Workspace &rsaquo; Scripts menu to export them, or point SnipSnap at a
+        folder where you already keep those exports.
+      </p>
       <div className="empty-actions">
-        <button className="primary" onClick={() => void store.importOtio()}>Import Resolve OTIO</button>
-        <button onClick={() => void store.createDemo()}>Create a sample project</button>
+        <button className="primary" onClick={() => void store.addResolveFolder()}>Choose an export folder</button>
+        <button onClick={() => void store.refreshLibrary()}>Look again</button>
       </div>
     </main>;
   }
@@ -71,7 +84,7 @@ export function Dashboard() {
     <header className="dashboard-head">
       <div>
         <h1>Video projects</h1>
-        <p>Every timeline you version here, most recently edited first.</p>
+        <p>Timelines DaVinci Resolve has exported, most recently worked on first.</p>
       </div>
       <div className="dashboard-actions">
         <input
@@ -81,8 +94,8 @@ export function Dashboard() {
           value={store.filter}
           onChange={(event) => store.setFilter(event.target.value)}
         />
-        <button onClick={() => void store.createDemo()}>New project</button>
-        <button className="primary" onClick={() => void store.importOtio()}>Import OTIO</button>
+        <button onClick={() => void store.addResolveFolder()}>Add folder</button>
+        <button className="primary" onClick={() => void store.refreshLibrary()}>Refresh</button>
       </div>
     </header>
 
@@ -99,17 +112,20 @@ export function Dashboard() {
         <div className="latest-body">
           <div className="latest-title">
             <h2>{latest.name}</h2>
-            <span className={`state-pill state-${latest.state}`}>{stateLabel[latest.state]}</span>
+            <StatePill project={latest} />
           </div>
           <Meta project={latest} />
           <p className="latest-commit">
-            <code>{shortId(latest.headCommit)}</code> {latest.headMessage}
+            {latest.linked
+              ? <><code>{shortId(latest.headCommit)}</code> {latest.headMessage}</>
+              : <>Open it to import the timeline and start versioning.</>}
           </p>
-          <p className="latest-path" title={latest.path}>{latest.path}</p>
+          <p className="latest-path" title={latest.resolve.drpPath}>{latest.resolve.drpPath}</p>
+          <p className="latest-path" title={latest.resolve.otioPath}>{latest.resolve.otioPath}</p>
           <div className="latest-foot">
             <span>{relativeTime(latest.updatedAt)}</span>
-            <span>{latest.commitCount} commit{latest.commitCount === 1 ? '' : 's'}</span>
-            <span>{latest.branchCount} branch{latest.branchCount === 1 ? '' : 'es'}</span>
+            {latest.linked && <span>{latest.commitCount} commit{latest.commitCount === 1 ? '' : 's'}</span>}
+            {latest.linked && <span>{latest.branchCount} branch{latest.branchCount === 1 ? '' : 'es'}</span>}
             {latest.changeCount > 0 && <span className="change-count">{latest.changeCount} pending change{latest.changeCount === 1 ? '' : 's'}</span>}
             <span className="open-hint">Open project →</span>
           </div>
@@ -133,15 +149,17 @@ export function Dashboard() {
             <div className="project-row-body">
               <div className="project-row-title">
                 <strong>{project.name}</strong>
-                <span className={`state-pill state-${project.state}`}>{stateLabel[project.state]}</span>
+                <StatePill project={project} />
               </div>
               <Meta project={project} />
-              <small className="project-row-path" title={project.path}>{project.path}</small>
+              <small className="project-row-path" title={project.resolve.drpPath}>{project.resolve.drpPath}</small>
             </div>
             <div className="project-row-side">
               <span>{relativeTime(project.updatedAt)}</span>
-              <code>{shortId(project.headCommit)}</code>
-              <small>{project.commitCount} commit{project.commitCount === 1 ? '' : 's'}</small>
+              {project.linked && <code>{shortId(project.headCommit)}</code>}
+              <small>{project.linked
+                ? `${project.commitCount} commit${project.commitCount === 1 ? '' : 's'}`
+                : 'not versioned yet'}</small>
             </div>
           </button>
         </li>)}

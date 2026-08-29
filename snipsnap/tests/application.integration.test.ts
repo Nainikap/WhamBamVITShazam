@@ -24,36 +24,13 @@ describe('V1 project workflow', () => {
     return service.stage(projectId, status.unstaged.map(({ id }) => id), status.indexDigest);
   }
 
-  it('summarises every project for the dashboard, most recently worked on first', async () => {
-    const older = createDemoProject('Older Cut');
-    const newer = createDemoProject('Newer Cut');
-    await service.createProject(older);
-    await service.createProject(newer);
-    const status = await service.status(newer.id);
-    const clip = newer.clips[0];
-    if (!clip) throw new Error('Fixture clip missing');
-    await service.edit(newer.id, { type: 'setClipPreset', clipId: clip.id, preset: 'warm' }, status.workspaceVersion);
+  it('keeps a project out of the dashboard when Resolve has not exported it', async () => {
+    const project = createDemoProject('Local Only');
+    await service.createProject(project);
 
-    const overviews = await service.listProjectOverviews();
-    expect(overviews.map(({ name }) => name)).toEqual(['Newer Cut', 'Older Cut']);
-    const [latest, previous] = overviews;
-    expect(latest).toMatchObject({
-      branch: 'main',
-      state: 'uncommitted',
-      changeCount: 1,
-      fps: 24,
-      width: 1920,
-      height: 1080,
-      durationFrames: 504,
-      commitCount: 1,
-      branchCount: 1,
-      trackCounts: { video: 1, audio: 1, caption: 1 },
-    });
-    expect(latest?.path).toContain(newer.id);
-    expect(latest?.poster).toBeNull();
-    expect(latest?.missingMedia).toBe(3);
-    expect(previous?.state).toBe('clean');
-    expect(previous?.changeCount).toBe(0);
+    // The dashboard lists Resolve exports, so a bare repository must not appear.
+    expect(await service.listProjectOverviews()).toEqual([]);
+    expect(await service.listProjects()).toEqual([{ id: project.id, name: 'Local Only' }]);
   });
 
   it('compares two commits into playable plans and highlighted lane differences', async () => {

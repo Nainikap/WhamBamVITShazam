@@ -4,8 +4,9 @@ import { channels, type SnipSnapApi } from './ipc';
 const api: SnipSnapApi = {
   listProjects: () => ipcRenderer.invoke(channels.listProjects),
   listOverviews: () => ipcRenderer.invoke(channels.listOverviews),
-  createDemo: () => ipcRenderer.invoke(channels.createDemo),
-  importOtio: () => ipcRenderer.invoke(channels.importOtio),
+  openProject: (projectId) => ipcRenderer.invoke(channels.openProject, projectId),
+  addResolveFolder: () => ipcRenderer.invoke(channels.addResolveFolder),
+  resolveRoots: () => ipcRenderer.invoke(channels.resolveRoots),
   status: (projectId) => ipcRenderer.invoke(channels.status, projectId),
   connectOtioSource: (projectId, expectedVersion) => ipcRenderer.invoke(channels.connectOtioSource, projectId, expectedVersion),
   scanOtioSource: (projectId) => ipcRenderer.invoke(channels.scanOtioSource, projectId),

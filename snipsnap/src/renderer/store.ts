@@ -28,8 +28,8 @@ interface AppStore {
   setFilter(value: string): void;
   openProject(id: string): Promise<void>;
   goToDashboard(): Promise<void>;
-  createDemo(): Promise<void>;
-  importOtio(): Promise<void>;
+  addResolveFolder(): Promise<void>;
+  refreshLibrary(): Promise<void>;
   connectSource(): Promise<void>;
   scanSource(): Promise<void>;
   applySource(): Promise<void>;
@@ -133,8 +133,18 @@ export const useAppStore = create<AppStore>((set, get) => {
     setFilter: (value) => set({ filter: value }),
 
     openProject: (id) => run(async () => {
-      await refresh(id);
-      set({ route: { name: 'editor', projectId: id }, diffOpen: false, comparison: null });
+      // Importing from Resolve happens here, so a project opens straight from
+      // the dashboard whether or not SnipSnap has seen it before.
+      const status = await window.snipsnap.openProject(id);
+      const selectedRevision = await window.snipsnap.revisionDetails(id, status.headCommit);
+      set({
+        status,
+        selectedRevision,
+        currentProjectId: id,
+        route: { name: 'editor', projectId: id },
+        diffOpen: false,
+        comparison: null,
+      });
     }),
 
     goToDashboard: () => run(async () => {
@@ -142,26 +152,25 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({ overviews: await window.snipsnap.listOverviews() });
     }),
 
-    createDemo: () => run(async () => {
-      const project = await window.snipsnap.createDemo();
-      await refresh(project.id);
+    addResolveFolder: () => run(async () => {
+      const roots = await window.snipsnap.addResolveFolder();
+      if (!roots) return;
+      const overviews = await window.snipsnap.listOverviews();
       set({
-        route: { name: 'editor', projectId: project.id },
-        overviews: await window.snipsnap.listOverviews(),
-        notice: 'Project created. Connect the OTIO file Resolve exports to start tracking cuts.',
+        overviews,
+        notice: overviews.length
+          ? `Watching ${roots.length} folder${roots.length === 1 ? '' : 's'}. Found ${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'}.`
+          : 'No .drp file with a matching .otio export was found in that folder.',
       });
     }),
 
-    importOtio: () => run(async () => {
-      const imported = await window.snipsnap.importOtio();
-      if (!imported) return;
-      await refresh(imported.id);
+    refreshLibrary: () => run(async () => {
+      const overviews = await window.snipsnap.listOverviews();
       set({
-        route: { name: 'editor', projectId: imported.id },
-        overviews: await window.snipsnap.listOverviews(),
-        notice: imported.unsupportedCount
-          ? `Imported with ${imported.unsupportedCount} unsupported item${imported.unsupportedCount === 1 ? '' : 's'} reported.`
-          : 'Resolve OTIO imported and connected for change detection.',
+        overviews,
+        notice: overviews.length
+          ? `${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'} available.`
+          : 'No Resolve projects found. Run the SnipSnap script in Resolve to export them.',
       });
     }),
 

@@ -5,7 +5,6 @@ import { readFile, stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import started from 'electron-squirrel-startup';
 import { ProjectService, SourceWatchService, atomicWriteText } from './application';
-import { createDemoProject } from './domain';
 import { channels } from './ipc';
 
 if (started) app.quit();
@@ -141,21 +140,22 @@ function registerApplicationProtocol(): void {
 function registerIpc(): void {
   ipcMain.handle(channels.listProjects, () => projects.listProjects());
   ipcMain.handle(channels.listOverviews, () => projects.listProjectOverviews());
-  ipcMain.handle(channels.createDemo, async () => {
-    const name = `Launch Cut ${new Date().toISOString().replace(/[:.]/gu, '-')}`;
-    return projects.createProject(createDemoProject(name), 'Create demo timeline');
+  ipcMain.handle(channels.openProject, async (_event, projectId: string) => {
+    const status = await projects.openResolveProjectById(projectId);
+    const binding = await projects.sourceBinding(projectId);
+    if (binding) sourceWatcher.watch(projectId, binding.path);
+    return status;
   });
-  ipcMain.handle(channels.importOtio, async () => {
+  ipcMain.handle(channels.resolveRoots, () => projects.resolveRoots());
+  ipcMain.handle(channels.addResolveFolder, async () => {
     const selection = await dialog.showOpenDialog({
-      title: 'Import DaVinci Resolve OTIO',
-      properties: ['openFile'],
-      filters: [{ name: 'OpenTimelineIO', extensions: ['otio', 'json'] }],
+      title: 'Choose a folder holding Resolve project exports',
+      message: 'Pick a folder that contains .drp project files exported next to their .otio timelines.',
+      properties: ['openDirectory'],
     });
-    const filePath = selection.filePaths[0];
-    if (selection.canceled || !filePath) return null;
-    const result = await projects.importOtio(await readFile(filePath, 'utf8'), filePath);
-    sourceWatcher.watch(result.id, filePath);
-    return { id: result.id, name: result.name, unsupportedCount: result.unsupported.length };
+    const folder = selection.filePaths[0];
+    if (selection.canceled || !folder) return null;
+    return projects.addResolveRoot(folder);
   });
   ipcMain.handle(channels.status, (_event, projectId) => projects.status(projectId));
   ipcMain.handle(channels.connectOtioSource, async (_event, projectId: string, expectedVersion: number) => {

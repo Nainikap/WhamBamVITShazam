@@ -45,10 +45,14 @@ export function App() {
           <span className="brand-name">SnipSnap</span>
         </div>
 
-        {editing && status && <div className="project-path" title={status.path}>
+        {editing && status && <div
+          className="project-path"
+          title={`${status.resolve?.drpPath ?? status.path}\nTimeline: ${status.resolve?.otioPath ?? '—'}`}
+        >
           <span className="path-icon" aria-hidden="true">▤</span>
           <span className="path-project">{status.project.name}</span>
-          <span className="path-text">{status.path}</span>
+          <span className="path-text">{status.resolve?.drpPath ?? status.path}</span>
+          {status.resolve && <span className="path-timeline">⧉ {status.resolve.timelineName}</span>}
         </div>}
 
         <div className="top-actions">

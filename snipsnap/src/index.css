@@ -122,6 +122,10 @@ small { color: var(--muted); font-size: 11px; }
   overflow: hidden; color: var(--muted);
   font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap;
 }
+.path-timeline {
+  flex-shrink: 0; padding: 2px 7px; border-radius: 5px;
+  background: var(--accent-soft); color: #9dbcff; font: 10px var(--mono);
+}
 .top-actions { margin-left: auto; display: flex; gap: 8px; }
 
 .progress {
@@ -191,6 +195,8 @@ small { color: var(--muted); font-size: 11px; }
 .state-staged { color: #9dbcff; background: var(--accent-soft); }
 .state-uncommitted { color: var(--modified); background: var(--modified-soft); }
 .state-resolve-pending { color: var(--added); background: var(--added-soft); }
+.state-new { color: var(--edited); background: var(--edited-soft); }
+.timeline-chip { color: #b7c1d2 !important; }
 
 .section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .section-head h2 { font-size: 15px; }
@@ -370,6 +376,11 @@ small { color: var(--muted); font-size: 11px; }
 .lane-audio .chip, .chip.chip-audio { background: linear-gradient(#2f7a63, #24604e); }
 .chip-gap { background: repeating-linear-gradient(45deg, #1a2029 0 6px, #151a22 6px 12px); border-style: dashed; }
 .chip-caption { background: linear-gradient(#5a4a86, #453a68); }
+.chip-transition {
+  z-index: 2; min-width: 10px;
+  background: repeating-linear-gradient(45deg, #7c6a3a 0 4px, #5f5130 4px 8px);
+  border-color: #b79a52;
+}
 .chip.offline { filter: grayscale(.7); opacity: .55; }
 .chip.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .chip-label { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -446,7 +457,7 @@ small { color: var(--muted); font-size: 11px; }
 .diff-legend span { display: flex; align-items: center; gap: 5px; }
 .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .swatch.diff-added { background: var(--added); }
-.swatch.diff-retimed { background: var(--modified); }
+.swatch.diff-moved { background: var(--modified); }
 .swatch.diff-edited { background: var(--edited); }
 .swatch.diff-removed { background: var(--removed); }
 
@@ -462,7 +473,7 @@ small { color: var(--muted); font-size: 11px; }
 .diff-counts { display: flex; gap: 10px; font: 10px var(--mono); }
 .diff-counts em, .lane-tally em { font-style: normal; }
 .diff-added { color: var(--added); }
-.diff-retimed { color: var(--modified); }
+.diff-moved, .diff-trimmed { color: var(--modified); }
 .diff-edited { color: var(--edited); }
 .diff-removed { color: var(--removed); }
 .diff-none { color: var(--muted); }
@@ -473,12 +484,25 @@ small { color: var(--muted); font-size: 11px; }
 .diff-lane-row .lane-head { position: static; border-bottom: 0; padding: 8px 10px; }
 .diff-lane-row .lane { height: 44px; border-bottom: 0; cursor: default; }
 .lane-tally { display: flex; align-items: center; justify-content: flex-end; gap: 7px; padding: 0 11px; border-left: 1px solid var(--line); background: #0f131a; font: 10px var(--mono); }
-.diff-chip { border-color: #ffffff22; }
-.diff-chip.diff-unchanged { background: #232a36; color: #7d879a; }
-.diff-chip.diff-added { border-color: var(--added); background: linear-gradient(#1c6b45, #145234); }
-.diff-chip.diff-retimed { border-color: var(--modified); background: linear-gradient(#7a5f1e, #5c4716); }
-.diff-chip.diff-edited { border-color: var(--edited); background: linear-gradient(#4b3d78, #3a305e); }
-.diff-chip.diff-removed { border-color: var(--removed); background: linear-gradient(#7a2f34, #5c2327); }
+/* A diff item is a frame of reference; its parts carry the colour. */
+.diff-item { padding: 0; border-color: #ffffff22; background: transparent; overflow: hidden; }
+.diff-item .chip-label { position: relative; z-index: 2; padding: 0 7px; text-shadow: 0 1px 3px #000a; }
+.diff-part { position: absolute; top: 0; bottom: 0; z-index: 1; display: block; }
+.part-kept { background: #232a36; }
+.part-kept.kept-moved { background: linear-gradient(#7a5f1e, #5c4716); }
+.part-kept.kept-edited { background: linear-gradient(#4b3d78, #3a305e); }
+.part-kept.kept-trimmed { background: #2c3444; }
+.part-added { background: linear-gradient(#1c6b45, #145234); box-shadow: inset 0 0 0 1px var(--added); }
+.part-removed {
+  background: linear-gradient(#7a2f34, #5c2327);
+  box-shadow: inset 0 0 0 1px var(--removed);
+  background-image: repeating-linear-gradient(135deg, #8d3238 0 5px, #6b262b 5px 10px);
+}
+.diff-item.diff-added { border-color: var(--added); }
+.diff-item.diff-removed { border-color: var(--removed); }
+.diff-item.diff-trimmed, .diff-item.diff-moved { border-color: var(--modified); }
+.diff-item.diff-edited { border-color: var(--edited); }
+.diff-item.diff-unchanged { border-color: #ffffff18; }
 
 .diff-details { padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .diff-details h3 { margin-bottom: 11px; font-size: 13px; }
@@ -489,19 +513,20 @@ small { color: var(--muted); font-size: 11px; }
   border-left: 3px solid var(--line-2);
 }
 .diff-detail.diff-added { border-left-color: var(--added); }
-.diff-detail.diff-retimed { border-left-color: var(--modified); }
+.diff-detail.diff-moved, .diff-detail.diff-trimmed { border-left-color: var(--modified); }
 .diff-detail.diff-edited { border-left-color: var(--edited); }
 .diff-detail.diff-removed { border-left-color: var(--removed); }
 .diff-detail div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .diff-detail strong { font-size: 12px; font-weight: 550; }
 .diff-detail small { font: 10px var(--mono); }
 .diff-detail small.fields { color: #9aa6ba; font-family: inherit; font-size: 10px; }
+.diff-detail small.frames { color: var(--text); }
 .badge {
   padding: 3px 7px; border-radius: 5px; text-align: center;
   font: 700 9px var(--mono); text-transform: uppercase;
 }
 .badge.diff-added { color: var(--added); background: var(--added-soft); }
-.badge.diff-retimed { color: var(--modified); background: var(--modified-soft); }
+.badge.diff-moved, .badge.diff-trimmed { color: var(--modified); background: var(--modified-soft); }
 .badge.diff-edited { color: var(--edited); background: var(--edited-soft); }
 .badge.diff-removed { color: var(--removed); background: var(--removed-soft); }
 
