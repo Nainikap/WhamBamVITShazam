@@ -105,6 +105,7 @@ export interface SourceSyncStatus {
     detectedAt: string;
     changeCount: number;
     unsupportedCount: number;
+    changes: SemanticHunk[];
   };
 }
 
@@ -250,11 +251,13 @@ export class ProjectService {
     };
     if (binding.lastAppliedDigest) status.lastAppliedDigest = binding.lastAppliedDigest;
     if (pending) {
+      const changes = semanticDiff(workspace.working, pending.project);
       status.pending = {
         digest: pending.digest,
         detectedAt: pending.detectedAt,
-        changeCount: semanticDiff(workspace.working, pending.project).length,
+        changeCount: changes.length,
         unsupportedCount: pending.unsupported.length,
+        changes,
       };
     }
     return status;
