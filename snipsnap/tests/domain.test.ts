@@ -20,8 +20,17 @@ describe('canonical timeline model', () => {
 
   it('normalizes strings to NFC', () => {
     const project = createDemoProject('Cafe\u0301 cut');
+    expect(project.name).toBe('Café cut');
     expect(canonicalJson(project)).toContain('Café cut');
     expect(canonicalJson(project)).not.toContain('Café cut');
+  });
+
+  it('rejects captions that extend beyond their containing sequence', () => {
+    const project = createDemoProject();
+    const caption = project.captions[0];
+    if (!caption) throw new Error('Demo fixture must contain a caption');
+    caption.range = { start: 500, duration: 10 };
+    expect(() => validateProject(project)).toThrow(/exceeds its sequence duration/u);
   });
 
   it('rejects clips that exceed immutable asset duration', () => {

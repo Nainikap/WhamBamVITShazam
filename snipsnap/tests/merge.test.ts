@@ -71,6 +71,12 @@ describe('conservative three-way merge', () => {
     expect(result.conflicts).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'validation', validationErrors: expect.arrayContaining([expect.stringContaining('exceeds')]) }),
     ]));
+
+    const validation = result.conflicts.find(({ type }) => type === 'validation');
+    if (!validation) throw new Error('Validation conflict missing');
+    const resolved = resolveMerge(result, [{ conflictId: validation.id, choice: 'theirs' }]);
+    expect(resolved.conflicts).toEqual([]);
+    expect(completeMerge(resolved).clips[0]?.sourceRange).toEqual({ start: 120, duration: 100 });
   });
 
   it('reports incompatible clip ordering instead of inventing an order', () => {

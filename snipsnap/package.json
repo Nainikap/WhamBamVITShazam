@@ -13,7 +13,7 @@
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude '**/*.integration.test.ts' --exclude 'tests/e2e/**'",
+    "test": "vitest run --exclude \"**/*.integration.test.ts\" --exclude \"tests/e2e/**\"",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "npm run package && playwright test"
   },
@@ -23,10 +23,7 @@
     "otio",
     "video"
   ],
-  "author": {
-    "name": "Tarun",
-    "email": "tarunram23@gmail.com"
-  },
+  "author": "Tarun <tarunram23@gmail.com>",
   "license": "MIT",
   "dependencies": {
     "@noble/hashes": "^1.8.0",
@@ -52,7 +49,7 @@
     "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
-    "electron": "44.0.0",
+    "electron": "^44.0.0",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
     "fast-check": "^3.23.2",
@@ -60,5 +57,9 @@
     "typescript": "^5.9.2",
     "vite": "^5.4.21",
     "vitest": "^2.1.9"
-  }
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "type": "commonjs"
 }

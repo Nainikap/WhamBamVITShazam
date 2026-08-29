@@ -1,4 +1,4 @@
-# VideoGit V1 implementation status
+# VideoGit V1/V1.5 implementation status
 
 > Updated: 2026-08-29
 >
@@ -8,7 +8,7 @@
 
 ## Current result
 
-The local V1 architecture is implemented end to end:
+The local V1 architecture and the approved Resolve-only V1.5 workflow are implemented end to end:
 
 ```text
 React/Zustand renderer
@@ -18,8 +18,11 @@ React/Zustand renderer
   -> canonical model / OTIO / semantic diff / three-way merge / native Git
 ```
 
-There is no Fastify server, media CAS, FFmpeg worker, SQLite queue, hosted auth, or cross-NLE
-adapter in V1. Those remain V2 work as required by the Engineering Plan.
+SnipSnap contains no video-editing controls. Resolve remains the editor. A connected OTIO export
+is watched and imported as a validated pending update; commits are previewed from locally linked,
+browser-compatible media through a restricted Electron protocol. There is no Fastify server,
+managed media CAS, FFmpeg proxy worker, SQLite queue, hosted auth, or cross-NLE adapter. Those
+remain V2 work.
 
 ## Requirement traceability
 
@@ -33,12 +36,15 @@ adapter in V1. Those remain V2 work as required by the Engineering Plan.
 | Compare-and-swap ref safety | immutable objects are created first; refs move last through `update-ref <new> <expected-old>` | stale-ref unit/integration cases, including a target moved during conflict resolution | Automated |
 | Distinct HEAD / INDEX / WORKING snapshots | HEAD is read from a commit, semantic INDEX is the real Git index, WORKING is atomically persisted application state | selective-stage integration test proves a commit contains only one of two working edits | Automated |
 | Semantic status and atomic staging | `src/diff/` emits stable-ID hunks for trims, ranges, fields, entities, and order; hunk IDs bind the base digest | diff/command unit tests cover selective staging, atomic trim/order, and stale hunk rejection | Automated |
-| Typed validated edit commands | `src/commands/` implements trim, gain, preset, caption, reorder, and rename reducers | valid/invalid reducer tests | Automated |
+| No in-app video editing | renderer contains only Resolve sync, review, staging, history, branch, export, and preview controls; the legacy pure command reducer remains headless test/merge support and is not exposed over preload | typecheck plus packaged Electron journeys | Automated |
+| Resolve OTIO change detection | application source binding, directory watcher, debounce, content digest, pending candidate, identity reconciliation, explicit apply/dismiss, and stale-workspace guard | source-sync unit tests, watcher integration, invalid/partial export and branch-specific application integration | Automated |
 | Conservative field-level three-way merge | `src/merge/` implements one-sided, same-value, different-field, same-field, delete/modify, order, and whole-project validation rules | unit/property tests cover independent edits, same-field choice, delete/modify restoration, incompatible order, and invalid combined timing | Automated |
 | Persisted conflict resolution, validation gate, and safe abort | atomic merge-session files store immutable base/parent IDs and provisional state; complete uses target-ref CAS | application integration and Electron E2E conflict flow | Automated |
-| Dirty checkout guard and restart safety | checkout requires clean state unless explicit discard; workspace/index/head validate after service restart | application integration tests | Automated |
-| Compare, history, branches, tags, conflict resolver, and export UI | `src/renderer/` uses Zustand over the typed preload API | packaged Electron Playwright journeys | Automated |
-| Clean merge and conflict-resolution browser flows | `tests/e2e/workflow.spec.ts` launches the real Electron app with an isolated data root | two Playwright tests: clean merge and blocked-then-resolved conflict | Automated |
+| Dirty checkout guard and restart safety | checkout requires no pending Resolve candidate, staged changes, or working changes unless explicitly discarded; workspace/index/head validate after restart | application integration tests | Automated |
+| Clickable commit history and parent diff | selecting history resolves an immutable object ID, loads its full snapshot, and computes a semantic diff against the selected parent | application integration and packaged Electron Playwright | Automated |
+| Branch from historical commit and safe restore | clean branch-from-revision switches HEAD/INDEX/WORKING together; restore writes the selected snapshot into WORKING so history is preserved | application integration and packaged Electron Playwright | Automated |
+| Commit preview and media relink | pure `PreviewPlan` compiler orders source ranges from the selected commit; local media links stay outside Git and are served through a fingerprint-addressed custom protocol | preview unit test, media-link integration, packaged viewer journey | Automated for plan/wiring; real-codec gate pending |
+| Resolve sync and historical-branch browser flows | `tests/e2e/workflow.spec.ts` launches the real packaged Electron entry with an isolated real Git repository and watched OTIO file | two Playwright tests cover automatic detection through commit preview, plus old-commit branching/switch/restore | Automated |
 | Export resolves an immutable commit before compilation | `ProjectService.exportOtio` resolves the revision to an object ID, loads that snapshot, then compiles OTIO and restores sidecar relinks | application integration test | Automated |
 | Offline operation | application and test flows use local files, native Git, and Electron IPC only | all core/integration/E2E tests run without a service dependency | Automated |
 
@@ -60,25 +66,29 @@ The test layers deliberately prove different things:
 - unit/property tests prove deterministic model, OTIO, diff, commands, and merge rules;
 - integration tests execute real Git 2.x repositories under temporary directories, including
   physical snapshot compaction with unchanged refs, index, history, and canonical reads;
-- Playwright launches the packaged Electron entry and exercises renderer -> preload -> IPC ->
-  services -> Git rather than replacing the API with mocks;
-- the packaging check verifies Electron Forge can produce `out/snipsnap-linux-x64/snipsnap`.
+- Playwright launches the packaged Electron entry and exercises watched OTIO -> renderer ->
+  preload -> IPC -> services -> Git -> immutable preview plan rather than replacing the API with mocks;
+- the packaging check verifies Electron Forge can produce the platform package (for example,
+  `out/SnipSnap-win32-x64/SnipSnap.exe` on Windows), and E2E launches that package's generated
+  `resources/app.asar` through the Electron automation harness.
 
 ## Honest validation boundary
 
-DaVinci Resolve is not installed in the automated environment. Therefore this repository does
-not claim that a live Resolve import/export has been completed. The checked OTIO fixture is a
-small, synthetic Resolve-shaped fixture, and generated files are accepted by the official
-OpenTimelineIO 0.18.1 parser. Before calling V1 release-ready, run the following manual gate on
-the supported cut-only profile:
+DaVinci Resolve and representative camera codecs are not installed in the automated environment.
+Therefore this repository does not claim that a live Resolve export or every codec has been
+previewed. The checked OTIO fixture is synthetic and generated files are accepted by official
+OpenTimelineIO 0.18.1. Before calling V1.5 release-ready, run this manual gate:
 
 1. Export a timeline containing multiple tracks, clips, and gaps from the supported Resolve
    version.
 2. Import it into SnipSnap and inspect the explicit unsupported-content count.
-3. Edit, selectively stage, commit, branch, merge, and export an immutable commit.
-4. Import that OTIO into Resolve, relink the external media, and compare clip order plus source
+3. Change the timeline in Resolve, overwrite the connected export, confirm automatic detection,
+   selectively stage, commit, and inspect the commit's semantic parent diff.
+4. Relink representative MP4/MOV media and verify seek, ordered playback, missing-media recovery,
+   and switching between at least two historical commit previews.
+5. Create a branch from an old commit, export that immutable commit, import it into Resolve, and compare clip order plus source
    in/out and durations; the tolerance is at most one frame.
-5. Add the real exported OTIO (with private paths/media removed) to `tests/fixtures/` as a
+6. Add the real exported OTIO (with private paths/media removed) to `tests/fixtures/` as a
    regression fixture.
 
 OTIO core has no portable caption schema. V1 preserves SnipSnap captions through namespaced OTIO
@@ -92,7 +102,9 @@ caption objects. That fidelity must remain explicit rather than silently adverti
   pack/delta storage transparently shares bytes between similar snapshots; automatic maintenance
   is best-effort and never changes commits, refs, the semantic index, or the working snapshot.
 - Source media URLs are stored beside the workspace in `media-links.json`, never in Git. They are
-  used only to reconstruct external references during local OTIO export; footage is not copied.
+  used for immutable OTIO export and local commit preview; footage is not copied.
+- The custom `snipsnap-media://asset/<project>/<fingerprint>` handler resolves only registered
+  sidecar links in the main process. The renderer never receives arbitrary filesystem access.
 - The BrowserWindow is sandboxed with context isolation on and Node integration off.
 - The preload exposes only named workflow methods. Node filesystem/process/Git APIs are not
   exposed to the renderer.

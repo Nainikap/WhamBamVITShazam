@@ -96,6 +96,43 @@ function mediaReference(item: z.infer<typeof ItemSchema>) {
   return item.media_references?.[key] ?? Object.values(item.media_references ?? {})[0];
 }
 
+function schemaName(value: unknown, fallback: string): string {
+  if (value && typeof value === 'object' && 'OTIO_SCHEMA' in value
+    && typeof (value as { OTIO_SCHEMA?: unknown }).OTIO_SCHEMA === 'string') {
+    return (value as { OTIO_SCHEMA: string }).OTIO_SCHEMA;
+  }
+  return fallback;
+}
+
+function reportArray(
+  value: unknown,
+  path: string,
+  reason: string,
+  unsupported: UnsupportedContent[],
+): void {
+  if (!Array.isArray(value)) return;
+  value.forEach((entry, index) => unsupported.push({
+    path: `${path}[${index}]`,
+    schema: schemaName(entry, 'Unknown.1'),
+    reason,
+  }));
+}
+
+function reportDecorations(
+  value: Record<string, unknown>,
+  path: string,
+  unsupported: UnsupportedContent[],
+): void {
+  reportArray(value.effects, `${path}.effects`, 'V1 does not preserve effects', unsupported);
+  reportArray(value.markers, `${path}.markers`, 'V1 does not preserve markers', unsupported);
+  if (value.enabled === false) {
+    unsupported.push({ path: `${path}.enabled`, schema: schemaName(value, 'Unknown.1'), reason: 'V1 does not preserve disabled state' });
+  }
+  if (value.color !== undefined && value.color !== null) {
+    unsupported.push({ path: `${path}.color`, schema: schemaName(value, 'Unknown.1'), reason: 'V1 does not preserve color labels' });
+  }
+}
+
 function getRate(timeline: z.infer<typeof TimelineInputSchema>): Rational {
   for (const track of timeline.tracks.children) {
     for (const item of track.children) {
@@ -132,20 +169,52 @@ export function importOtio(input: string | unknown): OtioImportResult {
   const unsupported: UnsupportedContent[] = [];
   const mediaLinks: Record<string, string> = {};
 
+  reportDecorations(timeline, 'timeline', unsupported);
+  reportDecorations(timeline.tracks, 'tracks', unsupported);
+  if (timeline.global_start_time !== undefined && timeline.global_start_time !== null) {
+    unsupported.push({
+      path: 'global_start_time',
+      schema: schemaName(timeline.global_start_time, 'RationalTime.1'),
+      reason: 'V1 timelines always begin at frame zero',
+    });
+  }
+  if (timeline.tracks.source_range !== undefined && timeline.tracks.source_range !== null) {
+    unsupported.push({
+      path: 'tracks.source_range',
+      schema: schemaName(timeline.tracks.source_range, 'TimeRange.1'),
+      reason: 'V1 does not preserve stack source ranges',
+    });
+  }
+
   timeline.tracks.children.forEach((trackInput, trackIndex) => {
+    const trackPath = `tracks[${trackIndex}]`;
+    reportDecorations(trackInput, trackPath, unsupported);
     if (!trackInput.OTIO_SCHEMA.startsWith('Track.')) {
-      unsupported.push({ path: `tracks[${trackIndex}]`, schema: trackInput.OTIO_SCHEMA, reason: 'Only OTIO Track objects are supported' });
+      unsupported.push({ path: trackPath, schema: trackInput.OTIO_SCHEMA, reason: 'Only OTIO Track objects are supported' });
       return;
+    }
+    if (trackInput.source_range !== undefined && trackInput.source_range !== null) {
+      unsupported.push({
+        path: `${trackPath}.source_range`,
+        schema: schemaName(trackInput.source_range, 'TimeRange.1'),
+        reason: 'V1 does not preserve track source ranges',
+      });
     }
     const trackMeta = videogitMetadata(trackInput.metadata);
     const declaredKind = trackMeta.kind;
+    const inputKind = trackInput.kind?.toLowerCase();
+    if (declaredKind !== 'caption' && inputKind !== undefined && inputKind !== 'audio' && inputKind !== 'video') {
+      unsupported.push({ path: `${trackPath}.kind`, schema: trackInput.OTIO_SCHEMA, reason: `Unsupported track kind ${trackInput.kind}` });
+    }
     const kind: Track['kind'] = declaredKind === 'caption'
       ? 'caption'
-      : trackInput.kind?.toLowerCase() === 'audio' ? 'audio' : 'video';
+      : inputKind === 'audio' ? 'audio' : 'video';
     const trackId = metadataId(trackInput.metadata, `${projectId}:track:${trackIndex}:${kind}`);
     const itemIds: string[] = [];
 
     trackInput.children.forEach((item, itemIndex) => {
+      const itemPath = `${trackPath}.children[${itemIndex}]`;
+      reportDecorations(item, itemPath, unsupported);
       const seed = `${trackId}:item:${itemIndex}:${item.name ?? ''}`;
       const itemId = metadataId(item.metadata, seed);
       const schema = item.OTIO_SCHEMA;
@@ -153,7 +222,7 @@ export function importOtio(input: string | unknown): OtioImportResult {
 
       if (schema.startsWith('Gap.')) {
         if (!range) {
-          unsupported.push({ path: `tracks[${trackIndex}].children[${itemIndex}]`, schema, reason: 'Gap has no source range' });
+          unsupported.push({ path: itemPath, schema, reason: 'Gap has no source range' });
           return;
         }
         gaps.push({ id: itemId, type: 'gap', trackId, durationFrames: Math.max(1, frames(range.duration.value, range.duration.rate, fps)) });
@@ -162,14 +231,14 @@ export function importOtio(input: string | unknown): OtioImportResult {
       }
 
       if (!schema.startsWith('Clip.')) {
-        unsupported.push({ path: `tracks[${trackIndex}].children[${itemIndex}]`, schema, reason: 'V1 supports Clip and Gap items only' });
+        unsupported.push({ path: itemPath, schema, reason: 'V1 supports Clip and Gap items only' });
         return;
       }
 
       const itemMeta = videogitMetadata(item.metadata);
       if (itemMeta.kind === 'caption') {
         if (!range) {
-          unsupported.push({ path: `tracks[${trackIndex}].children[${itemIndex}]`, schema, reason: 'Caption has no range' });
+          unsupported.push({ path: itemPath, schema, reason: 'Caption has no range' });
           return;
         }
         captions.push({
@@ -188,8 +257,17 @@ export function importOtio(input: string | unknown): OtioImportResult {
       }
 
       if (!range) {
-        unsupported.push({ path: `tracks[${trackIndex}].children[${itemIndex}]`, schema, reason: 'Clip has no source range' });
+        unsupported.push({ path: itemPath, schema, reason: 'Clip has no source range' });
         return;
+      }
+      const references = Object.keys(item.media_references ?? {});
+      if (references.length > 1) {
+        const activeKey = item.active_media_reference_key ?? 'DEFAULT_MEDIA';
+        references.filter((key) => key !== activeKey).forEach((key) => unsupported.push({
+          path: `${itemPath}.media_references.${key}`,
+          schema: schemaName(item.media_references?.[key], 'MediaReference.1'),
+          reason: 'V1 preserves only the active media reference',
+        }));
       }
       const media = mediaReference(item);
       const targetUrl = media?.target_url ?? `missing://${item.name ?? itemId}`;

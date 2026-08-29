@@ -2,27 +2,31 @@ import { z } from 'zod';
 
 export const UUIDSchema = z.string().uuid();
 export const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+const NameSchema = z.string().min(1).transform((value) => value.normalize('NFC'));
+const TextSchema = z.string().transform((value) => value.normalize('NFC'));
+const PositiveSafeIntegerSchema = z.number().int().safe().positive();
+const NonnegativeSafeIntegerSchema = z.number().int().safe().nonnegative();
 
 export const RationalSchema = z
   .object({
-    numerator: z.number().int().positive(),
-    denominator: z.number().int().positive(),
+    numerator: PositiveSafeIntegerSchema,
+    denominator: PositiveSafeIntegerSchema,
   })
   .strict();
 
 export const FrameRangeSchema = z
   .object({
-    start: z.number().int().nonnegative(),
-    duration: z.number().int().positive(),
+    start: NonnegativeSafeIntegerSchema,
+    duration: PositiveSafeIntegerSchema,
   })
   .strict();
 
 export const AssetSchema = z
   .object({
     id: UUIDSchema,
-    name: z.string().min(1),
+    name: NameSchema,
     fingerprint: Sha256Schema,
-    durationFrames: z.number().int().positive(),
+    durationFrames: PositiveSafeIntegerSchema,
   })
   .strict();
 
@@ -31,7 +35,7 @@ export const ClipSchema = z
     id: UUIDSchema,
     type: z.literal('clip'),
     trackId: UUIDSchema,
-    name: z.string().min(1),
+    name: NameSchema,
     assetId: UUIDSchema,
     sourceRange: FrameRangeSchema,
     gainDb: z.number().min(-60).max(12),
@@ -44,7 +48,7 @@ export const GapSchema = z
     id: UUIDSchema,
     type: z.literal('gap'),
     trackId: UUIDSchema,
-    durationFrames: z.number().int().positive(),
+    durationFrames: PositiveSafeIntegerSchema,
   })
   .strict();
 
@@ -53,7 +57,7 @@ export const CaptionSchema = z
     id: UUIDSchema,
     type: z.literal('caption'),
     trackId: UUIDSchema,
-    text: z.string(),
+    text: TextSchema,
     range: FrameRangeSchema,
     style: z.enum(['default', 'title', 'subtitle']),
   })
@@ -63,7 +67,7 @@ export const TrackSchema = z
   .object({
     id: UUIDSchema,
     sequenceId: UUIDSchema,
-    name: z.string().min(1),
+    name: NameSchema,
     kind: z.enum(['video', 'audio', 'caption']),
     itemIds: z.array(UUIDSchema),
   })
@@ -72,10 +76,10 @@ export const TrackSchema = z
 export const SequenceSchema = z
   .object({
     id: UUIDSchema,
-    name: z.string().min(1),
+    name: NameSchema,
     fps: RationalSchema,
-    width: z.number().int().positive(),
-    height: z.number().int().positive(),
+    width: PositiveSafeIntegerSchema,
+    height: PositiveSafeIntegerSchema,
     trackIds: z.array(UUIDSchema),
   })
   .strict();
@@ -84,7 +88,7 @@ const ProjectShape = z
   .object({
     schemaVersion: z.literal(1),
     id: UUIDSchema,
-    name: z.string().min(1),
+    name: NameSchema,
     sequences: z.array(SequenceSchema).min(1),
     tracks: z.array(TrackSchema),
     assets: z.array(AssetSchema),
@@ -149,7 +153,8 @@ export const ProjectSchema = ProjectShape.superRefine((project, context) => {
     const asset = assetById.get(clip.assetId);
     if (!trackIds.has(clip.trackId) || !asset) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `Clip ${clip.id} has an invalid reference` });
-    } else if (clip.sourceRange.start + clip.sourceRange.duration > asset.durationFrames) {
+    } else if (!Number.isSafeInteger(clip.sourceRange.start + clip.sourceRange.duration)
+      || clip.sourceRange.start + clip.sourceRange.duration > asset.durationFrames) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `Clip ${clip.id} exceeds its asset duration` });
     }
   }
@@ -170,6 +175,30 @@ export const ProjectSchema = ProjectShape.superRefine((project, context) => {
   for (const item of items) {
     if (referencedItems.filter((id) => id === item.id).length !== 1) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `Item ${item.id} must appear in exactly one track` });
+    }
+  }
+
+  const itemDuration = (itemId: string): number => {
+    const item = itemById.get(itemId);
+    if (!item || item.type === 'caption') return 0;
+    return item.type === 'clip' ? item.sourceRange.duration : item.durationFrames;
+  };
+  for (const sequence of project.sequences) {
+    const durationFrames = Math.max(0, ...sequence.trackIds.map((trackId) => {
+      const track = project.tracks.find(({ id }) => id === trackId);
+      if (!track || track.kind === 'caption') return 0;
+      return track.itemIds.reduce((total, itemId) => total + itemDuration(itemId), 0);
+    }));
+    for (const trackId of sequence.trackIds) {
+      const track = project.tracks.find(({ id }) => id === trackId);
+      if (!track || track.kind !== 'caption') continue;
+      for (const itemId of track.itemIds) {
+        const caption = project.captions.find(({ id }) => id === itemId);
+        if (caption && (!Number.isSafeInteger(caption.range.start + caption.range.duration)
+          || caption.range.start + caption.range.duration > durationFrames)) {
+          context.addIssue({ code: z.ZodIssueCode.custom, message: `Caption ${caption.id} exceeds its sequence duration` });
+        }
+      }
     }
   }
 });

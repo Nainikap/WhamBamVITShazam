@@ -5,6 +5,13 @@
 
 > **Status:** Authoritative V1 implementation plan. The system-architecture and cross-NLE documents are roadmap and research documents; if they conflict with this file, this file wins.
 
+> **Approved V1.5 clarification (2026-08-29):** DaVinci Resolve is the only video editor.
+> The SnipSnap renderer must not expose timeline editing controls. It watches a connected Resolve
+> OTIO export, reviews and stages semantic changes, commits canonical snapshots, and previews an
+> immutable selected commit using locally linked media. Browser-compatible source playback is the
+> initial preview path; managed CAS, CFR proxy generation, arbitrary effects, and verified renders
+> remain D1/V2 work.
+
 ---
 
 ## 1. Recommended architecture (the decision)
@@ -18,6 +25,14 @@
 
 The V1 differentiator is trustworthy timeline versioning: native Git ancestry underneath a
 typed semantic diff and merge layer. Media processing and cross-NLE portability remain V2 work.
+
+The V1.5 product loop is:
+
+```text
+Resolve edit -> OTIO export/watch -> review -> WORKING -> stage -> commit
+             -> select commit -> semantic parent diff + local preview
+             -> immutable OTIO export or create/switch branch from that commit
+```
 
 ---
 
