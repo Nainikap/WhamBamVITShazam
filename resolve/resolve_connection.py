@@ -16,16 +16,14 @@ import os
 import sys
 from typing import Any
 
-LIBRARY_CANDIDATES = [
-    os.environ.get("RESOLVE_SCRIPT_LIB"),
+DEFAULT_LIBRARY_CANDIDATES = [
     "/Applications/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
     "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
     "C:\\Program Files\\Blackmagic Design\\DaVinci Resolve\\fusionscript.dll",
     "/opt/resolve/libs/Fusion/fusionscript.so",
 ]
 
-API_CANDIDATES = [
-    os.environ.get("RESOLVE_SCRIPT_API"),
+DEFAULT_API_CANDIDATES = [
     "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
     "/Applications/DaVinci Resolve.app/Contents/Resources/Developer/Scripting",
     "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Resources/Developer/Scripting",
@@ -48,16 +46,18 @@ class InjectedApplication:
 
 
 def _point_at_fusionscript() -> None:
-    if os.environ.get("RESOLVE_SCRIPT_LIB") and os.path.exists(os.environ["RESOLVE_SCRIPT_LIB"]):
+    configured = os.environ.get("RESOLVE_SCRIPT_LIB")
+    if configured:
         return
-    for candidate in LIBRARY_CANDIDATES:
-        if candidate and os.path.exists(candidate):
+    for candidate in DEFAULT_LIBRARY_CANDIDATES:
+        if os.path.exists(candidate):
             os.environ["RESOLVE_SCRIPT_LIB"] = candidate
             return
 
 
 def searched_paths() -> list[str]:
-    return [candidate for candidate in API_CANDIDATES if candidate]
+    configured = os.environ.get("RESOLVE_SCRIPT_API")
+    return [configured] if configured else DEFAULT_API_CANDIDATES
 
 
 def load_resolve_module(injected: Any = None) -> Any:
@@ -65,21 +65,25 @@ def load_resolve_module(injected: Any = None) -> Any:
     if injected is not None:
         return InjectedApplication(injected)
 
-    # Resolve provides these to scripts it runs itself, including on builds
-    # that refuse outside connections.
-    for name in ("bmd", "fusionscript"):
-        try:
-            return __import__(name)
-        except ImportError:
-            continue
+    configured_api = os.environ.get("RESOLVE_SCRIPT_API")
+    if not configured_api:
+        # Resolve provides these to scripts it runs itself, including on builds
+        # that refuse outside connections. An explicit API path is an override,
+        # so do not silently connect through an unrelated ambient installation.
+        for name in ("bmd", "fusionscript"):
+            try:
+                return __import__(name)
+            except ImportError:
+                continue
 
     _point_at_fusionscript()
-    try:
-        import DaVinciResolveScript as resolve_script  # type: ignore[import-not-found]
+    if not configured_api:
+        try:
+            import DaVinciResolveScript as resolve_script  # type: ignore[import-not-found]
 
-        return resolve_script
-    except ImportError:
-        pass
+            return resolve_script
+        except ImportError:
+            pass
 
     for base in searched_paths():
         modules = os.path.join(base, "Modules")
