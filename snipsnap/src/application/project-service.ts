@@ -119,7 +119,8 @@ export interface ResolveBinding {
 
 const ResolveBindingSchema = z.object({
   projectName: z.string().min(1),
-  drpPath: z.string().min(1),
+  // Resolve's own database projects do not have a standalone .drp file.
+  drpPath: z.string(),
   otioPath: z.string().min(1),
   timelineName: z.string().min(1),
   timelineCount: z.number().int().nonnegative(),

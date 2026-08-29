@@ -128,6 +128,9 @@ describe('rebuilding a timeline from a Resolve database', () => {
     expect(status.project.sequences[0]?.name).toBe('Hero Cut');
     expect(status.project.clips).toHaveLength(3);
     expect(status.history).toHaveLength(1);
+
+    const restarted = new ProjectService(path.join(root, 'data'), new ResolveLibrary(async () => []));
+    expect(await restarted.listProjects()).toEqual([{ id: overview?.id, name: 'Studio Job' }]);
   });
 
   it('skips a timeline whose media cannot be measured rather than guessing its rate', async () => {
