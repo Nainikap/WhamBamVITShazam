@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import type { ProjectStatus, ProjectSummary, MergeSession } from '../application';
-import type { EditCommand } from '../commands';
 import type { SemanticHunk } from '../diff';
 import type { ConflictChoice } from '../merge';
 
@@ -17,7 +16,6 @@ interface AppStore {
   selectProject(id: string): Promise<void>;
   createDemo(): Promise<void>;
   importOtio(): Promise<void>;
-  edit(command: EditCommand): Promise<void>;
   stage(hunkId: string): Promise<void>;
   unstage(hunkId: string): Promise<void>;
   commit(message: string): Promise<void>;
@@ -76,11 +74,6 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({ notice: imported.unsupportedCount
         ? `Imported with ${imported.unsupportedCount} explicitly reported unsupported item(s).`
         : 'OTIO imported without unsupported items.' });
-    }),
-    edit: (command) => run(async () => {
-      const { currentProjectId, status } = get();
-      if (!currentProjectId || !status) return;
-      set({ status: await window.snipsnap.edit(currentProjectId, command, status.workspaceVersion) });
     }),
     stage: (hunkId) => run(async () => {
       const { currentProjectId, status } = get();

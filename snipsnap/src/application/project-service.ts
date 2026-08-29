@@ -639,13 +639,13 @@ export class ProjectService {
     return details;
   }
 
-  async linkMedia(projectId: string, fingerprint: string, filePath: string): Promise<RevisionDetails> {
+  async linkMedia(projectId: string, fingerprint: string, filePath: string, revision = 'HEAD'): Promise<RevisionDetails> {
     if (!/^[a-f0-9]{64}$/u.test(fingerprint)) throw new Error('Invalid media fingerprint');
     await access(filePath);
     const links = await this.readMediaLinks(projectId);
     links[fingerprint] = pathToFileURL(path.resolve(filePath)).href;
     await this.writeMediaLinks(projectId, links);
-    return this.revisionDetails(projectId, 'HEAD');
+    return this.revisionDetails(projectId, revision);
   }
 
   async resolveMediaFile(projectId: string, fingerprint: string): Promise<string> {

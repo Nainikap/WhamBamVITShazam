@@ -72,14 +72,10 @@ export function App() {
                 const caption = status.project.captions.find(({ id }) => id === itemId);
                 const gap = status.project.gaps.find(({ id }) => id === itemId);
                 if (gap) return <div key={itemId} className="timeline-gap" style={{ flex: Math.max(gap.durationFrames, 24) }}>gap {gap.durationFrames}f</div>;
-                if (caption) return <button key={itemId} className="timeline-caption" style={{ flex: caption.range.duration }} onClick={() => void store.edit({ type: 'updateCaption', captionId: caption.id, text: caption.text === 'Revised caption' ? 'Ship the story, not the files.' : 'Revised caption' })}>{caption.text}</button>;
+                if (caption) return <div key={itemId} className="timeline-caption" style={{ flex: caption.range.duration }}>{caption.text}</div>;
                 if (!clip) return null;
                 return <div key={itemId} className={`timeline-clip tint-${index % 3}`} style={{ flex: clip.sourceRange.duration }}>
                   <strong>{clip.name}</strong><span>{clip.sourceRange.start}–{clip.sourceRange.start + clip.sourceRange.duration}f</span>
-                  <div className="clip-actions">
-                    <button aria-label={`Trim ${clip.name}`} onClick={() => void store.edit({ type: 'trimClip', clipId: clip.id, start: clip.sourceRange.start + 1, duration: Math.max(1, clip.sourceRange.duration - 1) })}>trim −1f</button>
-                    <button onClick={() => void store.edit({ type: 'setClipPreset', clipId: clip.id, preset: clip.preset === 'warm' ? 'none' : 'warm' })}>{clip.preset}</button>
-                  </div>
                 </div>;
               })}
             </div>

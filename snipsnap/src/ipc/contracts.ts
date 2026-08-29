@@ -1,5 +1,4 @@
-import type { ProjectStatus, ProjectSummary, MergeOutcome, MergeSession } from '../application';
-import type { EditCommand } from '../commands';
+import type { ProjectStatus, ProjectSummary, MergeOutcome, MergeSession, RevisionDetails, SourceScanResult } from '../application';
 import type { SemanticHunk } from '../diff';
 import type { ConflictResolution } from '../merge';
 
@@ -8,12 +7,19 @@ export const channels = {
   createDemo: 'projects:create-demo',
   importOtio: 'projects:import-otio',
   status: 'projects:status',
-  edit: 'projects:edit',
+  connectOtioSource: 'source:connect-otio',
+  scanOtioSource: 'source:scan-otio',
+  applyPendingSync: 'source:apply',
+  dismissPendingSync: 'source:dismiss',
+  sourceChanged: 'source:changed',
   stage: 'projects:stage',
   unstage: 'projects:unstage',
   commit: 'projects:commit',
   createBranch: 'projects:create-branch',
+  createBranchFromRevision: 'projects:create-branch-from-revision',
   checkout: 'projects:checkout',
+  restoreRevision: 'projects:restore-revision',
+  revisionDetails: 'projects:revision-details',
   compare: 'projects:compare',
   merge: 'projects:merge',
   resolveConflict: 'projects:resolve-conflict',
@@ -21,6 +27,7 @@ export const channels = {
   abortMerge: 'projects:abort-merge',
   tag: 'projects:tag',
   exportOtio: 'projects:export-otio',
+  relinkMedia: 'media:relink',
 } as const;
 
 export interface SnipSnapApi {
@@ -28,12 +35,19 @@ export interface SnipSnapApi {
   createDemo(): Promise<ProjectSummary>;
   importOtio(): Promise<(ProjectSummary & { unsupportedCount: number }) | null>;
   status(projectId: string): Promise<ProjectStatus>;
-  edit(projectId: string, command: EditCommand, expectedVersion: number): Promise<ProjectStatus>;
+  connectOtioSource(projectId: string, expectedVersion: number): Promise<SourceScanResult | null>;
+  scanOtioSource(projectId: string): Promise<SourceScanResult>;
+  applyPendingSync(projectId: string, digest: string, expectedVersion: number): Promise<ProjectStatus>;
+  dismissPendingSync(projectId: string, digest: string): Promise<ProjectStatus>;
+  onSourceChanged(listener: (projectId: string) => void): () => void;
   stage(projectId: string, hunkIds: string[], expectedIndexDigest: string): Promise<ProjectStatus>;
   unstage(projectId: string, hunkIds: string[], expectedIndexDigest: string): Promise<ProjectStatus>;
   commit(projectId: string, message: string, expectedHead: string): Promise<ProjectStatus>;
   createBranch(projectId: string, name: string): Promise<ProjectStatus>;
+  createBranchFromRevision(projectId: string, name: string, revision: string): Promise<ProjectStatus>;
   checkout(projectId: string, branch: string, discardChanges: boolean): Promise<ProjectStatus>;
+  restoreRevision(projectId: string, revision: string, expectedVersion: number, discardChanges: boolean): Promise<ProjectStatus>;
+  revisionDetails(projectId: string, revision: string, parentIndex?: number): Promise<RevisionDetails>;
   compare(projectId: string, base: string, head: string): Promise<SemanticHunk[]>;
   merge(projectId: string, target: string, source: string): Promise<MergeOutcome>;
   resolveConflict(projectId: string, sessionId: string, resolution: ConflictResolution): Promise<MergeSession>;
@@ -41,4 +55,5 @@ export interface SnipSnapApi {
   abortMerge(projectId: string, sessionId: string): Promise<void>;
   tag(projectId: string, name: string, revision: string, message: string): Promise<void>;
   exportOtio(projectId: string, revision: string): Promise<{ canceled: boolean; commitId?: string }>;
+  relinkMedia(projectId: string, fingerprint: string, revision: string): Promise<RevisionDetails | null>;
 }
