@@ -170,10 +170,15 @@ export interface TimelineComparison {
 
 export interface SourceSyncStatus {
   connected: boolean;
+  mode?: 'file' | 'resolve';
   fileName?: string;
   filePath?: string;
-  state: 'not-connected' | 'watching' | 'changes-ready' | 'missing' | 'invalid';
+  state: 'not-connected' | 'starting' | 'waiting-for-resolve' | 'watching' | 'changes-ready' | 'stopped' | 'missing' | 'invalid';
   lastAppliedDigest?: string;
+  lastMarker?: string;
+  lastSavedAt?: string;
+  resolveProjectName?: string;
+  resolveTimelineName?: string;
   error?: string;
   pending?: {
     digest: string;
@@ -210,6 +215,8 @@ export interface ProjectStatus {
   indexDigest: string;
   staged: SemanticHunk[];
   unstaged: SemanticHunk[];
+  /** Cumulative semantic changes from immutable HEAD to the latest Resolve save. */
+  workingChanges: SemanticHunk[];
   branches: Array<{ name: string; commitId: string }>;
   history: CommitInfo[];
   source: SourceSyncStatus;
@@ -273,6 +280,14 @@ export class ProjectService {
     return path.join(this.projectRoot(projectId), 'pending-sync.json');
   }
 
+  private resolveBridgeStatePath(projectId: string): string {
+    return path.join(this.projectRoot(projectId), 'resolve-bridge-state.json');
+  }
+
+  resolveBridgeSnapshotPath(projectId: string): string {
+    return path.join(this.projectRoot(projectId), 'resolve-bridge', 'latest.otio');
+  }
+
   private sessionPath(projectId: string, sessionId: string): string {
     if (!z.string().uuid().safeParse(sessionId).success) throw new Error('Invalid merge session ID');
     return path.join(this.projectRoot(projectId), 'merge-sessions', `${sessionId}.json`);
@@ -319,6 +334,27 @@ export class ProjectService {
   private async sourceStatus(projectId: string, workspace: Workspace): Promise<SourceSyncStatus> {
     const binding = await this.sourceBinding(projectId);
     if (!binding) return { connected: false, state: 'not-connected' };
+    if (binding.mode === 'resolve') {
+      const runtime = z.object({
+        state: z.enum(['starting', 'waiting-for-resolve', 'watching', 'stopped', 'invalid']),
+        error: z.string().min(1).max(2000).optional(),
+      }).strict().safeParse(await this.readOptionalJson(this.resolveBridgeStatePath(projectId)));
+      const status: SourceSyncStatus = {
+        connected: true,
+        mode: 'resolve',
+        fileName: binding.resolveTimelineName ?? 'Active Resolve timeline',
+        filePath: binding.path,
+        state: runtime.success ? runtime.data.state : 'stopped',
+      };
+      if (binding.lastAppliedDigest) status.lastAppliedDigest = binding.lastAppliedDigest;
+      if (binding.lastMarker) status.lastMarker = binding.lastMarker;
+      if (binding.lastSavedAt) status.lastSavedAt = binding.lastSavedAt;
+      if (binding.resolveProjectName) status.resolveProjectName = binding.resolveProjectName;
+      if (binding.resolveTimelineName) status.resolveTimelineName = binding.resolveTimelineName;
+      const error = runtime.success ? runtime.data.error : binding.lastError;
+      if (error) status.error = error;
+      return status;
+    }
     const pending = await this.readPendingSync(projectId);
     let exists = true;
     try {
@@ -328,6 +364,7 @@ export class ProjectService {
     }
     const status: SourceSyncStatus = {
       connected: true,
+      mode: 'file',
       fileName: path.basename(binding.path),
       filePath: binding.path,
       state: exists ? (binding.lastError ? 'invalid' : pending ? 'changes-ready' : 'watching') : 'missing',
@@ -405,7 +442,7 @@ export class ProjectService {
     if (sourcePath) {
       const digest = digestText(contents);
       await atomicWriteJson(this.sourceBindingPath(summary.id), {
-        format: 'otio', path: path.resolve(sourcePath), lastSeenDigest: digest, lastAppliedDigest: digest,
+        format: 'otio', mode: 'file', path: path.resolve(sourcePath), lastSeenDigest: digest, lastAppliedDigest: digest,
       });
     }
     return { ...summary, unsupported: imported.unsupported };
@@ -436,6 +473,7 @@ export class ProjectService {
       indexDigest: projectDigest(index),
       staged: semanticDiff(head, index),
       unstaged: semanticDiff(index, workspace.working),
+      workingChanges: semanticDiff(head, workspace.working),
       branches,
       history,
       source,
@@ -449,6 +487,7 @@ export class ProjectService {
   private async scanOtioSourceUnlocked(projectId: string): Promise<boolean> {
     const binding = await this.sourceBinding(projectId);
     if (!binding) throw new Error('Connect a Resolve OTIO file before checking for changes');
+    if (binding.mode !== 'file') throw new Error('Resolve save sync applies snapshots automatically');
     const contents = await readFile(binding.path, 'utf8');
     const digest = digestText(contents);
     const existingPending = await this.readPendingSync(projectId);
@@ -498,7 +537,7 @@ export class ProjectService {
       const workspace = await this.readWorkspace(projectId);
       if (workspace.version !== expectedVersion) throw new StaleWorkspaceError();
       await atomicWriteJson(this.sourceBindingPath(projectId), {
-        format: 'otio', path: path.resolve(sourcePath),
+        format: 'otio', mode: 'file', path: path.resolve(sourcePath),
       });
       await rm(this.pendingSyncPath(projectId), { force: true });
       try {
@@ -565,6 +604,98 @@ export class ProjectService {
       await atomicWriteJson(this.sourceBindingPath(projectId), { ...binding, ignoredDigest: digest });
       await rm(this.pendingSyncPath(projectId), { force: true });
       return this.statusUnlocked(projectId);
+    });
+  }
+
+  /** Switch this repository from manual OTIO watching to the managed Resolve-save bridge. */
+  async enableResolveBridge(projectId: string, expectedVersion: number): Promise<string> {
+    return this.mutex.run(projectId, async () => {
+      const workspace = await this.readWorkspace(projectId);
+      if (workspace.version !== expectedVersion) throw new StaleWorkspaceError();
+      const snapshotPath = this.resolveBridgeSnapshotPath(projectId);
+      await mkdir(path.dirname(snapshotPath), { recursive: true });
+      await atomicWriteJson(this.sourceBindingPath(projectId), {
+        format: 'otio', mode: 'resolve', path: snapshotPath,
+      });
+      await rm(this.pendingSyncPath(projectId), { force: true });
+      await atomicWriteJson(this.resolveBridgeStatePath(projectId), { state: 'starting' });
+      return snapshotPath;
+    });
+  }
+
+  async updateResolveBridgeState(
+    projectId: string,
+    state: 'starting' | 'waiting-for-resolve' | 'watching' | 'stopped' | 'invalid',
+    error?: string,
+  ): Promise<void> {
+    await this.mutex.run(projectId, async () => {
+      const binding = await this.sourceBinding(projectId);
+      if (!binding || binding.mode !== 'resolve') return;
+      const value: { state: typeof state; error?: string } = { state };
+      if (error) value.error = error.slice(0, 2000);
+      await atomicWriteJson(this.resolveBridgeStatePath(projectId), value);
+    });
+  }
+
+  /**
+   * Replace only WORKING with the latest saved Resolve state. HEAD and INDEX
+   * stay untouched, so repeated saves never become hidden commits or a queue.
+   */
+  async applyResolveBridgeSnapshot(
+    projectId: string,
+    event: {
+      path: string;
+      marker: string;
+      savedAt: string;
+      projectName: string;
+      timelineName: string;
+    },
+  ): Promise<boolean> {
+    return this.mutex.run(projectId, async () => {
+      const binding = await this.sourceBinding(projectId);
+      if (!binding || binding.mode !== 'resolve') return false;
+      if (path.resolve(event.path) !== path.resolve(binding.path)) {
+        throw new Error('Resolve bridge wrote outside its managed snapshot path');
+      }
+      const contents = await readFile(binding.path, 'utf8');
+      const digest = digestText(contents);
+      if (binding.lastAppliedDigest === digest) {
+        await atomicWriteJson(this.sourceBindingPath(projectId), {
+          ...binding,
+          lastSeenDigest: digest,
+          lastMarker: event.marker,
+          lastSavedAt: event.savedAt,
+          resolveProjectName: event.projectName,
+          resolveTimelineName: event.timelineName,
+        });
+        await atomicWriteJson(this.resolveBridgeStatePath(projectId), { state: 'watching' });
+        return false;
+      }
+
+      const workspace = await this.readWorkspace(projectId);
+      const imported = importOtio(contents);
+      const reconciled = reconcileImportedProject(workspace.working, imported.project);
+      const changed = semanticDiff(workspace.working, reconciled).length > 0;
+      if (changed) {
+        await this.writeWorkspace(projectId, { version: workspace.version + 1, working: reconciled });
+      }
+      await this.writeMediaLinks(projectId, { ...await this.readMediaLinks(projectId), ...imported.mediaLinks });
+      const nextBinding: SourceBinding = {
+        ...binding,
+        lastSeenDigest: digest,
+        lastAppliedDigest: digest,
+        lastMarker: event.marker,
+        lastSavedAt: event.savedAt,
+        resolveProjectName: event.projectName,
+        resolveTimelineName: event.timelineName,
+      };
+      delete nextBinding.lastError;
+      await Promise.all([
+        atomicWriteJson(this.sourceBindingPath(projectId), nextBinding),
+        atomicWriteJson(this.resolveBridgeStatePath(projectId), { state: 'watching' }),
+        rm(this.pendingSyncPath(projectId), { force: true }),
+      ]);
+      return changed;
     });
   }
 
@@ -947,6 +1078,7 @@ export class ProjectService {
       const digest = digestText(contents);
       await atomicWriteJson(this.sourceBindingPath(reference.id), {
         format: 'otio',
+        mode: 'file',
         path: binding.otioPath,
         lastSeenDigest: digest,
         lastAppliedDigest: digest,
@@ -962,11 +1094,13 @@ export class ProjectService {
       });
     }
     const current = await this.sourceBinding(reference.id);
-    if (current?.path !== binding.otioPath) {
-      await atomicWriteJson(this.sourceBindingPath(reference.id), { format: 'otio', path: binding.otioPath });
+    if (!current || (current.mode === 'file' && current.path !== binding.otioPath)) {
+      await atomicWriteJson(this.sourceBindingPath(reference.id), { format: 'otio', mode: 'file', path: binding.otioPath });
     }
     // Pick up anything Resolve exported since the last time this was opened.
-    return (await this.scanOtioSource(reference.id)).status;
+    return current?.mode === 'resolve'
+      ? this.status(reference.id)
+      : (await this.scanOtioSource(reference.id)).status;
   }
 
   private unlinkedOverview(reference: ResolveProjectRef): ProjectOverview {

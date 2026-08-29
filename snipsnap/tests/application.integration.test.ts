@@ -253,6 +253,49 @@ describe('V1 project workflow', () => {
       .toEqual(initial.project.clips);
   });
 
+  it('automatically replaces WORKING from a Resolve save and exposes every cumulative HEAD hunk', async () => {
+    const fixture = await readFile(path.join(__dirname, 'fixtures/resolve-basic.otio'), 'utf8');
+    const imported = await service.importOtio(fixture);
+    const initial = await service.status(imported.id);
+    const snapshotPath = await service.enableResolveBridge(imported.id, initial.workspaceVersion);
+    const changed = JSON.parse(fixture) as {
+      tracks: { children: Array<{ children: Array<{ name?: string; source_range?: { duration: { value: number } } }> }> };
+    };
+    const opening = changed.tracks.children[0]?.children[0];
+    if (!opening?.source_range) throw new Error('Fixture clip range missing');
+    opening.name = 'Short opening';
+    opening.source_range.duration.value -= 4;
+    await writeFile(snapshotPath, JSON.stringify(changed));
+
+    expect(await service.applyResolveBridgeSnapshot(imported.id, {
+      path: snapshotPath,
+      marker: '{"lastModifiedDate":"2026-08-30T00:00:00"}',
+      savedAt: '2026-08-29T18:30:00.000Z',
+      projectName: 'Resolve Basic Cut',
+      timelineName: 'Timeline 1',
+    })).toBe(true);
+    const status = await service.status(imported.id);
+    expect(status.source).toMatchObject({
+      mode: 'resolve', state: 'watching', resolveProjectName: 'Resolve Basic Cut', resolveTimelineName: 'Timeline 1',
+    });
+    expect(status.source.pending).toBeUndefined();
+    expect(status.staged).toEqual([]);
+    expect(status.unstaged).toHaveLength(2);
+    expect(status.workingChanges.map(({ fieldGroup }) => fieldGroup)).toEqual(expect.arrayContaining(['name', 'sourceRange']));
+    expect((await new GitRepository(path.join(root, 'projects', imported.id, 'repo')).readSnapshot('HEAD')))
+      .toEqual(initial.project);
+
+    const version = status.workspaceVersion;
+    expect(await service.applyResolveBridgeSnapshot(imported.id, {
+      path: snapshotPath,
+      marker: '{"lastModifiedDate":"2026-08-30T00:01:00"}',
+      savedAt: '2026-08-29T18:31:00.000Z',
+      projectName: 'Resolve Basic Cut',
+      timelineName: 'Timeline 1',
+    })).toBe(false);
+    expect((await service.status(imported.id)).workspaceVersion).toBe(version);
+  });
+
   it('preserves the last good timeline when Resolve leaves an incomplete export', async () => {
     const sourcePath = path.join(root, 'resolve-partial.otio');
     const fixture = await readFile(path.join(__dirname, 'fixtures/resolve-basic.otio'), 'utf8');

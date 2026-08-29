@@ -1,2 +1,4 @@
 /clips/
 /deliverables/
+__pycache__/
+*.pyc

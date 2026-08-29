@@ -2,14 +2,36 @@ import { z } from 'zod';
 import { projectDigest, validateProject, type Project } from '../domain';
 import type { UnsupportedContent } from '../adapters/otio';
 
-export const SourceBindingSchema = z.object({
+const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+
+const FileSourceBindingSchema = z.object({
   format: z.literal('otio'),
+  mode: z.literal('file'),
   path: z.string().min(1),
-  lastSeenDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
-  lastAppliedDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
-  ignoredDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+  lastSeenDigest: DigestSchema.optional(),
+  lastAppliedDigest: DigestSchema.optional(),
+  ignoredDigest: DigestSchema.optional(),
   lastError: z.string().min(1).max(2000).optional(),
 }).strict();
+
+const ResolveSourceBindingSchema = z.object({
+  format: z.literal('otio'),
+  mode: z.literal('resolve'),
+  path: z.string().min(1),
+  lastSeenDigest: DigestSchema.optional(),
+  lastAppliedDigest: DigestSchema.optional(),
+  lastError: z.string().min(1).max(2000).optional(),
+  lastMarker: z.string().min(1).max(2000).optional(),
+  lastSavedAt: z.string().datetime().optional(),
+  resolveProjectName: z.string().min(1).max(1000).optional(),
+  resolveTimelineName: z.string().min(1).max(1000).optional(),
+}).strict();
+
+/** Existing persisted bindings predate source modes and remain manual-file bindings. */
+export const SourceBindingSchema = z.preprocess((value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || 'mode' in value) return value;
+  return { ...value, mode: 'file' };
+}, z.discriminatedUnion('mode', [FileSourceBindingSchema, ResolveSourceBindingSchema]));
 
 export const PendingSyncSchema = z.object({
   digest: z.string().regex(/^[a-f0-9]{64}$/u),
