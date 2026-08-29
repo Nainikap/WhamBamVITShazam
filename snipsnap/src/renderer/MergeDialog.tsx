@@ -43,7 +43,7 @@ export function MergeDialog({ session, onResolve, onComplete, onAbort, busy }: M
   const remaining = briefs.length;
 
   return <Dialog open>
-    <DialogContent aria-label="Resolve merge conflicts" onEscapeKeyDown={(event) => event.preventDefault()}>
+    <DialogContent onEscapeKeyDown={(event) => event.preventDefault()}>
       <DialogHeader>
         <DialogTitle>{session.sourceBranch} → {session.targetBranch}</DialogTitle>
         <DialogDescription>
