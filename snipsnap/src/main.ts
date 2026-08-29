@@ -70,6 +70,12 @@ function createWindow(): void {
     },
   });
 
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, navigationUrl) => {
+    const currentUrl = window.webContents.getURL();
+    if (currentUrl && navigationUrl !== currentUrl) event.preventDefault();
+  });
+
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) void window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   else void window.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
 }
