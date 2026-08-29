@@ -1078,12 +1078,13 @@ export class ProjectService {
   }
 
   private bindingFor(reference: ResolveProjectRef): ResolveBinding {
+    const knownTimeline = reference.knownTimelines?.[0];
     return {
       projectName: reference.name,
       drpPath: reference.drpPath,
       otioPath: reference.activeTimeline?.otioPath ?? '',
-      timelineName: reference.activeTimeline?.name ?? 'No timeline export',
-      timelineCount: reference.timelines.length,
+      timelineName: reference.activeTimeline?.name ?? knownTimeline ?? 'No timeline export',
+      timelineCount: Math.max(reference.timelines.length, reference.knownTimelines?.length ?? 0),
       folder: reference.folder,
     };
   }
@@ -1137,12 +1138,13 @@ export class ProjectService {
 
   private unlinkedOverview(reference: ResolveProjectRef): ProjectOverview {
     const binding = this.bindingFor(reference);
+    const canRebuild = reference.kind === 'database' && (reference.knownTimelines?.length ?? 0) > 0;
     return {
       id: reference.id,
       name: reference.name,
       path: reference.folder,
       linked: false,
-      openable: reference.activeTimeline !== null,
+      openable: reference.activeTimeline !== null || canRebuild,
       kind: reference.kind,
       knownTimelines: reference.knownTimelines ?? reference.timelines.map(({ name }) => name),
       resolve: binding,
@@ -1258,11 +1260,12 @@ export class ProjectService {
         continue;
       }
       try {
+        const canRebuild = reference.kind === 'database' && (reference.knownTimelines?.length ?? 0) > 0;
         overviews.push({
           ...await this.overview(reference.id),
           name: reference.name,
           linked: true,
-          openable: reference.activeTimeline !== null,
+          openable: reference.activeTimeline !== null || canRebuild,
           kind: reference.kind,
           resolve: this.bindingFor(reference),
         });
