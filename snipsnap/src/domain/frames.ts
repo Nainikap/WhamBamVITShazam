@@ -36,3 +36,12 @@ export function convertFrames(value: number, fromRate: number, to: Rational): nu
   if (!Number.isInteger(value)) throw new RangeError('Frame values must be integers');
   return Math.round((value / fromRate) * rationalToRate(to));
 }
+
+export function framesToTimecode(frame: number, rate: number): string {
+  const fps = Number.isFinite(rate) && rate > 0 ? rate : 1;
+  const rounded = Math.max(1, Math.round(fps));
+  const safeFrame = Math.max(0, Math.floor(frame));
+  const totalSeconds = Math.floor(safeFrame / fps);
+  const parts = [Math.floor(totalSeconds / 3600), Math.floor(totalSeconds / 60) % 60, totalSeconds % 60];
+  return `${parts.map((value) => value.toString().padStart(2, '0')).join(':')}:${(safeFrame % rounded).toString().padStart(2, '0')}`;
+}

@@ -5,11 +5,15 @@ export function createDemoProject(name = 'Launch Cut'): Project {
   const projectId = deterministicUuid(`project:${name}`);
   const sequenceId = deterministicUuid(`${projectId}:sequence`);
   const videoTrackId = deterministicUuid(`${sequenceId}:video:1`);
+  const audioTrackId = deterministicUuid(`${sequenceId}:audio:1`);
   const captionTrackId = deterministicUuid(`${sequenceId}:caption:1`);
   const introAssetId = deterministicUuid(`${projectId}:asset:intro`);
   const interviewAssetId = deterministicUuid(`${projectId}:asset:interview`);
+  const musicAssetId = deterministicUuid(`${projectId}:asset:music`);
   const introClipId = deterministicUuid(`${videoTrackId}:intro`);
   const interviewClipId = deterministicUuid(`${videoTrackId}:interview`);
+  const musicClipId = deterministicUuid(`${audioTrackId}:music`);
+  const voiceClipId = deterministicUuid(`${audioTrackId}:voice`);
   const captionId = deterministicUuid(`${captionTrackId}:caption`);
 
   return validateProject({
@@ -22,19 +26,23 @@ export function createDemoProject(name = 'Launch Cut'): Project {
       fps: { numerator: 24, denominator: 1 },
       width: 1920,
       height: 1080,
-      trackIds: [videoTrackId, captionTrackId],
+      trackIds: [videoTrackId, audioTrackId, captionTrackId],
     }],
     tracks: [
       { id: videoTrackId, sequenceId, name: 'V1', kind: 'video', itemIds: [introClipId, interviewClipId] },
+      { id: audioTrackId, sequenceId, name: 'A1', kind: 'audio', itemIds: [musicClipId, voiceClipId] },
       { id: captionTrackId, sequenceId, name: 'Captions', kind: 'caption', itemIds: [captionId] },
     ],
     assets: [
       { id: introAssetId, name: 'intro.mov', fingerprint: digestText('media:intro.mov'), durationFrames: 480 },
       { id: interviewAssetId, name: 'interview.mov', fingerprint: digestText('media:interview.mov'), durationFrames: 2400 },
+      { id: musicAssetId, name: 'music-bed.wav', fingerprint: digestText('media:music-bed.wav'), durationFrames: 3600 },
     ],
     clips: [
       { id: introClipId, type: 'clip', trackId: videoTrackId, name: 'Intro', assetId: introAssetId, sourceRange: { start: 0, duration: 144 }, gainDb: 0, preset: 'none' },
       { id: interviewClipId, type: 'clip', trackId: videoTrackId, name: 'Interview', assetId: interviewAssetId, sourceRange: { start: 240, duration: 360 }, gainDb: 0, preset: 'none' },
+      { id: musicClipId, type: 'clip', trackId: audioTrackId, name: 'Music Bed', assetId: musicAssetId, sourceRange: { start: 0, duration: 240 }, gainDb: -12, preset: 'none' },
+      { id: voiceClipId, type: 'clip', trackId: audioTrackId, name: 'Interview VO', assetId: interviewAssetId, sourceRange: { start: 240, duration: 264 }, gainDb: -3, preset: 'none' },
     ],
     gaps: [],
     captions: [
