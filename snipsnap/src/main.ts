@@ -6,7 +6,13 @@ import { readFile, stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import started from 'electron-squirrel-startup';
-import { ProjectService, SourceWatchService, atomicWriteText, installResolveScript } from './application';
+import {
+  ProjectService,
+  ResolveBridgeService,
+  SourceWatchService,
+  atomicWriteText,
+  installResolveScript,
+} from './application';
 import { channels } from './ipc';
 
 if (started) app.quit();
@@ -23,18 +29,20 @@ const runFile = promisify(execFile);
 
 const dataRoot = process.env.SNIPSNAP_DATA_ROOT || path.join(app.getPath('userData'), 'v1-data');
 const projects = new ProjectService(dataRoot);
+function notifySourceChanged(projectId: string): void {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.sourceChanged, projectId);
+}
 const sourceWatcher = new SourceWatchService(async ({ projectId }) => {
   const result = await projects.scanOtioSource(projectId);
-  if (result.changed || result.error) {
-    for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.sourceChanged, projectId);
-  }
+  if (result.changed || result.error) notifySourceChanged(projectId);
 });
 
-async function restoreSourceWatchers(): Promise<void> {
+async function restoreSourceConnections(): Promise<void> {
   for (const project of await projects.listProjects()) {
     const binding = await projects.sourceBinding(project.id);
-    if (binding) sourceWatcher.watch(project.id, binding.path);
+    if (binding?.mode === 'file') sourceWatcher.watch(project.id, binding.path);
   }
+  await resolveBridge.restore();
 }
 
 const mediaTypes: Record<string, string> = {
@@ -151,13 +159,19 @@ function resolveScriptPath(): string {
   return candidates.find((candidate) => candidate && existsSync(candidate)) ?? candidates[0] ?? '';
 }
 
+function resolveSaveBridgePath(): string {
+  return path.join(path.dirname(resolveScriptPath()), 'SnipSnapSaveBridge.py');
+}
+
+const resolveBridge = new ResolveBridgeService(projects, resolveSaveBridgePath(), notifySourceChanged);
+
 function registerIpc(): void {
   ipcMain.handle(channels.listProjects, () => projects.listProjects());
   ipcMain.handle(channels.listOverviews, () => projects.listProjectOverviews());
   ipcMain.handle(channels.openProject, async (_event, projectId: string) => {
     const status = await projects.openResolveProjectById(projectId);
     const binding = await projects.sourceBinding(projectId);
-    if (binding) sourceWatcher.watch(projectId, binding.path);
+    if (binding?.mode === 'file') sourceWatcher.watch(projectId, binding.path);
     return status;
   });
   ipcMain.handle(channels.resolveRoots, () => projects.resolveRoots());
@@ -226,9 +240,20 @@ function registerIpc(): void {
     });
     const sourcePath = selection.filePaths[0];
     if (selection.canceled || !sourcePath) return null;
+    await resolveBridge.stop(projectId);
     const result = await projects.connectOtioSource(projectId, sourcePath, expectedVersion);
     sourceWatcher.watch(projectId, sourcePath);
     return result;
+  });
+  ipcMain.handle(channels.startResolveBridge, async (_event, projectId: string, expectedVersion: number) => {
+    sourceWatcher.unwatch(projectId);
+    if (resolveBridge.isRunning(projectId)) await resolveBridge.stop(projectId);
+    await resolveBridge.start(projectId, expectedVersion);
+    return projects.status(projectId);
+  });
+  ipcMain.handle(channels.stopResolveBridge, async (_event, projectId: string) => {
+    await resolveBridge.stop(projectId);
+    return projects.status(projectId);
   });
   ipcMain.handle(channels.scanOtioSource, (_event, projectId) => projects.scanOtioSource(projectId));
   ipcMain.handle(channels.applyPendingSync, (_event, projectId, digest, version) => projects.applyPendingSync(projectId, digest, version));
@@ -305,7 +330,7 @@ app.whenReady().then(() => {
   registerMediaProtocol();
   registerApplicationProtocol();
   registerIpc();
-  void restoreSourceWatchers();
+  void restoreSourceConnections();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -317,5 +342,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   sourceWatcher.close();
+  resolveBridge.close();
   if (process.platform !== 'darwin') app.quit();
 });

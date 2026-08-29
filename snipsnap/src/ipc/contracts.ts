@@ -21,6 +21,8 @@ export const channels = {
   resolveRoots: 'resolve:roots',
   status: 'projects:status',
   connectOtioSource: 'source:connect-otio',
+  startResolveBridge: 'source:start-resolve-bridge',
+  stopResolveBridge: 'source:stop-resolve-bridge',
   scanOtioSource: 'source:scan-otio',
   applyPendingSync: 'source:apply',
   dismissPendingSync: 'source:dismiss',
@@ -54,6 +56,8 @@ export interface SnipSnapApi {
   resolveRoots(): Promise<string[]>;
   status(projectId: string): Promise<ProjectStatus>;
   connectOtioSource(projectId: string, expectedVersion: number): Promise<SourceScanResult | null>;
+  startResolveBridge(projectId: string, expectedVersion: number): Promise<ProjectStatus>;
+  stopResolveBridge(projectId: string): Promise<ProjectStatus>;
   scanOtioSource(projectId: string): Promise<SourceScanResult>;
   applyPendingSync(projectId: string, digest: string, expectedVersion: number): Promise<ProjectStatus>;
   dismissPendingSync(projectId: string, digest: string): Promise<ProjectStatus>;
