@@ -163,8 +163,11 @@ describe('V1 project workflow', () => {
     const exported = await service.exportOtio(imported.id, 'HEAD');
     expect(exported.commitId).toBe(status.headCommit);
     expect(exported.contents).toContain('Timeline.1');
-    expect(exported.contents).not.toContain('/Volumes/Edit');
+    expect(exported.contents).toContain('file:///Volumes/Edit/opening.mov');
     const repoPath = path.join(root, 'projects', imported.id, 'repo');
     expect((await runGit(repoPath, ['ls-tree', '-r', '--name-only', 'HEAD'])).stdout.trim()).toBe('timeline.json');
+    expect((await runGit(repoPath, ['show', 'HEAD:timeline.json'])).stdout).not.toContain('/Volumes/Edit');
+    await service.tag(imported.id, 'v1.0', status.headCommit, 'Approved cut');
+    expect((await runGit(repoPath, ['cat-file', '-t', 'refs/tags/v1.0'])).stdout.trim()).toBe('tag');
   });
 });

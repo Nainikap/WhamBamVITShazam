@@ -16,6 +16,7 @@ describe('OTIO adapter', () => {
     expect(result.project.clips[0]?.sourceRange).toEqual({ start: 48, duration: 96 });
     expect(result.project.gaps[0]?.durationFrames).toBe(12);
     expect(result.project.assets[0]?.name).toBe('opening.mov');
+    expect(Object.values(result.mediaLinks)).toEqual(['file:///Volumes/Edit/opening.mov']);
     expect(result.unsupported).toEqual([
       expect.objectContaining({ schema: 'Transition.1', reason: expect.stringContaining('Clip and Gap') }),
     ]);
@@ -27,6 +28,7 @@ describe('OTIO adapter', () => {
     const imported = importOtio(otio);
 
     expect(imported.unsupported).toEqual([]);
+    expect(imported.mediaLinks).toEqual({});
     expect(canonicalJson(imported.project)).toBe(canonicalJson(project));
     expect(otio).not.toContain('/Volumes/');
     expect(otio).toContain('videogit://asset/');

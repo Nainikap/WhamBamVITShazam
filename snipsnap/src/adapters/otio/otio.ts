@@ -59,6 +59,11 @@ export interface UnsupportedContent {
 export interface OtioImportResult {
   project: Project;
   unsupported: UnsupportedContent[];
+  mediaLinks: Record<string, string>;
+}
+
+export interface OtioExportOptions {
+  mediaLinks?: Readonly<Record<string, string>>;
 }
 
 function videogitMetadata(metadata: OtioMetadata | undefined): Record<string, unknown> {
@@ -125,6 +130,7 @@ export function importOtio(input: string | unknown): OtioImportResult {
   const gaps: Gap[] = [];
   const captions: Caption[] = [];
   const unsupported: UnsupportedContent[] = [];
+  const mediaLinks: Record<string, string> = {};
 
   timeline.tracks.children.forEach((trackInput, trackIndex) => {
     if (!trackInput.OTIO_SCHEMA.startsWith('Track.')) {
@@ -190,6 +196,9 @@ export function importOtio(input: string | unknown): OtioImportResult {
       const fingerprint = typeof itemMeta.assetFingerprint === 'string' && /^[a-f0-9]{64}$/u.test(itemMeta.assetFingerprint)
         ? itemMeta.assetFingerprint
         : digestText(targetUrl.normalize('NFC'));
+      if (!targetUrl.startsWith('missing://') && !targetUrl.startsWith('videogit://')) {
+        mediaLinks[fingerprint] = targetUrl;
+      }
       const duration = Math.max(
         frames(range.start_time.value + range.duration.value, range.duration.rate, fps),
         media?.available_range
@@ -257,7 +266,7 @@ export function importOtio(input: string | unknown): OtioImportResult {
     gaps,
     captions,
   });
-  return { project, unsupported };
+  return { project, unsupported, mediaLinks };
 }
 
 function otioTime(value: number, rate: number) {
@@ -272,7 +281,7 @@ function otioRange(start: number, duration: number, rate: number) {
   };
 }
 
-export function exportOtio(projectInput: Project): string {
+export function exportOtio(projectInput: Project, options: OtioExportOptions = {}): string {
   const project = validateProject(projectInput);
   const sequence = project.sequences[0];
   if (!sequence) throw new Error('Project has no sequence');
@@ -338,7 +347,8 @@ export function exportOtio(projectInput: Project): string {
           DEFAULT_MEDIA: {
             OTIO_SCHEMA: 'ExternalReference.1',
             name: asset.name,
-            target_url: `videogit://asset/${asset.fingerprint}/${encodeURIComponent(asset.name)}`,
+            target_url: options.mediaLinks?.[asset.fingerprint]
+              ?? `videogit://asset/${asset.fingerprint}/${encodeURIComponent(asset.name)}`,
             available_range: otioRange(0, asset.durationFrames, rate),
             available_image_bounds: null,
             metadata: {},

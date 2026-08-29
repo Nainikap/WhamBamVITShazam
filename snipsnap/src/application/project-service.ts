@@ -96,6 +96,10 @@ export class ProjectService {
     return path.join(this.projectRoot(projectId), 'project.json');
   }
 
+  private mediaLinksPath(projectId: string): string {
+    return path.join(this.projectRoot(projectId), 'media-links.json');
+  }
+
   private sessionPath(projectId: string, sessionId: string): string {
     if (!z.string().uuid().safeParse(sessionId).success) throw new Error('Invalid merge session ID');
     return path.join(this.projectRoot(projectId), 'merge-sessions', `${sessionId}.json`);
@@ -155,6 +159,7 @@ export class ProjectService {
   async importOtio(contents: string): Promise<ProjectSummary & { unsupported: UnsupportedContent[] }> {
     const imported = importOtio(contents);
     const summary = await this.createProject(imported.project, 'Import Resolve OTIO');
+    await atomicWriteJson(this.mediaLinksPath(summary.id), imported.mediaLinks);
     return { ...summary, unsupported: imported.unsupported };
   }
 
@@ -374,7 +379,13 @@ export class ProjectService {
   async exportOtio(projectId: string, revision: string): Promise<{ commitId: string; contents: string }> {
     const repository = this.repository(projectId);
     const commitId = await repository.resolve(revision);
-    return { commitId, contents: exportOtio(await repository.readSnapshot(commitId)) };
+    let mediaLinks: Record<string, string> = {};
+    try {
+      mediaLinks = z.record(z.string()).parse(await readJson(this.mediaLinksPath(projectId)));
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+    }
+    return { commitId, contents: exportOtio(await repository.readSnapshot(commitId), { mediaLinks }) };
   }
 
   async verify(projectId: string): Promise<void> {

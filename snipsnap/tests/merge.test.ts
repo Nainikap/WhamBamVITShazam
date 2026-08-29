@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { reduceCommand } from '../src/commands';
-import { createDemoProject } from '../src/domain';
+import { createDemoProject, deterministicUuid } from '../src/domain';
 import { completeMerge, mergeThreeWay, resolveMerge } from '../src/merge';
 
 describe('conservative three-way merge', () => {
@@ -71,6 +71,25 @@ describe('conservative three-way merge', () => {
     expect(result.conflicts).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'validation', validationErrors: expect.arrayContaining([expect.stringContaining('exceeds')]) }),
     ]));
+  });
+
+  it('reports incompatible clip ordering instead of inventing an order', () => {
+    const base = createDemoProject();
+    const track = base.tracks[0];
+    if (!track) throw new Error('Fixture track missing');
+    const gapId = deterministicUuid(`${track.id}:gap`);
+    base.gaps.push({ id: gapId, type: 'gap', trackId: track.id, durationFrames: 12 });
+    track.itemIds.push(gapId);
+    const [first, second, third] = track.itemIds;
+    if (!first || !second || !third) throw new Error('Fixture order missing');
+    const ours = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [second, first, third] });
+    const theirs = reduceCommand(base, { type: 'reorderTrack', trackId: track.id, itemIds: [first, third, second] });
+
+    const result = mergeThreeWay(base, ours, theirs);
+    expect(result.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'order', fieldGroup: 'itemIds' }),
+    ]));
+    expect(() => completeMerge(result)).toThrow(/unresolved conflicts/u);
   });
 
   it('preserves independent edits over generated valid gain values', () => {
