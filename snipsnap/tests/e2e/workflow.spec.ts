@@ -168,7 +168,7 @@ test('creates a branch from an old commit, switches branches, and restores histo
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
   await page.getByRole('button', { name: 'Restore to working' }).click();
   await expect(page.getByText(/Restored [a-f0-9]{8} into the working timeline/u)).toBeVisible();
-  await expect(page.getByText('Trimmed clip Opening')).toBeVisible();
+  await expect(page.getByLabel('Inspector').getByText('Trimmed clip Opening')).toBeVisible();
 });
 
 test('returns to the dashboard with the project listed as most recently worked on', async () => {
