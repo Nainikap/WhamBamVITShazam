@@ -173,7 +173,14 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
       }
       for (const fields of fieldGroups[type]) {
         if ((type === 'track' && fields[0] === 'itemIds') || (type === 'sequence' && fields[0] === 'trackIds')) {
-          const beforeOrder = (groupValue(before, fields) as string[]).filter((id) => afterById.has(id) || type === 'track');
+          const commonIds = type === 'track'
+            ? new Set([
+              ...base.clips, ...base.gaps, ...base.captions,
+            ].map(({ id }) => id).filter((id) => [
+              ...candidate.clips, ...candidate.gaps, ...candidate.captions,
+            ].some((item) => item.id === id)))
+            : new Set(base.tracks.map(({ id }) => id).filter((id) => candidate.tracks.some((track) => track.id === id)));
+          const beforeOrder = (groupValue(before, fields) as string[]).filter((id) => commonIds.has(id));
           const afterOrder = (groupValue(entity, fields) as string[]).filter((id) => beforeOrder.includes(id));
           if (!same(beforeOrder, afterOrder)) {
             hunks.push(createHunk({

@@ -13,7 +13,7 @@
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude '**/*.integration.test.ts'",
+    "test": "vitest run --exclude '**/*.integration.test.ts' --exclude 'tests/e2e/**'",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "npm run package && playwright test"
   },

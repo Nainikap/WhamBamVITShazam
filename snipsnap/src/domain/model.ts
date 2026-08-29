@@ -159,6 +159,19 @@ export const ProjectSchema = ProjectShape.superRefine((project, context) => {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `Item ${item.id} has an invalid track` });
     }
   }
+
+  const referencedTracks = project.sequences.flatMap(({ trackIds: ids }) => ids);
+  for (const track of project.tracks) {
+    if (referencedTracks.filter((id) => id === track.id).length !== 1) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: `Track ${track.id} must appear in exactly one sequence` });
+    }
+  }
+  const referencedItems = project.tracks.flatMap(({ itemIds: ids }) => ids);
+  for (const item of items) {
+    if (referencedItems.filter((id) => id === item.id).length !== 1) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: `Item ${item.id} must appear in exactly one track` });
+    }
+  }
 });
 
 export type Rational = z.infer<typeof RationalSchema>;

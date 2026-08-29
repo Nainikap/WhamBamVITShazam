@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { exportOtio, importOtio } from '../src/adapters/otio';
@@ -33,5 +35,22 @@ describe('OTIO adapter', () => {
   it('rejects non-timeline OTIO roots', () => {
     expect(() => importOtio({ OTIO_SCHEMA: 'SerializableCollection.1', tracks: { children: [] } }))
       .toThrow(/Expected an OTIO Timeline/u);
+  });
+
+  const hasOfficialOtio = spawnSync('python', ['-c', 'import opentimelineio'], { stdio: 'ignore' }).status === 0;
+  it.runIf(hasOfficialOtio)('produces JSON accepted by the official OpenTimelineIO parser', () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'snipsnap-otio-'));
+    const filePath = path.join(directory, 'export.otio');
+    try {
+      writeFileSync(filePath, exportOtio(createDemoProject()), 'utf8');
+      const result = spawnSync('python', [
+        '-c',
+        'import opentimelineio as otio,sys; value=otio.adapters.read_from_file(sys.argv[1]); assert isinstance(value, otio.schema.Timeline)',
+        filePath,
+      ], { encoding: 'utf8' });
+      expect(result.status, result.stderr).toBe(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

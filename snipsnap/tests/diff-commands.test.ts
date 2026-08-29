@@ -66,4 +66,18 @@ describe('commands and semantic staging', () => {
     expect(() => reduceCommand(project, { type: 'reorderTrack', trackId: track.id, itemIds: [track.itemIds[0] as string] }))
       .toThrow(/every existing track item/u);
   });
+
+  it('represents track order as one atomic semantic hunk', () => {
+    const project = createDemoProject();
+    const track = project.tracks[0];
+    if (!track) throw new Error('Fixture track missing');
+    const working = reduceCommand(project, {
+      type: 'reorderTrack',
+      trackId: track.id,
+      itemIds: [...track.itemIds].reverse(),
+    });
+    expect(semanticDiff(project, working)).toEqual([
+      expect.objectContaining({ operation: 'reorder', fieldGroup: 'itemIds', entityId: track.id }),
+    ]);
+  });
 });

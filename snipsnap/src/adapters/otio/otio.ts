@@ -24,6 +24,11 @@ const ItemSchema = z.object({
     target_url: z.string().optional(),
     available_range: TimeRangeSchema.optional().nullable(),
   }).passthrough().optional().nullable(),
+  media_references: z.record(z.object({
+    target_url: z.string().optional(),
+    available_range: TimeRangeSchema.optional().nullable(),
+  }).passthrough()).optional(),
+  active_media_reference_key: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
 }).passthrough();
 const TrackInputSchema = z.object({
@@ -78,6 +83,12 @@ function basename(targetUrl: string): string {
   } catch {
     return segment || 'external-media';
   }
+}
+
+function mediaReference(item: z.infer<typeof ItemSchema>) {
+  if (item.media_reference) return item.media_reference;
+  const key = item.active_media_reference_key ?? 'DEFAULT_MEDIA';
+  return item.media_references?.[key] ?? Object.values(item.media_references ?? {})[0];
 }
 
 function getRate(timeline: z.infer<typeof TimelineInputSchema>): Rational {
@@ -174,16 +185,17 @@ export function importOtio(input: string | unknown): OtioImportResult {
         unsupported.push({ path: `tracks[${trackIndex}].children[${itemIndex}]`, schema, reason: 'Clip has no source range' });
         return;
       }
-      const targetUrl = item.media_reference?.target_url ?? `missing://${item.name ?? itemId}`;
+      const media = mediaReference(item);
+      const targetUrl = media?.target_url ?? `missing://${item.name ?? itemId}`;
       const fingerprint = typeof itemMeta.assetFingerprint === 'string' && /^[a-f0-9]{64}$/u.test(itemMeta.assetFingerprint)
         ? itemMeta.assetFingerprint
         : digestText(targetUrl.normalize('NFC'));
       const duration = Math.max(
         frames(range.start_time.value + range.duration.value, range.duration.rate, fps),
-        item.media_reference?.available_range
+        media?.available_range
           ? frames(
-            item.media_reference.available_range.start_time.value + item.media_reference.available_range.duration.value,
-            item.media_reference.available_range.duration.rate,
+            media.available_range.start_time.value + media.available_range.duration.value,
+            media.available_range.duration.rate,
             fps,
           )
           : 1,
@@ -280,6 +292,10 @@ export function exportOtio(projectInput: Project): string {
           OTIO_SCHEMA: 'Gap.1',
           name: 'Gap',
           source_range: otioRange(0, gap.durationFrames, rate),
+          effects: [],
+          markers: [],
+          enabled: true,
+          color: null,
           metadata: { videogit: { id: gap.id } },
         };
       }
@@ -289,7 +305,20 @@ export function exportOtio(projectInput: Project): string {
           OTIO_SCHEMA: 'Clip.2',
           name: caption.text,
           source_range: otioRange(caption.range.start, caption.range.duration, rate),
-          media_reference: { OTIO_SCHEMA: 'MissingReference.1', name: '', metadata: {} },
+          effects: [],
+          markers: [],
+          enabled: true,
+          color: null,
+          media_references: {
+            DEFAULT_MEDIA: {
+              OTIO_SCHEMA: 'MissingReference.1',
+              name: '',
+              available_range: null,
+              available_image_bounds: null,
+              metadata: {},
+            },
+          },
+          active_media_reference_key: 'DEFAULT_MEDIA',
           metadata: { videogit: { id: caption.id, kind: 'caption', text: caption.text, style: caption.style } },
         };
       }
@@ -301,13 +330,21 @@ export function exportOtio(projectInput: Project): string {
         OTIO_SCHEMA: 'Clip.2',
         name: clip.name,
         source_range: otioRange(clip.sourceRange.start, clip.sourceRange.duration, rate),
-        media_reference: {
-          OTIO_SCHEMA: 'ExternalReference.1',
-          name: asset.name,
-          target_url: `videogit://asset/${asset.fingerprint}/${encodeURIComponent(asset.name)}`,
-          available_range: otioRange(0, asset.durationFrames, rate),
-          metadata: {},
+        effects: [],
+        markers: [],
+        enabled: true,
+        color: null,
+        media_references: {
+          DEFAULT_MEDIA: {
+            OTIO_SCHEMA: 'ExternalReference.1',
+            name: asset.name,
+            target_url: `videogit://asset/${asset.fingerprint}/${encodeURIComponent(asset.name)}`,
+            available_range: otioRange(0, asset.durationFrames, rate),
+            available_image_bounds: null,
+            metadata: {},
+          },
         },
+        active_media_reference_key: 'DEFAULT_MEDIA',
         metadata: {
           videogit: {
             id: clip.id,
@@ -324,6 +361,11 @@ export function exportOtio(projectInput: Project): string {
       name: track.name,
       kind: track.kind === 'audio' ? 'Audio' : 'Video',
       children,
+      source_range: null,
+      effects: [],
+      markers: [],
+      enabled: true,
+      color: null,
       metadata: { videogit: { id: track.id, kind: track.kind } },
     };
   });
@@ -336,6 +378,11 @@ export function exportOtio(projectInput: Project): string {
       OTIO_SCHEMA: 'Stack.1',
       name: 'tracks',
       children: tracks,
+      source_range: null,
+      effects: [],
+      markers: [],
+      enabled: true,
+      color: null,
       metadata: {
         videogit: {
           id: sequence.id,

@@ -14,6 +14,7 @@ export interface MergeConflict {
   theirs: unknown;
   message: string;
   validationErrors?: string[];
+  relation?: Partial<Record<'base' | 'ours' | 'theirs', { parentId: string; index: number }>>;
 }
 
 export interface MergeResult {
@@ -212,6 +213,29 @@ export function mergeThreeWay(baseInput: Project, oursInput: Project, theirsInpu
     (provisional[key] as unknown) = merged;
   });
 
+  const relation = (project: Project, type: EntityType, id: string) => {
+    if (type === 'track') {
+      const parent = project.sequences.find(({ trackIds }) => trackIds.includes(id));
+      return parent ? { parentId: parent.id, index: parent.trackIds.indexOf(id) } : undefined;
+    }
+    if (type === 'clip' || type === 'gap' || type === 'caption') {
+      const parent = project.tracks.find(({ itemIds }) => itemIds.includes(id));
+      return parent ? { parentId: parent.id, index: parent.itemIds.indexOf(id) } : undefined;
+    }
+    return undefined;
+  };
+  for (const item of conflicts) {
+    if (item.fieldGroup !== 'entity') continue;
+    const baseRelation = relation(base, item.entityType, item.entityId);
+    const oursRelation = relation(ours, item.entityType, item.entityId);
+    const theirsRelation = relation(theirs, item.entityType, item.entityId);
+    item.relation = {
+      ...(baseRelation ? { base: baseRelation } : {}),
+      ...(oursRelation ? { ours: oursRelation } : {}),
+      ...(theirsRelation ? { theirs: theirsRelation } : {}),
+    };
+  }
+
   const errors = validationMessages(provisional);
   if (errors.length > 0) conflicts.push(validationConflict(provisional, errors));
   return { provisional, conflicts };
@@ -221,7 +245,7 @@ function entityCollection(project: Project, type: CollectionType): Entity[] {
   return project[collectionKeys[type]] as unknown as Entity[];
 }
 
-function applyResolution(project: Project, conflictItem: MergeConflict, value: unknown): void {
+function applyResolution(project: Project, conflictItem: MergeConflict, value: unknown, choice: ConflictChoice): void {
   if (conflictItem.type === 'validation') return;
   if (conflictItem.entityType === 'project') {
     project.name = String(value);
@@ -232,8 +256,27 @@ function applyResolution(project: Project, conflictItem: MergeConflict, value: u
   if (conflictItem.fieldGroup === 'entity') {
     if (value === null) {
       if (index >= 0) items.splice(index, 1);
+      for (const sequence of project.sequences) sequence.trackIds = sequence.trackIds.filter((id) => id !== conflictItem.entityId);
+      for (const track of project.tracks) track.itemIds = track.itemIds.filter((id) => id !== conflictItem.entityId);
     } else if (index >= 0) items[index] = clone(value as Entity);
     else items.push(clone(value as Entity));
+    if (value !== null) {
+      const relation = choice === 'manual' ? undefined : conflictItem.relation?.[choice];
+      const entity = value as Entity;
+      if (conflictItem.entityType === 'track') {
+        const parentId = relation?.parentId ?? String(entity.sequenceId);
+        const sequence = project.sequences.find(({ id }) => id === parentId);
+        if (sequence && !sequence.trackIds.includes(conflictItem.entityId)) {
+          sequence.trackIds.splice(relation?.index ?? sequence.trackIds.length, 0, conflictItem.entityId);
+        }
+      } else if (conflictItem.entityType === 'clip' || conflictItem.entityType === 'gap' || conflictItem.entityType === 'caption') {
+        const parentId = relation?.parentId ?? String(entity.trackId);
+        const track = project.tracks.find(({ id }) => id === parentId);
+        if (track && !track.itemIds.includes(conflictItem.entityId)) {
+          track.itemIds.splice(relation?.index ?? track.itemIds.length, 0, conflictItem.entityId);
+        }
+      }
+    }
     return;
   }
   if (index < 0) throw new Error(`Cannot resolve missing ${conflictItem.entityType} ${conflictItem.entityId}`);
@@ -254,7 +297,7 @@ export function resolveMerge(result: MergeResult, resolutions: ConflictResolutio
       ? resolution.value
       : item[resolution.choice];
     if (resolution.choice === 'manual' && value === undefined) throw new Error('Manual conflict resolution requires a value');
-    applyResolution(provisional, item, value);
+    applyResolution(provisional, item, value, resolution.choice);
     resolved.add(item.id);
   }
 

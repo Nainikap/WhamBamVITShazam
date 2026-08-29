@@ -48,7 +48,12 @@ describe('conservative three-way merge', () => {
     const theirs = reduceCommand(base, { type: 'setClipPreset', clipId: clip.id, preset: 'mono' });
 
     const result = mergeThreeWay(base, ours, theirs);
-    expect(result.conflicts.some(({ type }) => type === 'delete-modify')).toBe(true);
+    const deleteConflict = result.conflicts.find(({ type }) => type === 'delete-modify');
+    expect(deleteConflict).toBeDefined();
+    if (!deleteConflict) throw new Error('Delete conflict missing');
+    const restored = completeMerge(resolveMerge(result, [{ conflictId: deleteConflict.id, choice: 'theirs' }]));
+    expect(restored.clips.find(({ id }) => id === clip.id)?.preset).toBe('mono');
+    expect(restored.tracks[0]?.itemIds).toEqual(base.tracks[0]?.itemIds);
   });
 
   it('turns invalid combined timing into a validation conflict', () => {
