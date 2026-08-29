@@ -67,7 +67,9 @@ The test layers deliberately prove different things:
 - integration tests execute real Git 2.x repositories under temporary directories;
 - Playwright launches the packaged Electron entry and exercises watched OTIO -> renderer ->
   preload -> IPC -> services -> Git -> immutable preview plan rather than replacing the API with mocks;
-- the packaging check verifies Electron Forge can produce `out/snipsnap-linux-x64/snipsnap`.
+- the packaging check verifies Electron Forge can produce the platform package (for example,
+  `out/SnipSnap-win32-x64/SnipSnap.exe` on Windows), and E2E launches that package's generated
+  `resources/app.asar` through the Electron automation harness.
 
 ## Honest validation boundary
 
