@@ -84,31 +84,101 @@ export function Editor() {
   };
 
   return <main className="editor">
-    <aside className="history-panel" aria-label="Commit history">
-      <div className="panel-head">
-        <h2>Commit history</h2>
-        <span className="count">{status.history.length}</span>
-      </div>
-      <div className="history-list">
-        {status.history.map((commit) => <button
-          key={commit.id}
-          aria-label={`View commit ${commit.message}`}
-          className={`commit-row ${commit.id === revision.commit.id ? 'selected' : ''}`}
-          onClick={() => void store.loadRevision(commit.id)}
-        >
-          <span className={`dot ${commit.id === status.headCommit ? 'head' : ''} ${commit.parents.length > 1 ? 'merge' : ''}`} />
-          <span className="commit-body">
-            <strong>{commit.message}</strong>
-            <small>{commit.author.replace(/\s*<[^>]*>/u, '')} · {relativeTime(commit.authoredAt)}</small>
-            <span className="commit-refs">
-              <code>{shortId(commit.id)}</code>
-              {status.branches.filter(({ commitId }) => commitId === commit.id)
-                .map(({ name }) => <em key={name}>{name}</em>)}
-              {commit.parents.length > 1 && <em className="merge-tag">merge</em>}
+    <aside className="history-panel source-control-panel" aria-label="Source control">
+      <section className="changes-section" aria-label="Working changes">
+        <div className="panel-head">
+          <div className="panel-title">
+            <h2>Changes</h2>
+            <small>HEAD → WORKING</small>
+          </div>
+          <span className="count">{status.unstaged.length + status.staged.length}</span>
+        </div>
+
+        <div className="changes-list">
+          <div className="stage-group">
+            <div className="stage-group-head">
+              <span className="eyebrow">UNSTAGED</span>
+              <button
+                className="small-button"
+                disabled={status.unstaged.length === 0}
+                onClick={() => void store.stage(status.unstaged.map(({ id }) => id))}
+              >Stage all</button>
+            </div>
+            {status.unstaged.length === 0
+              ? <p className="muted">No unstaged changes.</p>
+              : status.unstaged.map((hunk) => <HunkRow
+                key={hunk.id}
+                hunk={hunk}
+                fps={fps}
+                actionLabel="Stage"
+                onAction={() => void store.stage([hunk.id])}
+              />)}
+          </div>
+
+          <div className="stage-group">
+            <div className="stage-group-head">
+              <span className="eyebrow">STAGED</span>
+              <button
+                className="small-button"
+                disabled={status.staged.length === 0}
+                onClick={() => void store.unstage(status.staged.map(({ id }) => id))}
+              >Unstage all</button>
+            </div>
+            {status.staged.length === 0
+              ? <p className="muted">Nothing staged yet.</p>
+              : status.staged.map((hunk) => <HunkRow
+                key={hunk.id}
+                hunk={hunk}
+                fps={fps}
+                actionLabel="Unstage"
+                onAction={() => void store.unstage([hunk.id])}
+              />)}
+          </div>
+        </div>
+
+        <div className="commit-box">
+          <form className="commit-form" onSubmit={submitCommit}>
+            <input
+              aria-label="Commit message"
+              value={commitMessage}
+              placeholder="Describe this cut"
+              onChange={(event) => setCommitMessage(event.target.value)}
+            />
+            <button className="primary" disabled={!canCommit || !commitMessage.trim()}>Commit</button>
+          </form>
+          {!canCommit && <small className="hint">Stage one or more changes to create a commit.</small>}
+        </div>
+      </section>
+
+      <section className="commits-section" aria-label="Commit history">
+        <div className="panel-head">
+          <div className="panel-title">
+            <h2>Commits</h2>
+            <small>{status.branch}</small>
+          </div>
+          <span className="count">{status.history.length}</span>
+        </div>
+        <div className="history-list">
+          {status.history.map((commit) => <button
+            key={commit.id}
+            aria-label={`View commit ${commit.message}`}
+            className={`commit-row ${commit.id === revision.commit.id ? 'selected' : ''}`}
+            onClick={() => void store.loadRevision(commit.id)}
+          >
+            <span className={`dot ${commit.id === status.headCommit ? 'head' : ''} ${commit.parents.length > 1 ? 'merge' : ''}`} />
+            <span className="commit-body">
+              <strong>{commit.message}</strong>
+              <small>{commit.author.replace(/\s*<[^>]*>/u, '')} · {relativeTime(commit.authoredAt)}</small>
+              <span className="commit-refs">
+                <code>{shortId(commit.id)}</code>
+                {status.branches.filter(({ commitId }) => commitId === commit.id)
+                  .map(({ name }) => <em key={name}>{name}</em>)}
+                {commit.parents.length > 1 && <em className="merge-tag">merge</em>}
+              </span>
             </span>
-          </span>
-        </button>)}
-      </div>
+          </button>)}
+        </div>
+      </section>
     </aside>
 
     <section className="stage-column">
@@ -263,66 +333,6 @@ export function Editor() {
             onClick={() => void store.merge(mergeSource)}
           >Merge into {status.branch}</button>
         </div>
-      </section>
-
-      <section className="inspector-block">
-        <div className="panel-head">
-          <h3>Staging</h3>
-          <span className="count">{status.unstaged.length + status.staged.length}</span>
-        </div>
-
-        <div className="stage-group">
-          <div className="stage-group-head">
-            <span className="eyebrow">WORKING</span>
-            <button
-              className="small-button"
-              disabled={status.unstaged.length === 0}
-              onClick={() => void store.stage(status.unstaged.map(({ id }) => id))}
-            >Stage all</button>
-          </div>
-          {status.unstaged.length === 0
-            ? <p className="muted">The working timeline matches what is staged.</p>
-            : status.unstaged.map((hunk) => <HunkRow
-              key={hunk.id}
-              hunk={hunk}
-              fps={fps}
-              actionLabel="Stage"
-              onAction={() => void store.stage([hunk.id])}
-            />)}
-        </div>
-
-        <div className="stage-group">
-          <div className="stage-group-head">
-            <span className="eyebrow">STAGED</span>
-            <button
-              className="small-button"
-              disabled={status.staged.length === 0}
-              onClick={() => void store.unstage(status.staged.map(({ id }) => id))}
-            >Unstage all</button>
-          </div>
-          {status.staged.length === 0
-            ? <p className="muted">Nothing staged yet.</p>
-            : status.staged.map((hunk) => <HunkRow
-              key={hunk.id}
-              hunk={hunk}
-              fps={fps}
-              actionLabel="Unstage"
-              onAction={() => void store.unstage([hunk.id])}
-            />)}
-        </div>
-
-        <form className="commit-form" onSubmit={submitCommit}>
-          <input
-            aria-label="Commit message"
-            value={commitMessage}
-            placeholder="Describe this cut"
-            onChange={(event) => setCommitMessage(event.target.value)}
-          />
-          <button className="primary" disabled={!canCommit || !commitMessage.trim()}>Commit</button>
-        </form>
-        {!canCommit && <small className="hint">
-          Nothing is staged, so this version is identical to <code>{shortId(status.headCommit)}</code> — there is nothing to commit.
-        </small>}
       </section>
 
       <section className="inspector-block">
