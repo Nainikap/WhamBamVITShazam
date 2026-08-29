@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
-import { relativeTime } from './format';
 import type { CommitInfo } from '../git';
+import { Badge } from '../components/ui/badge';
+import { cn } from '../lib/utils';
+import { relativeTime, shortId } from './format';
 
-const ROW = 30;
-const COLUMN = 15;
-const LEFT = 13;
+const ROW = 56;
+const COLUMN = 14;
+const LEFT = 14;
 const LANE_COLORS = ['#5b8cff', '#3ddc84', '#f0c05a', '#c78bff', '#ff8f6b', '#5fd7d0'];
 
 interface PlacedCommit {
@@ -79,9 +81,13 @@ export interface CommitGraphProps {
   onSelect(commitId: string): void;
 }
 
+/**
+ * The one place commits are listed. Branch topology is drawn beside the rows
+ * rather than repeated as a second graph elsewhere in the window.
+ */
 export function CommitGraph({ history, headCommit, selectedCommit, branches, onSelect }: CommitGraphProps) {
   const { placed, edges, lanes } = useMemo(() => layoutGraph(history), [history]);
-  const width = LEFT + lanes * COLUMN;
+  const width = LEFT + Math.max(0, lanes - 1) * COLUMN + 14;
   const height = Math.max(ROW, placed.length * ROW);
   const tips = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -89,8 +95,8 @@ export function CommitGraph({ history, headCommit, selectedCommit, branches, onS
     return map;
   }, [branches]);
 
-  return <div className="graph" role="list" aria-label="Commit graph">
-    <svg className="graph-lines" width={width} height={height} aria-hidden="true">
+  return <div className="relative">
+    <svg className="pointer-events-none absolute left-0 top-0" width={width} height={height} aria-hidden="true">
       {edges.map((edge) => {
         const x1 = LEFT + edge.from.lane * COLUMN;
         const x2 = LEFT + edge.to.lane * COLUMN;
@@ -98,8 +104,8 @@ export function CommitGraph({ history, headCommit, selectedCommit, branches, onS
         const y2 = edge.to.row * ROW + ROW / 2;
         const path = x1 === x2
           ? `M ${x1} ${y1} L ${x2} ${y2}`
-          : `M ${x1} ${y1} C ${x1} ${y1 + ROW * 0.6}, ${x2} ${y2 - ROW * 0.6}, ${x2} ${y2}`;
-        return <path key={edge.id} d={path} stroke={LANE_COLORS[edge.lane % LANE_COLORS.length]} fill="none" strokeWidth="1.5" />;
+          : `M ${x1} ${y1} C ${x1} ${y1 + ROW * 0.5}, ${x2} ${y2 - ROW * 0.5}, ${x2} ${y2}`;
+        return <path key={edge.id} d={path} stroke={LANE_COLORS[edge.lane % LANE_COLORS.length]} fill="none" strokeWidth="1.5" opacity="0.75" />;
       })}
       {placed.map((entry) => {
         const cx = LEFT + entry.lane * COLUMN;
@@ -107,24 +113,32 @@ export function CommitGraph({ history, headCommit, selectedCommit, branches, onS
         const color = LANE_COLORS[entry.lane % LANE_COLORS.length];
         const isMerge = entry.commit.parents.length > 1;
         return <g key={entry.commit.id}>
-          <circle cx={cx} cy={cy} r={isMerge ? 5.5 : 4.5} fill={entry.commit.id === headCommit ? color : '#12151c'} stroke={color} strokeWidth="2" />
+          <circle cx={cx} cy={cy} r={isMerge ? 5.5 : 4.5} fill={entry.commit.id === headCommit ? color : 'hsl(220 22% 9%)'} stroke={color} strokeWidth="2" />
           {isMerge && <circle cx={cx} cy={cy} r="1.6" fill={color} />}
         </g>;
       })}
     </svg>
 
-    <div className="graph-rows" style={{ marginLeft: width }}>
+    <div className="flex flex-col" style={{ marginLeft: width }}>
       {placed.map((entry) => <button
         key={entry.commit.id}
-        role="listitem"
-        className={`graph-row ${entry.commit.id === selectedCommit ? 'selected' : ''}`}
-        style={{ height: ROW }}
+        aria-label={`View commit ${entry.commit.message}`}
         onClick={() => onSelect(entry.commit.id)}
-        title={`${entry.commit.message} · ${entry.commit.id.slice(0, 8)} · ${relativeTime(entry.commit.authoredAt)}`}
+        style={{ height: ROW }}
+        className={cn(
+          'flex flex-col justify-center gap-1 rounded-md border border-transparent px-2.5 text-left transition-colors',
+          entry.commit.id === selectedCommit ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
+        )}
       >
-        <span className="graph-message">{entry.commit.message}</span>
-        <span className="graph-meta">
-          {(tips.get(entry.commit.id) ?? []).map((name) => <em key={name} className={name === 'main' ? 'tip main' : 'tip'}>{name}</em>)}
+        <span className="truncate text-xs font-medium leading-tight">{entry.commit.message}</span>
+        <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <code className="font-mono">{shortId(entry.commit.id)}</code>
+          <span>·</span>
+          <span className="truncate">{relativeTime(entry.commit.authoredAt)}</span>
+          {(tips.get(entry.commit.id) ?? []).map((name) => (
+            <Badge key={name} variant="primary" className="ml-0.5">{name}</Badge>
+          ))}
+          {entry.commit.parents.length > 1 && <Badge variant="edited">merge</Badge>}
         </span>
       </button>)}
     </div>

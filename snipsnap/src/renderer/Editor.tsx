@@ -1,11 +1,27 @@
+import { GitBranch, GitMerge, SplitSquareHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { SemanticHunk } from '../diff';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { ScrollArea } from '../components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Separator } from '../components/ui/separator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
+import { cn } from '../lib/utils';
 import { CommitGraph } from './CommitGraph';
 import { CommitPlayer } from './CommitPlayer';
 import { DiffView } from './DiffView';
 import { TimelineTracks } from './TimelineTracks';
-import { absoluteTime, framesToTimecode, relativeTime, shortId } from './format';
+import { absoluteTime, framesToTimecode, shortId } from './format';
 import { useAppStore } from './store';
+
+const operationVariant = {
+  add: 'added',
+  delete: 'removed',
+  modify: 'retimed',
+  reorder: 'edited',
+} as const;
 
 function HunkRow({ hunk, actionLabel, onAction, fps }: {
   hunk: SemanticHunk;
@@ -14,17 +30,27 @@ function HunkRow({ hunk, actionLabel, onAction, fps }: {
   fps: number;
 }) {
   const range = hunk.affectedFrameRange;
-  return <article className="hunk-row">
-    <span className={`operation ${hunk.operation}`}>{hunk.operation}</span>
-    <div>
-      <strong>{hunk.message}</strong>
-      <small>
+  return <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-2">
+    <Badge variant={operationVariant[hunk.operation]} className="shrink-0 uppercase">{hunk.operation}</Badge>
+    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="text-[11px] font-medium leading-snug">{hunk.message}</span>
+      <span className="font-mono text-[9px] text-muted-foreground">
         {hunk.entityType} · {hunk.fieldGroup}
         {range ? ` · ${framesToTimecode(range.start, fps)} → ${framesToTimecode(range.start + range.duration, fps)}` : ''}
-      </small>
+      </span>
     </div>
-    {actionLabel && onAction && <button className="small-button" onClick={onAction}>{actionLabel}</button>}
-  </article>;
+    {actionLabel && onAction && <Button size="sm" variant="outline" onClick={onAction}>{actionLabel}</Button>}
+  </div>;
+}
+
+function PanelHeading({ title, count, action }: { title: string; count?: number; action?: React.ReactNode }) {
+  return <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
+    <div className="flex items-center gap-2">
+      <h2 className="text-xs font-semibold tracking-wide">{title}</h2>
+      {count !== undefined && <Badge variant="outline">{count}</Badge>}
+    </div>
+    {action}
+  </div>;
 }
 
 export function Editor() {
@@ -36,9 +62,7 @@ export function Editor() {
   const [mergeSource, setMergeSource] = useState('');
   const [playhead, setPlayhead] = useState(0);
 
-  useEffect(() => {
-    setPlayhead(0);
-  }, [revision?.commit.id]);
+  useEffect(() => { setPlayhead(0); }, [revision?.commit.id]);
 
   const otherBranches = useMemo(
     () => (status?.branches ?? []).filter(({ name }) => name !== status?.branch),
@@ -46,7 +70,7 @@ export function Editor() {
   );
 
   if (!status || !revision) {
-    return <main className="editor editor-loading"><p className="muted">Opening project…</p></main>;
+    return <main className="grid flex-1 place-items-center text-sm text-muted-foreground">Opening project…</main>;
   }
 
   const fps = revision.preview.fps;
@@ -66,9 +90,7 @@ export function Editor() {
   function openDiff(): void {
     if (!status || !revision) return;
     const parent = revision.commit.parents[0];
-    const base = parent ?? revision.commit.id;
-    const head = parent ? revision.commit.id : status.headCommit;
-    void store.openDiff(base, head);
+    void store.openDiff(parent ?? revision.commit.id, parent ? revision.commit.id : status.headCommit);
   }
 
   const submitCommit = (event: FormEvent) => {
@@ -83,105 +105,89 @@ export function Editor() {
     void store.createBranchFromSelected(branchName).then(() => setBranchName(''));
   };
 
-  return <main className="editor">
-    <aside className="history-panel source-control-panel" aria-label="Source control">
-      <section className="changes-section" aria-label="Working changes">
-        <div className="panel-head">
-          <div className="panel-title">
-            <h2>Changes</h2>
-            <small>HEAD → WORKING</small>
+  return <main className="grid min-h-0 flex-1 grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)_minmax(19rem,22rem)] overflow-hidden">
+    <aside aria-label="Source control" className="flex min-h-0 flex-col border-r border-border">
+      <section aria-label="Working changes" className="flex min-h-0 flex-col">
+        <PanelHeading
+          title="Changes"
+          count={status.unstaged.length + status.staged.length}
+          action={<div className="flex gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={status.unstaged.length === 0}
+              onClick={() => void store.stage(status.unstaged.map(({ id }) => id))}
+            >Stage all</Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={status.staged.length === 0}
+              onClick={() => void store.unstage(status.staged.map(({ id }) => id))}
+            >Unstage all</Button>
+          </div>}
+        />
+        <ScrollArea className="max-h-[38vh] min-h-0 flex-1">
+          <div className="flex flex-col gap-3 p-3">
+            {status.unstaged.length + status.staged.length === 0
+              ? <p className="text-xs text-muted-foreground">
+                The latest saved Resolve timeline matches this commit.
+              </p>
+              : <>
+                {status.staged.length > 0 && <div className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Staged</span>
+                  {status.staged.map((hunk) => <HunkRow
+                    key={hunk.id} hunk={hunk} fps={fps} actionLabel="Unstage"
+                    onAction={() => void store.unstage([hunk.id])}
+                  />)}
+                </div>}
+                {status.unstaged.length > 0 && <div className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Unstaged</span>
+                  {status.unstaged.map((hunk) => <HunkRow
+                    key={hunk.id} hunk={hunk} fps={fps} actionLabel="Stage"
+                    onAction={() => void store.stage([hunk.id])}
+                  />)}
+                </div>}
+              </>}
           </div>
-          <span className="count">{status.unstaged.length + status.staged.length}</span>
-        </div>
+        </ScrollArea>
 
-        <div className="changes-list">
-          <div className="stage-group">
-            <div className="stage-group-head">
-              <span className="eyebrow">UNSTAGED</span>
-              <button
-                className="small-button"
-                disabled={status.unstaged.length === 0}
-                onClick={() => void store.stage(status.unstaged.map(({ id }) => id))}
-              >Stage all</button>
-            </div>
-            {status.unstaged.length === 0
-              ? <p className="muted">No unstaged changes.</p>
-              : status.unstaged.map((hunk) => <HunkRow
-                key={hunk.id}
-                hunk={hunk}
-                fps={fps}
-                actionLabel="Stage"
-                onAction={() => void store.stage([hunk.id])}
-              />)}
-          </div>
-
-          <div className="stage-group">
-            <div className="stage-group-head">
-              <span className="eyebrow">STAGED</span>
-              <button
-                className="small-button"
-                disabled={status.staged.length === 0}
-                onClick={() => void store.unstage(status.staged.map(({ id }) => id))}
-              >Unstage all</button>
-            </div>
-            {status.staged.length === 0
-              ? <p className="muted">Nothing staged yet.</p>
-              : status.staged.map((hunk) => <HunkRow
-                key={hunk.id}
-                hunk={hunk}
-                fps={fps}
-                actionLabel="Unstage"
-                onAction={() => void store.unstage([hunk.id])}
-              />)}
-          </div>
-        </div>
-
-        <div className="commit-box">
-          <form className="commit-form" onSubmit={submitCommit}>
-            <input
-              aria-label="Commit message"
-              value={commitMessage}
-              placeholder="Describe this cut"
-              onChange={(event) => setCommitMessage(event.target.value)}
-            />
-            <button className="primary" disabled={!canCommit || !commitMessage.trim()}>Commit</button>
-          </form>
-          {!canCommit && <small className="hint">Stage one or more changes to create a commit.</small>}
-        </div>
+        <form className="flex shrink-0 gap-2 border-t border-border p-3" onSubmit={submitCommit}>
+          <Input
+            aria-label="Commit message"
+            value={commitMessage}
+            placeholder="Describe this cut"
+            onChange={(event) => setCommitMessage(event.target.value)}
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button variant="default" disabled={!canCommit || !commitMessage.trim()}>Commit</Button>
+              </span>
+            </TooltipTrigger>
+            {!canCommit && <TooltipContent>Stage a change first — this version matches {shortId(status.headCommit)}</TooltipContent>}
+          </Tooltip>
+        </form>
       </section>
 
-      <section className="commits-section" aria-label="Commit history">
-        <div className="panel-head">
-          <div className="panel-title">
-            <h2>Commits</h2>
-            <small>{status.branch}</small>
+      <Separator />
+
+      <section aria-label="Commit history" className="flex min-h-0 flex-1 flex-col">
+        <PanelHeading title="Commits" count={status.history.length} />
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="p-2">
+            <CommitGraph
+              history={status.history}
+              headCommit={status.headCommit}
+              selectedCommit={revision.commit.id}
+              branches={status.branches}
+              onSelect={(commitId) => void store.loadRevision(commitId)}
+            />
           </div>
-          <span className="count">{status.history.length}</span>
-        </div>
-        <div className="history-list">
-          {status.history.map((commit) => <button
-            key={commit.id}
-            aria-label={`View commit ${commit.message}`}
-            className={`commit-row ${commit.id === revision.commit.id ? 'selected' : ''}`}
-            onClick={() => void store.loadRevision(commit.id)}
-          >
-            <span className={`dot ${commit.id === status.headCommit ? 'head' : ''} ${commit.parents.length > 1 ? 'merge' : ''}`} />
-            <span className="commit-body">
-              <strong>{commit.message}</strong>
-              <small>{commit.author.replace(/\s*<[^>]*>/u, '')} · {relativeTime(commit.authoredAt)}</small>
-              <span className="commit-refs">
-                <code>{shortId(commit.id)}</code>
-                {status.branches.filter(({ commitId }) => commitId === commit.id)
-                  .map(({ name }) => <em key={name}>{name}</em>)}
-                {commit.parents.length > 1 && <em className="merge-tag">merge</em>}
-              </span>
-            </span>
-          </button>)}
-        </div>
+        </ScrollArea>
       </section>
     </aside>
 
-    <section className="stage-column">
+    <section className="flex min-w-0 flex-col gap-3 overflow-y-auto p-4">
       {store.diffOpen && store.comparison
         ? <DiffView
           comparison={store.comparison}
@@ -191,28 +197,42 @@ export function Editor() {
           onClose={store.closeDiff}
         />
         : <>
-          <div className="stage-head">
-            <div>
-              <span className="eyebrow">VIEWING</span>
-              <h2>{revision.commit.message}</h2>
-              <small><code>{shortId(revision.commit.id)}</code> · {absoluteTime(revision.commit.authoredAt)}</small>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold tracking-tight">{revision.commit.message}</h2>
+              <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                {shortId(revision.commit.id)} · {absoluteTime(revision.commit.authoredAt)}
+              </p>
             </div>
-            <div className="stage-actions">
-              {revision.commit.parents.length > 1 && <div className="parent-selector">
-                <span>Compare parent</span>
-                {revision.commit.parents.map((parent, index) => <button
+            <div className="flex shrink-0 items-center gap-2">
+              {revision.commit.parents.length > 1 && <div className="flex items-center gap-1">
+                <span className="text-[10px] text-muted-foreground">Parent</span>
+                {revision.commit.parents.map((parent, index) => <Button
                   key={parent}
-                  className={revision.comparedParent === parent ? 'active' : ''}
+                  size="sm"
+                  variant={revision.comparedParent === parent ? 'default' : 'outline'}
                   onClick={() => void store.loadRevision(revision.commit.id, index)}
-                >{index + 1}</button>)}
+                >{index + 1}</Button>)}
               </div>}
-              <button
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button disabled={!canDiff} onClick={openDiff}><SplitSquareHorizontal />See diff</Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {canDiff
+                    ? 'Play both commits side by side and highlight added, removed, and retimed footage'
+                    : 'Two commits are needed before anything can be compared'}
+                </TooltipContent>
+              </Tooltip>
+              <Button
                 disabled={revision.commit.id === status.headCommit}
                 onClick={() => {
                   const discard = dirty && window.confirm('Replace the staged and working timeline with this commit?');
                   if (!dirty || discard) void store.restoreSelected(discard);
                 }}
-              >Restore to working</button>
+              >Restore to working</Button>
             </div>
           </div>
 
@@ -223,142 +243,116 @@ export function Editor() {
             onPlayheadChange={setPlayhead}
           />
 
-          <section className={`source-strip source-${status.source.state}`}>
-            <span className={`status-pill ${status.source.state}`}>{status.source.state.replace('-', ' ')}</span>
-            <div className="source-body">
-              <strong>{status.source.mode === 'resolve'
+          <div className="flex shrink-0 items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+            <Badge variant={status.source.state === 'watching' ? 'added' : 'retimed'} className="shrink-0 uppercase">
+              {status.source.state.replace(/-/gu, ' ')}
+            </Badge>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-xs font-medium">{status.source.mode === 'resolve'
                 ? `${status.source.resolveProjectName ?? 'DaVinci Resolve'} · ${status.source.resolveTimelineName ?? 'active timeline'}`
-                : status.source.connected ? status.source.fileName : 'Connect SnipSnap to DaVinci Resolve'}</strong>
-              <small title={status.source.filePath}>
+                : status.source.connected ? status.source.fileName : 'Connect SnipSnap to DaVinci Resolve'}</span>
+              <span className="truncate font-mono text-[10px] text-muted-foreground">
                 {status.source.error ?? (status.source.mode === 'resolve'
                   ? status.source.lastSavedAt
-                    ? `Last saved timeline received ${absoluteTime(status.source.lastSavedAt)}. Latest save is WORKING.`
-                    : 'Open Resolve, select the timeline, and save the project.'
-                  : status.source.filePath
-                    ?? 'Save sync exports internally once per Resolve save; no repeated OTIO filenames.')}
-              </small>
+                    ? `Last save received ${absoluteTime(status.source.lastSavedAt)}`
+                    : 'Open Resolve, select the timeline, and save the project'
+                  : status.source.filePath ?? 'Each Resolve save arrives as the new working timeline')}
+              </span>
             </div>
-            <div className="source-buttons">
-              {status.source.mode === 'file' && <button onClick={() => void store.scanSource()}>Check file</button>}
+            <div className="flex shrink-0 gap-2">
+              {status.source.mode === 'file' && <Button size="sm" onClick={() => void store.scanSource()}>Check file</Button>}
               {resolveSyncActive
-                ? <button onClick={() => void store.stopResolveSync()}>Stop sync</button>
-                : <button className="primary" onClick={() => void store.startResolveSync()}>
+                ? <Button size="sm" onClick={() => void store.stopResolveSync()}>Stop sync</Button>
+                : <Button size="sm" variant="default" onClick={() => void store.startResolveSync()}>
                   {status.source.mode === 'resolve' ? 'Restart sync' : 'Start save sync'}
-                </button>}
-              {status.source.mode !== 'file' && <button onClick={() => void store.connectSource()}>Use OTIO file</button>}
+                </Button>}
             </div>
-          </section>
+          </div>
 
-          {status.source.pending && <section className="pending-sync">
-            <div className="pending-head">
+          {status.source.pending && <div className="flex shrink-0 items-center gap-3 rounded-lg border border-retimed/40 bg-retimed-soft px-3 py-2.5">
+            <span className="flex-1 text-xs">
               <strong>{status.source.pending.changeCount} change{status.source.pending.changeCount === 1 ? '' : 's'} detected in Resolve</strong>
-              <span>{status.source.pending.unsupportedCount
-                ? `${status.source.pending.unsupportedCount} unsupported`
-                : 'Supported cut-only update'}</span>
-            </div>
-            <div className="pending-actions">
-              <button onClick={() => void store.dismissSource()}>Ignore</button>
-              <button className="primary" onClick={() => void store.applySource()}>Apply to working timeline</button>
-            </div>
-          </section>}
-
-          <section className="head-working-summary">
-            <div className="pending-head">
-              <strong>HEAD → WORKING</strong>
-              <span>{status.workingChanges.length} semantic change{status.workingChanges.length === 1 ? '' : 's'}</span>
-            </div>
-            <small>Every hunk below is cumulative from the last SnipSnap commit. A newer Resolve save replaces WORKING instead of creating hidden history.</small>
-            <div className="head-working-hunks">
-              {status.workingChanges.length === 0
-                ? <p className="muted">The latest saved Resolve timeline matches HEAD.</p>
-                : status.workingChanges.map((hunk) => <HunkRow key={hunk.id} hunk={hunk} fps={fps} />)}
-            </div>
-          </section>
+              {status.source.pending.unsupportedCount > 0 && ` · ${status.source.pending.unsupportedCount} unsupported`}
+            </span>
+            <Button size="sm" onClick={() => void store.dismissSource()}>Ignore</Button>
+            <Button size="sm" variant="default" onClick={() => void store.applySource()}>Apply to working timeline</Button>
+          </div>}
 
           <TimelineTracks plan={revision.preview} playhead={playhead} onSeek={setPlayhead} />
         </>}
     </section>
 
-    <aside className="inspector" aria-label="Inspector">
-      <section className="inspector-block">
-        <div className="panel-head">
-          <h3>Branch</h3>
-          <span className="count">{status.branches.length}</span>
-        </div>
-        <div className="branch-current">
-          <span className="branch-chip large">⑂ {status.branch}</span>
-          <code>{shortId(status.headCommit)}</code>
-        </div>
-        <label className="field">
-          <span>Switch branch</span>
-          <select
-            aria-label="Switch branch"
-            value={status.branch}
-            onChange={(event) => guardedCheckout(event.target.value)}
-          >
-            {status.branches.map(({ name, commitId }) => <option key={name} value={name}>
+    <aside aria-label="Inspector" className="flex min-h-0 flex-col overflow-y-auto border-l border-border">
+      <PanelHeading title="Branch" count={status.branches.length} />
+      <div className="flex flex-col gap-3 p-3">
+        <Select value={status.branch} onValueChange={guardedCheckout}>
+          <SelectTrigger aria-label="Switch branch">
+            <span className="flex items-center gap-2"><GitBranch className="h-3.5 w-3.5 text-primary" /><SelectValue /></span>
+          </SelectTrigger>
+          <SelectContent>
+            {status.branches.map(({ name, commitId }) => <SelectItem key={name} value={name}>
               {name} · {shortId(commitId)}
-            </option>)}
-          </select>
-        </label>
-        <form className="field" onSubmit={submitBranch}>
-          <span>New branch from {shortId(revision.commit.id)}</span>
-          <div className="field-row">
-            <input
-              aria-label="Branch from selected commit"
-              value={branchName}
-              placeholder="alternate-cut"
-              onChange={(event) => setBranchName(event.target.value)}
-            />
-            <button disabled={!branchName.trim()}>Create</button>
-          </div>
+            </SelectItem>)}
+          </SelectContent>
+        </Select>
+        <form className="flex gap-2" onSubmit={submitBranch}>
+          <Input
+            aria-label="Branch from selected commit"
+            value={branchName}
+            placeholder={`Branch from ${shortId(revision.commit.id)}`}
+            onChange={(event) => setBranchName(event.target.value)}
+          />
+          <Button disabled={!branchName.trim()}>Create</Button>
         </form>
-      </section>
+      </div>
 
-      <section className="inspector-block">
-        <div className="panel-head"><h3>Merge</h3></div>
-        <p className="hint">Merging replays both branches over their common commit. Conflicting cuts stop the merge for your decision.</p>
-        <div className="field-column">
-          <select
-            aria-label="Merge source branch"
-            value={mergeSource}
-            onChange={(event) => setMergeSource(event.target.value)}
-          >
-            <option value="">Choose a branch…</option>
-            {otherBranches.map(({ name }) => <option key={name} value={name}>{name}</option>)}
-          </select>
-          <button
-            disabled={!mergeSource || dirty}
-            title={dirty ? 'Commit or discard the working changes before merging' : undefined}
-            onClick={() => void store.merge(mergeSource)}
-          >Merge into {status.branch}</button>
-        </div>
-      </section>
+      <Separator />
+      <PanelHeading title="Merge" />
+      <div className="flex flex-col gap-2 p-3">
+        <Select value={mergeSource} onValueChange={setMergeSource}>
+          <SelectTrigger aria-label="Merge source branch">
+            <SelectValue placeholder="Choose a branch…" />
+          </SelectTrigger>
+          <SelectContent>
+            {otherBranches.map(({ name }) => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                className="w-full"
+                disabled={!mergeSource || dirty}
+                onClick={() => void store.merge(mergeSource)}
+              ><GitMerge />Merge into {status.branch}</Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {dirty
+              ? 'Commit or discard the working changes before merging'
+              : 'Replays both branches over their common commit; conflicting cuts stop for your decision'}
+          </TooltipContent>
+        </Tooltip>
+      </div>
 
-      <section className="inspector-block">
-        <div className="panel-head"><h3>Compare</h3></div>
-        <button
-          className="wide"
-          disabled={!canDiff}
-          onClick={openDiff}
-          title={canDiff ? undefined : 'Two commits are needed before anything can be compared'}
-        >See diff</button>
-        <small className="hint">Opens both commits side by side and highlights added, changed, and removed footage on every video and audio lane.</small>
-      </section>
-
-      <section className="inspector-block graph-block">
-        <div className="panel-head">
-          <h3>Commit graph</h3>
-          <span className="count">{status.history.length}</span>
-        </div>
-        <CommitGraph
-          history={status.history}
-          headCommit={status.headCommit}
-          selectedCommit={revision.commit.id}
-          branches={status.branches}
-          onSelect={(commitId) => void store.loadRevision(commitId)}
-        />
-      </section>
+      <Separator />
+      <PanelHeading title="Timeline" />
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 text-xs">
+        {[
+          ['Duration', framesToTimecode(revision.preview.totalFrames, fps)],
+          ['Format', `${revision.preview.width}×${revision.preview.height}`],
+          ['Frame rate', `${fps.toFixed(3).replace(/\.?0+$/u, '')} fps`],
+          ['Tracks', revision.preview.tracks.map((track) => track.name).join(', ') || '—'],
+          ['Media', revision.preview.missingAssets.length
+            ? `${revision.preview.missingAssets.length} offline`
+            : 'All linked'],
+        ].map(([label, value]) => <div key={label} className="flex min-w-0 flex-col">
+          <dt className="text-[9px] uppercase tracking-widest text-muted-foreground">{label}</dt>
+          <dd className={cn('truncate font-mono text-[11px]', label === 'Media' && revision.preview.missingAssets.length && 'text-removed')}>
+            {value}
+          </dd>
+        </div>)}
+      </dl>
     </aside>
   </main>;
 }
