@@ -1,25 +1,40 @@
 {
   "name": "snipsnap",
-  "productName": "snipsnap",
+  "productName": "SnipSnap",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Local-first semantic version control for video timelines",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
     "start": "electron-forge start",
+    "build": "electron-forge package",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx ."
+    "lint": "eslint --ext .ts,.tsx .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:integration": "vitest run '**/*.integration.test.ts'",
+    "test:e2e": "playwright test"
   },
-  "keywords": [],
+  "keywords": [
+    "electron",
+    "git",
+    "otio",
+    "video"
+  ],
   "author": {
     "name": "Tarun",
     "email": "tarunram23@gmail.com"
   },
   "license": "MIT",
   "dependencies": {
-    "electron-squirrel-startup": "^1.0.1"
+    "@noble/hashes": "^1.8.0",
+    "electron-squirrel-startup": "^1.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.25.76",
+    "zustand": "^4.5.7"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
@@ -31,13 +46,19 @@
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron-forge/plugin-vite": "^7.11.2",
     "@electron/fuses": "^1.8.0",
+    "@playwright/test": "^1.55.0",
     "@types/electron-squirrel-startup": "^1.0.2",
+    "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "electron": "44.0.0",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
-    "typescript": "~4.5.4",
-    "vite": "^5.4.21"
+    "fast-check": "^3.23.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.9.2",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
   }
 }
