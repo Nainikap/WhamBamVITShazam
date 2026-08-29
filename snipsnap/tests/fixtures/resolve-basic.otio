@@ -1,0 +1,57 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "Resolve Basic Cut",
+  "global_start_time": null,
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "name": "tracks",
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "V1",
+        "kind": "Video",
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "name": "Opening",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": { "OTIO_SCHEMA": "RationalTime.1", "value": 48, "rate": 24 },
+              "duration": { "OTIO_SCHEMA": "RationalTime.1", "value": 96, "rate": 24 }
+            },
+            "media_reference": {
+              "OTIO_SCHEMA": "ExternalReference.1",
+              "name": "opening.mov",
+              "target_url": "file:///Volumes/Edit/opening.mov",
+              "available_range": {
+                "OTIO_SCHEMA": "TimeRange.1",
+                "start_time": { "OTIO_SCHEMA": "RationalTime.1", "value": 0, "rate": 24 },
+                "duration": { "OTIO_SCHEMA": "RationalTime.1", "value": 480, "rate": 24 }
+              },
+              "metadata": {}
+            },
+            "metadata": {}
+          },
+          {
+            "OTIO_SCHEMA": "Gap.1",
+            "name": "Gap",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": { "OTIO_SCHEMA": "RationalTime.1", "value": 0, "rate": 24 },
+              "duration": { "OTIO_SCHEMA": "RationalTime.1", "value": 12, "rate": 24 }
+            },
+            "metadata": {}
+          },
+          {
+            "OTIO_SCHEMA": "Transition.1",
+            "name": "Cross Dissolve",
+            "metadata": {}
+          }
+        ],
+        "metadata": {}
+      }
+    ],
+    "metadata": {}
+  },
+  "metadata": {}
+}
