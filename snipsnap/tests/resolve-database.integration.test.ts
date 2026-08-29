@@ -143,6 +143,23 @@ describe('rebuilding a timeline from a Resolve database', () => {
     expect(status.project.clips).toHaveLength(3);
     expect(status.history).toHaveLength(1);
 
+    const projectId = overview?.id ?? '';
+    await service.enableResolveBridge(projectId, status.workspaceVersion);
+    const { DatabaseSync } = createRequire(__filename)('node:sqlite') as {
+      DatabaseSync: new (databasePath: string) => { exec(sql: string): void; close(): void };
+    };
+    const database = new DatabaseSync(path.join(projectFolder, 'Project.db'));
+    database.exec("UPDATE Sm2TiItem SET Duration = 12 WHERE Name = 'closing'");
+    database.close();
+    expect(await service.applyResolveDatabaseBridgeSnapshot(
+      projectId,
+      'database:save-1',
+      '2026-08-30T00:00:00.000Z',
+    )).toBe(true);
+    const saved = await service.status(projectId);
+    expect(saved.source).toMatchObject({ state: 'watching', lastMarker: 'database:save-1' });
+    expect(saved.workingChanges.map(({ message }) => message)).toContain('Trimmed clip closing');
+
     const restarted = new ProjectService(path.join(root, 'data'), new ResolveLibrary(async () => []));
     expect(await restarted.listProjects()).toEqual([{ id: overview?.id, name: 'Studio Job' }]);
   });

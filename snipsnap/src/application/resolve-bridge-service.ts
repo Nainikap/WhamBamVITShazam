@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 import { z } from 'zod';
@@ -24,11 +25,15 @@ export interface ResolveBridgeOptions {
   command?: string;
   commandPrefixArgs?: string[];
   environment?: NodeJS.ProcessEnv;
+  databasePollIntervalMs?: number;
 }
 
 /** Runs one validated, save-marker-driven Resolve scripting process per project. */
 export class ResolveBridgeService {
   private readonly processes = new Map<string, ChildProcessWithoutNullStreams>();
+  private readonly databasePollers = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly databaseMarkers = new Map<string, string>();
+  private readonly databaseBusy = new Set<string>();
   private readonly stopping = new Set<string>();
 
   constructor(
@@ -39,7 +44,7 @@ export class ResolveBridgeService {
   ) {}
 
   isRunning(projectId: string): boolean {
-    return this.processes.has(projectId);
+    return this.processes.has(projectId) || this.databasePollers.has(projectId);
   }
 
   async start(projectId: string, expectedVersion?: number): Promise<void> {
@@ -90,6 +95,7 @@ export class ResolveBridgeService {
       if (this.stopping.delete(projectId)) return;
       void this.fail(projectId, stderr.trim() || `Resolve bridge exited with code ${code ?? 'unknown'}`);
     });
+    await this.startDatabaseFallback(projectId);
   }
 
   async stop(projectId: string): Promise<void> {
@@ -99,6 +105,7 @@ export class ResolveBridgeService {
       this.processes.delete(projectId);
       child.kill();
     }
+    this.stopDatabaseFallback(projectId);
     await this.projects.updateResolveBridgeState(projectId, 'stopped');
     await this.onChange(projectId);
   }
@@ -116,6 +123,59 @@ export class ResolveBridgeService {
       child.kill();
     }
     this.processes.clear();
+    for (const projectId of this.databasePollers.keys()) this.stopDatabaseFallback(projectId);
+  }
+
+  private async startDatabaseFallback(projectId: string): Promise<void> {
+    const source = await this.projects.resolveDatabaseBridgeSource(projectId);
+    if (!source || this.databasePollers.has(projectId)) return;
+    try {
+      const info = await stat(source.databasePath);
+      this.databaseMarkers.set(projectId, `${info.mtimeMs}:${info.size}`);
+    } catch {
+      return;
+    }
+    const interval = setInterval(
+      () => void this.pollDatabaseFallback(projectId, source.databasePath),
+      this.options.databasePollIntervalMs ?? 500,
+    );
+    interval.unref();
+    this.databasePollers.set(projectId, interval);
+  }
+
+  private stopDatabaseFallback(projectId: string): void {
+    const interval = this.databasePollers.get(projectId);
+    if (interval) clearInterval(interval);
+    this.databasePollers.delete(projectId);
+    this.databaseMarkers.delete(projectId);
+    this.databaseBusy.delete(projectId);
+  }
+
+  private async pollDatabaseFallback(projectId: string, databasePath: string): Promise<void> {
+    if (this.databaseBusy.has(projectId)) return;
+    let info;
+    try {
+      info = await stat(databasePath);
+    } catch {
+      return;
+    }
+    const marker = `${info.mtimeMs}:${info.size}`;
+    if (marker === this.databaseMarkers.get(projectId)) return;
+    this.databaseBusy.add(projectId);
+    try {
+      await this.projects.applyResolveDatabaseBridgeSnapshot(
+        projectId,
+        `database:${marker}`,
+        new Date(info.mtimeMs).toISOString(),
+      );
+      this.databaseMarkers.set(projectId, marker);
+      await this.onChange(projectId);
+    } catch {
+      // Resolve may still be replacing SQLite pages. Keep the old marker so
+      // the next poll retries this same save instead of losing it.
+    } finally {
+      this.databaseBusy.delete(projectId);
+    }
   }
 
   private async handleLine(projectId: string, line: string): Promise<void> {
