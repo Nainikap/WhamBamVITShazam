@@ -26,11 +26,14 @@ export interface CommitPlayerProps {
   onPlayingChange?(playing: boolean): void;
   /** Drives play and pause from a linked player. */
   playing?: boolean;
+  /** Linked players stop together at this timeline frame. */
+  playbackLimit?: number;
 }
 
 export function CommitPlayer({
   plan, onRelink, variant = 'full', label,
   onPlayheadChange, playhead: external, onPlayingChange, playing: externalPlaying,
+  playbackLimit,
 }: CommitPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playhead, setPlayhead] = useState(0);
@@ -38,6 +41,7 @@ export function CommitPlayer({
   const [activeIndex, setActiveIndex] = useState(0);
   const active = plan.segments[activeIndex];
   const canPlayMedia = active?.kind === 'clip' && active.available && Boolean(active.mediaUrl);
+  const playbackEnd = Math.min(plan.totalFrames, playbackLimit ?? plan.totalFrames);
 
   useEffect(() => {
     setPlayhead(0);
@@ -52,9 +56,19 @@ export function CommitPlayer({
     onPlayheadChange?.(frame);
   }, [onPlayheadChange]);
 
+  const finishPlayback = useCallback((frame = playbackEnd) => {
+    const end = Math.min(Math.max(frame, 0), plan.totalFrames);
+    videoRef.current?.pause();
+    setPlaying(false);
+    setPlayhead(end);
+    announce(end);
+    onPlayingChange?.(false);
+  }, [announce, onPlayingChange, plan.totalFrames, playbackEnd]);
+
   /** Move this player to a timeline frame, including the underlying media. */
   const applyFrame = useCallback((frame: number, index: number) => {
-    setPlayhead(frame);
+    const bounded = Math.min(Math.max(frame, 0), plan.totalFrames);
+    setPlayhead(bounded);
     if (index !== activeIndex) {
       setActiveIndex(index);
       return;
@@ -62,7 +76,11 @@ export function CommitPlayer({
     const segment = plan.segments[index];
     const video = videoRef.current;
     if (!video || !segment || !segment.available) return;
-    video.currentTime = (segment.sourceStart + Math.max(0, frame - segment.timelineStart)) / plan.fps;
+    const segmentOffset = Math.min(
+      Math.max(0, bounded - segment.timelineStart),
+      Math.max(0, segment.duration - 0.25),
+    );
+    video.currentTime = (segment.sourceStart + segmentOffset) / plan.fps;
   }, [activeIndex, plan]);
 
   // An external playhead (a linked player, or the timeline being scrubbed) seeks
@@ -70,10 +88,11 @@ export function CommitPlayer({
   useEffect(() => {
     if (external === undefined) return;
     if (emitted.current !== null && Math.abs(external - emitted.current) < 0.5) return;
-    if (Math.abs(external - playhead) < 0.5) return;
-    const located = segmentAt(plan, external);
+    const bounded = Math.min(Math.max(external, 0), plan.totalFrames);
+    if (Math.abs(bounded - playhead) < 0.5) return;
+    const located = segmentAt(plan, bounded);
     emitted.current = external;
-    applyFrame(external, located ? located.index : activeIndex);
+    applyFrame(bounded, located ? located.index : activeIndex);
   }, [external, applyFrame, plan]);
 
   useEffect(() => {
@@ -105,14 +124,18 @@ export function CommitPlayer({
     const interval = window.setInterval(() => {
       setPlayhead((current) => {
         const next = current + plan.fps / 10;
-        const end = active.timelineStart + active.duration;
+        const end = Math.min(active.timelineStart + active.duration, playbackEnd);
         if (next < end) {
           announce(next);
           return next;
         }
+        if (end >= playbackEnd) {
+          window.setTimeout(() => finishPlayback(playbackEnd), 0);
+          return playbackEnd;
+        }
         const nextIndex = activeIndex + 1;
         if (nextIndex >= plan.segments.length) {
-          setPlaying(false);
+          window.setTimeout(() => finishPlayback(plan.totalFrames), 0);
           return plan.totalFrames;
         }
         setActiveIndex(nextIndex);
@@ -120,7 +143,7 @@ export function CommitPlayer({
       });
     }, 100);
     return () => window.clearInterval(interval);
-  }, [active, activeIndex, canPlayMedia, plan.fps, plan.segments, plan.totalFrames, playing]);
+  }, [active, activeIndex, announce, canPlayMedia, finishPlayback, plan.fps, plan.segments, plan.totalFrames, playbackEnd, playing]);
 
   const activeOffset = active ? Math.max(0, playhead - active.timelineStart) : 0;
   const displayLabel = useMemo(() => {
@@ -141,16 +164,14 @@ export function CommitPlayer({
 
   function advance(): void {
     const nextIndex = activeIndex + 1;
-    if (nextIndex >= plan.segments.length) {
-      setPlaying(false);
-      setPlayhead(plan.totalFrames);
-      announce(plan.totalFrames);
+    const nextStart = plan.segments[nextIndex]?.timelineStart ?? plan.totalFrames;
+    if (nextIndex >= plan.segments.length || nextStart >= playbackEnd) {
+      finishPlayback(playbackEnd);
       return;
     }
-    const start = plan.segments[nextIndex]?.timelineStart ?? plan.totalFrames;
     setActiveIndex(nextIndex);
-    setPlayhead(start);
-    announce(start);
+    setPlayhead(nextStart);
+    announce(nextStart);
   }
 
   function togglePlayback(): void {
@@ -197,7 +218,8 @@ export function CommitPlayer({
           if (!video || !active) return;
           const elapsed = Math.max(0, video.currentTime * plan.fps - active.sourceStart);
           const next = active.timelineStart + elapsed;
-          if (elapsed >= active.duration - 0.25) advance();
+          if (next >= playbackEnd - 0.25) finishPlayback(playbackEnd);
+          else if (elapsed >= active.duration - 0.25) advance();
           else {
             setPlayhead(next);
             announce(next);

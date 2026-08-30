@@ -101,7 +101,7 @@ test.beforeEach(async ({ browserName }, testInfo) => {
   browserRenderedMedia = undefined;
   await mkdir(dataRoot, { recursive: true });
   await mkdir(resolveRoot, { recursive: true });
-  await seedResolveExport(testInfo.title.includes('scrubbing'));
+  await seedResolveExport(testInfo.title.includes('scrubbing') || testInfo.title.includes('playback'));
   application = await electron.launch({
     args: [packagedAppPath()],
     env: {
@@ -285,6 +285,33 @@ test('shows commit diffs in the left history and focuses each semantic change in
   await expect(trim).toBeVisible();
   await expect(level).toBeVisible();
   await expect(look).toBeVisible();
+});
+
+test('linked playback stops cleanly when the shorter commit ends', async () => {
+  await openProject();
+  await exportResolveTrim(48);
+  await applyStageAndCommit('Make a much shorter cut');
+
+  await page.getByRole('button', { name: 'See diff' }).click();
+  const comparison = page.getByRole('region', { name: 'Commit comparison' });
+  await comparison.getByRole('button', { name: 'Play' }).first().click();
+  await expect(comparison.getByRole('button', { name: 'Pause' })).toHaveCount(2);
+  await expect(comparison.getByRole('button', { name: 'Play' })).toHaveCount(2, { timeout: 10_000 });
+
+  const sliders = comparison.getByRole('slider', { name: 'Preview playhead' });
+  const stoppedValues = await sliders.evaluateAll((items) => items.map((item) => (item as HTMLInputElement).value));
+  const stoppedMediaTimes = await comparison.locator('video').evaluateAll((items) => items.map((item) => ({
+    paused: (item as HTMLVideoElement).paused,
+    currentTime: (item as HTMLVideoElement).currentTime,
+  })));
+  expect(stoppedMediaTimes.every(({ paused }) => paused)).toBe(true);
+
+  await page.waitForTimeout(800);
+  await expect(comparison.getByRole('button', { name: 'Play' })).toHaveCount(2);
+  await expect(sliders).toHaveCount(2);
+  expect(await sliders.evaluateAll((items) => items.map((item) => (item as HTMLInputElement).value))).toEqual(stoppedValues);
+  const laterMediaTimes = await comparison.locator('video').evaluateAll((items) => items.map((item) => (item as HTMLVideoElement).currentTime));
+  laterMediaTimes.forEach((time, index) => expect(time).toBeCloseTo(stoppedMediaTimes[index]?.currentTime ?? 0, 2));
 });
 
 test('creates a branch from an old commit, switches branches, and restores history safely', async () => {

@@ -240,6 +240,7 @@ export function DiffView({
   const visibleSegments = useMemo(() => visibleTracks.flatMap(({ segments }) => segments), [visibleTracks]);
   const totals = useMemo(() => tally(visibleSegments), [visibleSegments]);
   const identicalTimeline = changed.length === 0;
+  const sharedPlaybackEnd = Math.min(comparison.base.plan.totalFrames, comparison.head.plan.totalFrames);
 
   useEffect(() => {
     setPlayhead(0);
@@ -294,6 +295,7 @@ export function DiffView({
           onPlayheadChange={setPlayhead}
           playing={playing}
           onPlayingChange={setPlaying}
+          playbackLimit={sharedPlaybackEnd}
         />
       </div>)}
     </div>
