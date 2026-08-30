@@ -26,10 +26,10 @@ const operationVariant = {
 } as const;
 
 const operationRowTone = {
-  add: 'border-added/40 bg-added-soft/70',
-  delete: 'border-removed/40 bg-removed-soft/70',
-  modify: 'border-retimed/40 bg-retimed-soft/70',
-  reorder: 'border-edited/40 bg-edited-soft/70',
+  add: 'border-added/55 border-l-2 bg-card',
+  delete: 'border-removed/55 border-l-2 bg-card',
+  modify: 'border-retimed/55 border-l-2 bg-card',
+  reorder: 'border-edited/55 border-l-2 bg-card',
 } as const;
 
 const commitDotColors = ['#4ade80', '#60a5fa', '#f59e0b', '#c084fc', '#22d3ee'];
@@ -41,16 +41,16 @@ function HunkRow({ hunk, actionLabel, onAction, fps }: {
   fps: number;
 }) {
   const range = hunk.affectedFrameRange;
-  return <div className={cn('flex items-center gap-2 rounded-md border px-2.5 py-2', operationRowTone[hunk.operation])}>
-    <Badge variant={operationVariant[hunk.operation]} className="shrink-0 uppercase">{hunk.operation}</Badge>
-    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="break-words text-[11px] font-medium leading-snug">{hunk.message}</span>
-      <span className="truncate font-mono text-[9px] text-muted-foreground">
-        {hunk.entityType} · {hunk.fieldGroup}
-        {range ? ` · ${framesToTimecode(range.start, fps)} → ${framesToTimecode(range.start + range.duration, fps)}` : ''}
-      </span>
+  return <div className={cn('flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden rounded-md border px-2.5 py-2', operationRowTone[hunk.operation])}>
+    <div className="flex min-w-0 items-center justify-between gap-2">
+      <Badge variant={operationVariant[hunk.operation]} className="shrink-0 uppercase">{hunk.operation}</Badge>
+      {actionLabel && onAction && <Button className="h-7 shrink-0 px-2" size="sm" variant="outline" onClick={onAction}>{actionLabel}</Button>}
     </div>
-    {actionLabel && onAction && <Button size="sm" variant="outline" onClick={onAction}>{actionLabel}</Button>}
+    <span className="min-w-0 break-words text-[11px] font-medium leading-snug">{hunk.message}</span>
+    <span className="min-w-0 break-words font-mono text-[9px] leading-snug text-muted-foreground">
+      {hunk.entityType} · {hunk.fieldGroup}
+      {range ? ` · ${framesToTimecode(range.start, fps)} → ${framesToTimecode(range.start + range.duration, fps)}` : ''}
+    </span>
   </div>;
 }
 
@@ -526,7 +526,7 @@ export function Editor() {
           <Input
             aria-label="Branch from selected commit"
             value={branchName}
-            placeholder={`Branch from ${shortId(revision.commit.id)}`}
+            placeholder="New branch name"
             onChange={(event) => setBranchName(event.target.value)}
           />
           <Button disabled={!branchName.trim()}>Create</Button>
