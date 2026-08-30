@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { exportOtio, importOtio, type OtioExportOptions, type UnsupportedContent } from '../otio';
+import {
+  exportOtio,
+  importOtio,
+  ZERO_RATE_MEDIA_REASON,
+  type OtioExportOptions,
+  type UnsupportedContent,
+} from '../otio';
 import { validateProject, type Extras, type Project } from '../../domain';
 
 export const KdenliveFeatureSchema = z.enum([
@@ -154,11 +160,22 @@ export function assessKdenliveCompatibility(projectInput: Project): KdenliveInte
 export function importKdenliveOtio(input: string | unknown): KdenliveImportResult {
   const imported = importOtio(input);
   const report = assessKdenliveCompatibility(imported.project);
-  if (imported.unsupported.length > 0) {
+  const normalizedRateCount = imported.unsupported
+    .filter(({ reason }) => reason === ZERO_RATE_MEDIA_REASON).length;
+  const unsupportedCount = imported.unsupported.length - normalizedRateCount;
+  if (normalizedRateCount > 0) {
+    report.losses.push({
+      feature: 'source-ranges',
+      support: 'best-effort',
+      count: normalizedRateCount,
+      message: 'Kdenlive exported media availability at rate 0; SnipSnap used the valid clip source rate.',
+    });
+  }
+  if (unsupportedCount > 0) {
     report.losses.push({
       feature: 'unsupported-otio',
       support: 'not-portable',
-      count: imported.unsupported.length,
+      count: unsupportedCount,
       message: 'The Kdenlive export contains OTIO objects outside SnipSnap\'s canonical subset.',
     });
   }

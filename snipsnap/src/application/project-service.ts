@@ -125,6 +125,13 @@ export interface ProjectSummary {
   name: string;
 }
 
+export interface KdenliveFolderScanResult {
+  roots: string[];
+  discovered: number;
+  tracked: Array<{ projectId: string; sourcePath: string }>;
+  failures: Array<{ sourcePath: string; message: string }>;
+}
+
 /** Where a project came from in DaVinci Resolve. */
 export interface ResolveBinding {
   projectName: string;
@@ -514,7 +521,12 @@ export class ProjectService {
     const contents = await readFile(resolvedPath, 'utf8');
     const imported = importKdenliveOtio(contents);
     const projectId = deterministicUuid(`kdenlive-otio:${resolvedPath}`);
-    const project = ProjectSchema.parse({ ...imported.project, id: projectId });
+    const fallbackName = path.basename(resolvedPath, path.extname(resolvedPath)).normalize('NFC');
+    const project = ProjectSchema.parse({
+      ...imported.project,
+      id: projectId,
+      name: imported.project.name === 'Imported Timeline' ? fallbackName : imported.project.name,
+    });
     const existing = await this.readMetadata(projectId);
     if (!existing) {
       await this.createProject(
@@ -609,6 +621,11 @@ export class ProjectService {
 
     const workspace = await this.readWorkspace(projectId);
     const imported = binding.mode === 'kdenlive' ? importKdenliveOtio(contents) : importOtio(contents);
+    // Kdenlive commonly exports an empty Timeline name. Keep the stable name
+    // derived from the source filename instead of proposing a rename on every save.
+    if (binding.mode === 'kdenlive' && imported.project.name === 'Imported Timeline') {
+      imported.project.name = workspace.working.name;
+    }
     const reconciled = reconcileImportedProject(workspace.working, imported.project);
     const nextBinding: SourceBinding = { ...binding, lastSeenDigest: digest };
     delete nextBinding.ignoredDigest;
@@ -1404,6 +1421,69 @@ export class ProjectService {
 
   private resolveRootsPath(): string {
     return path.join(this.root, 'resolve-roots.json');
+  }
+
+  private kdenliveRootsPath(): string {
+    return path.join(this.root, 'kdenlive-roots.json');
+  }
+
+  async kdenliveRoots(): Promise<string[]> {
+    const value = await this.readOptionalJson(this.kdenliveRootsPath());
+    return value === undefined
+      ? []
+      : [...new Set(z.array(z.string().min(1)).parse(value).map((entry) => path.resolve(entry)))];
+  }
+
+  private async kdenliveOtioFiles(folder: string): Promise<string[]> {
+    const results: string[] = [];
+    const skipped = new Set([
+      '.git', '.vite', 'fixtures', 'kdenlive-handoffs', 'node_modules', 'out', 'test-results', 'tests',
+    ]);
+    const visit = async (current: string, depth: number): Promise<void> => {
+      if (depth > 4 || results.length >= 500) return;
+      let entries;
+      try {
+        entries = await readdir(current, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        if (results.length >= 500) break;
+        const entryPath = path.join(current, entry.name);
+        if (entry.isDirectory() && !skipped.has(entry.name.toLowerCase())) await visit(entryPath, depth + 1);
+        else if (entry.isFile() && path.extname(entry.name).toLowerCase() === '.otio') results.push(entryPath);
+      }
+    };
+    await visit(path.resolve(folder), 0);
+    return results;
+  }
+
+  async refreshKdenliveRoots(): Promise<KdenliveFolderScanResult> {
+    const roots = await this.kdenliveRoots();
+    const sources = [...new Set((await Promise.all(
+      roots.map((root) => this.kdenliveOtioFiles(root)),
+    )).flat())].sort();
+    const tracked: KdenliveFolderScanResult['tracked'] = [];
+    const failures: KdenliveFolderScanResult['failures'] = [];
+    for (const sourcePath of sources) {
+      try {
+        const imported = await this.importKdenliveSource(sourcePath);
+        tracked.push({ projectId: imported.status.project.id, sourcePath });
+      } catch (error) {
+        failures.push({
+          sourcePath,
+          message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+        });
+      }
+    }
+    return { roots, discovered: sources.length, tracked, failures };
+  }
+
+  async addKdenliveRoot(folder: string): Promise<KdenliveFolderScanResult> {
+    const roots = await this.kdenliveRoots();
+    const next = [...new Set([...roots, path.resolve(folder)])];
+    await atomicWriteJson(this.kdenliveRootsPath(), next);
+    return this.refreshKdenliveRoots();
   }
 
   /** The default export folder plus any folder the editor pointed us at. */

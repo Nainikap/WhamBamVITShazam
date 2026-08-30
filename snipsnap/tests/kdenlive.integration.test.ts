@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -77,6 +77,66 @@ describe('Kdenlive project workflow', () => {
       .toContain('modify:clip');
     expect(scanned.status.source.pending?.changes.some(({ operation }) => operation === 'add' || operation === 'delete'))
       .toBe(false);
+  });
+
+  it('imports Kdenlive audio references whose available range has rate zero', async () => {
+    const exported = kdenliveExport('Kdenlive Zero-Rate Audio');
+    const tracks = (exported.tracks as {
+      children: Array<{ children: Array<Record<string, unknown>> }>;
+    }).children;
+    const clip = tracks
+      .flatMap(({ children }) => children)
+      .find(({ OTIO_SCHEMA }) => OTIO_SCHEMA === 'Clip.2');
+    if (!clip) throw new Error('Kdenlive fixture clip is missing');
+    const references = clip.media_references as {
+      DEFAULT_MEDIA: { available_range: { start_time: { rate: number }; duration: { rate: number } } };
+    };
+    references.DEFAULT_MEDIA.available_range.start_time.rate = 0;
+    references.DEFAULT_MEDIA.available_range.duration.rate = 0;
+    await writeFile(sourcePath, `${JSON.stringify(exported, null, 2)}\n`);
+
+    const imported = await service.importKdenliveSource(sourcePath);
+
+    expect(imported.status.project.assets[0]?.durationFrames).toBeGreaterThan(0);
+    expect(imported.report.losses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ feature: 'source-ranges', support: 'best-effort', count: 1 }),
+    ]));
+    expect(imported.report.losses.some(({ feature }) => feature === 'unsupported-otio')).toBe(false);
+  });
+
+  it('discovers valid OTIO files in a persisted Kdenlive folder and skips bad files', async () => {
+    const watchedRoot = path.join(root, 'watched-kdenlive');
+    const nestedRoot = path.join(watchedRoot, 'nested');
+    const validPath = path.join(nestedRoot, 'Project One.otio');
+    const invalidPath = path.join(watchedRoot, 'broken.otio');
+    await mkdir(nestedRoot, { recursive: true });
+    const unnamed = kdenliveExport('Kdenlive Cut');
+    unnamed.name = '';
+    await Promise.all([
+      writeFile(validPath, `${JSON.stringify(unnamed, null, 2)}\n`),
+      writeFile(invalidPath, '{ not valid OTIO'),
+    ]);
+
+    const first = await service.addKdenliveRoot(watchedRoot);
+
+    expect(first).toMatchObject({ discovered: 2 });
+    expect(first.roots).toContain(watchedRoot);
+    expect(first.tracked).toEqual([
+      expect.objectContaining({ sourcePath: validPath }),
+    ]);
+    expect(first.failures).toEqual([
+      expect.objectContaining({ sourcePath: invalidPath }),
+    ]);
+    const overview = (await service.listProjectOverviews())
+      .find(({ sourcePath: candidate }) => candidate === validPath);
+    expect(overview).toMatchObject({ name: 'Project One', editor: 'kdenlive', sourceState: 'watching' });
+
+    const restarted = new ProjectService(path.join(root, 'data'));
+    const second = await restarted.refreshKdenliveRoots();
+    expect(second.roots).toEqual([watchedRoot]);
+    expect(second.tracked).toEqual([
+      expect.objectContaining({ sourcePath: validPath }),
+    ]);
   });
 
   it('writes immutable OTIO and a validated machine-readable fidelity report', async () => {

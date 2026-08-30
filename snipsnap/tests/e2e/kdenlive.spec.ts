@@ -45,12 +45,19 @@ test('imports Kdenlive OTIO, watches edits, and prepares an immutable handoff', 
     await page.waitForLoadState('domcontentloaded');
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('button', { name: 'Open Kdenlive Cut' })).toBeVisible();
-    await expect(page.getByText('Kdenlive OTIO')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open Kdenlive Cut' })
+      .getByText('Kdenlive OTIO')).toBeVisible();
     await page.getByRole('button', { name: 'Open Kdenlive Cut' }).click();
     await expect(page.getByText(/Kdenlive · kdenlive-export\.otio/u)).toBeVisible();
 
     await page.getByRole('button', { name: 'Prepare for Kdenlive' }).click();
-    await expect(page.getByRole('status')).toContainText(/File > OpenTimelineIO Import/u);
+    const notice = page.getByRole('status');
+    await expect(notice).toContainText(/File > OpenTimelineIO Import/u);
+    await expect(notice).toHaveCSS('position', 'fixed');
+    const noticeBox = await notice.boundingBox();
+    const viewport = page.viewportSize();
+    expect(noticeBox?.height).toBeLessThan(150);
+    expect((noticeBox?.y ?? 0) + (noticeBox?.height ?? 0)).toBeGreaterThan((viewport?.height ?? 0) - 64);
     const handoffRoot = path.join(dataRoot, 'projects', projectId, 'kdenlive-handoffs');
     const reportPath = path.join(handoffRoot, `${imported.status.headCommit}.report.json`);
     expect(KdenliveInterchangeReportSchema.parse(JSON.parse(await readFile(reportPath, 'utf8'))).editor)

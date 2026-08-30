@@ -6,6 +6,7 @@ import type {
   ProjectOverview,
   ProjectStatus,
   ProjectSummary,
+  KdenliveFolderScanResult,
   RevisionDetails,
   SourceScanResult,
   TimelineComparison,
@@ -21,6 +22,8 @@ export const channels = {
   addResolveFolder: 'resolve:add-folder',
   addResolveProjectFile: 'resolve:add-project-file',
   importKdenliveOtio: 'kdenlive:import-otio',
+  addKdenliveFolder: 'kdenlive:add-folder',
+  refreshKdenliveFolders: 'kdenlive:refresh-folders',
   openInKdenlive: 'kdenlive:open-revision',
   exportFromResolve: 'resolve:export',
   resolveRoots: 'resolve:roots',
@@ -65,6 +68,8 @@ export interface SnipSnapApi {
   addResolveFolder(): Promise<string[] | null>;
   addResolveProjectFile(): Promise<string[] | null>;
   importKdenliveOtio(): Promise<{ status: ProjectStatus; report: KdenliveInterchangeReport } | null>;
+  addKdenliveFolder(): Promise<KdenliveFolderScanResult | null>;
+  refreshKdenliveFolders(): Promise<KdenliveFolderScanResult>;
   openInKdenlive(projectId: string, revision: string): Promise<{
     commitId: string;
     filePath: string;

@@ -39,6 +39,12 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [store.notice]);
 
+  useEffect(() => {
+    if (!store.error) return undefined;
+    const timer = window.setTimeout(() => store.clearError(), 12_000);
+    return () => window.clearTimeout(timer);
+  }, [store.error]);
+
   const editing = store.route.name === 'editor';
   const stage: Stage = !entered ? 'intro' : editing ? 'project' : 'library';
 
@@ -113,12 +119,23 @@ export function App() {
       {(store.error || store.notice) && <Alert
         role={store.error ? 'alert' : 'status'}
         variant={store.error ? 'destructive' : 'default'}
+        style={{
+          position: 'fixed',
+          right: 'clamp(0.75rem, 2vw, 1.5rem)',
+          bottom: 'clamp(0.75rem, 2vw, 1.5rem)',
+          left: 'auto',
+          width: 'min(30rem, calc(100vw - 1.5rem))',
+          maxHeight: '9rem',
+          transform: 'none',
+        }}
         className={cn(
           'alert vg-toast flex items-start justify-between gap-3 py-2',
           store.error ? 'error' : 'notice',
         )}
       >
-        <AlertDescription className="text-xs">{store.error ?? store.notice}</AlertDescription>
+        <AlertDescription className="min-w-0 flex-1 break-words text-xs">
+          {store.error ?? store.notice}
+        </AlertDescription>
         <Button
           variant="ghost"
           size="icon"

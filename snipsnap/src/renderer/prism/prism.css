@@ -870,10 +870,20 @@
   bottom: 26px;
   left: 50%;
   width: min(680px, calc(100% - 64px));
+  max-height: min(9rem, calc(100% - 3rem));
+  overflow: auto;
+  overflow-wrap: anywhere;
   border-color: rgb(255 255 255 / 0.16);
   backdrop-filter: blur(24px) saturate(150%);
   background: rgb(8 8 10 / 0.72);
   transform: translateX(-50%);
+}
+
+.vg-toast.error {
+  border-color: rgb(248 113 113 / 0.72);
+  background: rgb(69 10 10 / 0.96);
+  box-shadow: 0 16px 46px rgb(0 0 0 / 0.48);
+  color: #fee2e2;
 }
 
 .vg-editor-grid {

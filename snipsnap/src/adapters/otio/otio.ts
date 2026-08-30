@@ -20,9 +20,18 @@ import {
 
 const RationalTimeSchema = z.object({ value: z.number(), rate: z.number().positive() }).passthrough();
 const TimeRangeSchema = z.object({ start_time: RationalTimeSchema, duration: RationalTimeSchema }).passthrough();
+// Kdenlive can emit a zero rate for an audio ExternalReference's
+// available_range even while the clip source_range has a valid timeline rate.
+// OpenTimelineIO accepts that file. Keep editorial ranges strict, but accept
+// this editor quirk at the media-reference boundary and repair it on import.
+const MediaRationalTimeSchema = z.object({ value: z.number(), rate: z.number().nonnegative() }).passthrough();
+const MediaTimeRangeSchema = z.object({
+  start_time: MediaRationalTimeSchema,
+  duration: MediaRationalTimeSchema,
+}).passthrough();
 const MediaReferenceSchema = z.object({
   target_url: z.string().optional(),
-  available_range: TimeRangeSchema.optional().nullable(),
+  available_range: MediaTimeRangeSchema.optional().nullable(),
 }).passthrough();
 const ItemSchema = z.object({
   OTIO_SCHEMA: z.string(),
@@ -69,6 +78,8 @@ export interface OtioImportResult {
 export interface OtioExportOptions {
   mediaLinks?: Readonly<Record<string, string>>;
 }
+
+export const ZERO_RATE_MEDIA_REASON = 'Media availability used rate 0; interpreted at the clip source rate';
 
 /** Fields this adapter models by name. Everything else is carried in `extras`. */
 const ITEM_FIELDS = [
@@ -164,6 +175,14 @@ function frames(value: number, fromRate: number, fps: Rational): number {
 
 function timeFrames(time: { value: number; rate: number } | undefined, fps: Rational): number {
   return time ? frames(time.value, time.rate, fps) : 0;
+}
+
+function mediaTimeFrames(
+  time: { value: number; rate: number },
+  fallbackRate: number,
+  fps: Rational,
+): number {
+  return frames(time.value, time.rate > 0 ? time.rate : fallbackRate, fps);
 }
 
 function importMarkers(value: unknown, fps: Rational): Marker[] {
@@ -354,14 +373,23 @@ export function importOtio(input: string | unknown): OtioImportResult {
       if (!targetUrl.startsWith('missing://') && !targetUrl.startsWith('videogit://')) {
         mediaLinks[fingerprint] = targetUrl;
       }
+      const mediaRange = media?.available_range;
+      if (mediaRange && (mediaRange.start_time.rate === 0 || mediaRange.duration.rate === 0)) {
+        const activeKey = item.active_media_reference_key ?? 'DEFAULT_MEDIA';
+        const referencePath = item.media_reference
+          ? `${itemPath}.media_reference`
+          : `${itemPath}.media_references.${activeKey}`;
+        unsupported.push({
+          path: `${referencePath}.available_range`,
+          schema: schemaName(mediaRange, 'TimeRange.1'),
+          reason: ZERO_RATE_MEDIA_REASON,
+        });
+      }
       const duration = Math.max(
         frames(range.start_time.value + range.duration.value, range.duration.rate, fps),
-        media?.available_range
-          ? frames(
-            media.available_range.start_time.value + media.available_range.duration.value,
-            media.available_range.duration.rate,
-            fps,
-          )
+        mediaRange
+          ? mediaTimeFrames(mediaRange.start_time, range.start_time.rate, fps)
+            + mediaTimeFrames(mediaRange.duration, range.duration.rate, fps)
           : 1,
       );
       // A media reference names the file; the URL basename is only a fallback.

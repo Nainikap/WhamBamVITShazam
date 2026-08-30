@@ -7,7 +7,9 @@ boundary. Canonical `timeline.json` remains the only timeline representation sto
 ## Workflow
 
 1. Export the active Kdenlive timeline with **File > OpenTimelineIO Export**.
-2. Import that `.otio` from the SnipSnap dashboard.
+2. Import that `.otio` from the SnipSnap dashboard, or choose **Track Kdenlive folder** to discover
+   every `.otio` file up to four folders below the selected root. Folder roots persist; **Refresh**
+   discovers later exports, and every valid imported OTIO remains watched across app restarts.
 3. Export later Kdenlive edits to the same file. SnipSnap watches it and presents the semantic
    difference as a pending editor update.
 4. Apply, stage, and commit selected semantic changes normally.
@@ -19,6 +21,11 @@ boundary. Canonical `timeline.json` remains the only timeline representation sto
 Kdenlive may remove SnipSnap UUID metadata when it exports again. The source-sync layer reconciles
 sequences, tracks, assets, clips, gaps, transitions, and captions against the current canonical
 workspace so ordinary rewrites remain modifications of stable entities.
+
+Kdenlive can also export an audio media reference whose auxiliary `available_range` has rate `0`
+while its editorial `source_range` has the valid sequence rate. SnipSnap accepts that OpenTimelineIO
+shape, interprets the media availability at the clip source rate, and records a best-effort fidelity
+warning. Editorial source ranges and the canonical timeline remain strictly positive-rate.
 
 ## Fidelity contract
 

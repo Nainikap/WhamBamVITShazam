@@ -52,6 +52,35 @@ describe('Kdenlive OTIO adapter', () => {
     expect(imported.report.losses.some(({ feature }) => feature === 'unsupported-otio')).toBe(false);
   });
 
+  it('repairs Kdenlive audio media availability exported with a zero rate', () => {
+    const value = JSON.parse(exportKdenliveOtio(createDemoProject('Kdenlive Audio')).contents) as {
+      tracks: { children: Array<{ children: Array<Record<string, unknown>> }> };
+    };
+    const clip = value.tracks.children
+      .flatMap(({ children }) => children)
+      .find(({ OTIO_SCHEMA }) => OTIO_SCHEMA === 'Clip.2');
+    if (!clip) throw new Error('Fixture clip is missing');
+    const references = clip.media_references as {
+      DEFAULT_MEDIA: { available_range: { start_time: { rate: number }; duration: { rate: number } } };
+    };
+    references.DEFAULT_MEDIA.available_range.start_time.rate = 0;
+    references.DEFAULT_MEDIA.available_range.duration.rate = 0;
+
+    const imported = importKdenliveOtio(value);
+
+    expect(imported.project.assets[0]?.durationFrames).toBeGreaterThan(0);
+    expect(imported.unsupported).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: expect.stringContaining('available_range'),
+        reason: expect.stringContaining('interpreted at the clip source rate'),
+      }),
+    ]));
+    expect(imported.report.losses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ feature: 'source-ranges', support: 'best-effort', count: 1 }),
+    ]));
+    expect(imported.report.losses.some(({ feature }) => feature === 'unsupported-otio')).toBe(false);
+  });
+
   it('produces OTIO JSON accepted by the installed OpenTimelineIO runtime when available', () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'snipsnap-kdenlive-'));
     const filePath = path.join(directory, 'handoff.otio');

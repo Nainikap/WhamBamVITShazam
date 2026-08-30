@@ -8,6 +8,7 @@ import type {
   TimelineComparison,
 } from '../application';
 import type { ConflictChoice } from '../merge';
+import { errorMessage } from './error-message';
 
 export type Route = { name: 'dashboard' } | { name: 'editor'; projectId: string };
 
@@ -34,6 +35,7 @@ interface AppStore {
   addResolveFolder(): Promise<void>;
   addResolveProjectFile(): Promise<void>;
   importKdenlive(): Promise<void>;
+  addKdenliveFolder(): Promise<void>;
   exportFromResolve(): Promise<void>;
   refreshLibrary(): Promise<void>;
   connectSource(): Promise<void>;
@@ -68,19 +70,13 @@ interface AppStore {
   clearNotice(): void;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error
-    ? error.message.replace(/^Error invoking remote method '[^']+': Error: /u, '')
-    : String(error);
-}
-
 export const useAppStore = create<AppStore>((set, get) => {
   async function run(operation: () => Promise<void>): Promise<void> {
     set({ busy: true, error: null, notice: null });
     try {
       await operation();
     } catch (error) {
-      set({ error: message(error) });
+      set({ error: errorMessage(error) });
     } finally {
       set({ busy: false });
     }
@@ -225,6 +221,20 @@ export const useAppStore = create<AppStore>((set, get) => {
       });
     }),
 
+    addKdenliveFolder: () => run(async () => {
+      const result = await window.snipsnap.addKdenliveFolder();
+      if (!result) return;
+      const overviews = await window.snipsnap.listOverviews();
+      const failed = result.failures.length;
+      set({
+        overviews,
+        notice: result.discovered === 0
+          ? 'No .otio timelines were found in that folder.'
+          : `Tracking ${result.tracked.length} Kdenlive timeline${result.tracked.length === 1 ? '' : 's'}`
+            + `${failed ? `; ${failed} invalid file${failed === 1 ? '' : 's'} skipped` : ''}.`,
+      });
+    }),
+
     exportFromResolve: () => run(async () => {
       const result = await window.snipsnap.exportFromResolve();
       const overviews = await window.snipsnap.listOverviews();
@@ -235,11 +245,15 @@ export const useAppStore = create<AppStore>((set, get) => {
     }),
 
     refreshLibrary: () => run(async () => {
+      const kdenlive = await window.snipsnap.refreshKdenliveFolders();
       const overviews = await window.snipsnap.listOverviews();
       set({
         overviews,
-        notice: overviews.length
-          ? `${overviews.length} video project${overviews.length === 1 ? '' : 's'} available.`
+        notice: kdenlive.failures.length
+          ? `${overviews.length} video project${overviews.length === 1 ? '' : 's'} available; `
+            + `${kdenlive.failures.length} invalid Kdenlive OTIO file${kdenlive.failures.length === 1 ? '' : 's'} skipped.`
+          : overviews.length
+            ? `${overviews.length} video project${overviews.length === 1 ? '' : 's'} available.`
           : 'No projects found. Export OTIO from Resolve or Kdenlive first.',
       });
     }),

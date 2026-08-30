@@ -1,4 +1,4 @@
-import { ArrowRight, FilePlus2, Film, FolderOpen, Image, Network, RefreshCw } from 'lucide-react';
+import { ArrowRight, FilePlus2, Film, FolderOpen, FolderSearch, Image, Network, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProjectOverview } from '../application';
 import { Badge } from '@/components/ui/badge';
@@ -155,10 +155,15 @@ export function Dashboard() {
           <div className="flex flex-wrap justify-center gap-2">
             <Button variant="default" onClick={() => setJoinOpen(true)}><Network />Join shared project</Button>
             <Button variant="default" onClick={() => void store.importKdenlive()}><Film />Import Kdenlive OTIO</Button>
+            <Button variant="secondary" onClick={() => void store.addKdenliveFolder()}>
+              <FolderSearch />Track Kdenlive folder
+            </Button>
             <Button variant="default" onClick={() => void store.addResolveProjectFile()}>
               <FilePlus2 />Choose a .drp file
             </Button>
-            <Button variant="secondary" onClick={() => void store.addResolveFolder()}><FolderOpen />Choose a folder</Button>
+            <Button variant="secondary" onClick={() => void store.addResolveFolder()}>
+              <FolderOpen />Track Resolve folder
+            </Button>
             <Button variant="ghost" onClick={() => void store.exportFromResolve()}>Export from Resolve</Button>
           </div>
         </div>
@@ -182,7 +187,15 @@ export function Dashboard() {
           onChange={(event) => store.setFilter(event.target.value)}
         />
         <Button variant="secondary" onClick={() => setJoinOpen(true)}><Network />Join</Button>
-        <Button variant="secondary" onClick={() => void store.importKdenlive()}><Film />Kdenlive</Button>
+        <Button variant="secondary" onClick={() => void store.importKdenlive()}><Film />Kdenlive OTIO</Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="secondary" size="icon" aria-label="Track Kdenlive folder" onClick={() => void store.addKdenliveFolder()}>
+              <FolderSearch />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Discover and watch Kdenlive OTIO exports</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="secondary" size="icon" aria-label="Add .drp" onClick={() => void store.addResolveProjectFile()}>
@@ -193,11 +206,11 @@ export function Dashboard() {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="secondary" size="icon" aria-label="Add folder" onClick={() => void store.addResolveFolder()}>
+            <Button variant="secondary" size="icon" aria-label="Track Resolve folder" onClick={() => void store.addResolveFolder()}>
               <FolderOpen />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Watch a folder of exports</TooltipContent>
+          <TooltipContent>Discover Resolve .drp and OTIO exports</TooltipContent>
         </Tooltip>
         <Button variant="default" onClick={() => void store.refreshLibrary()}><RefreshCw />Refresh</Button>
       </div>

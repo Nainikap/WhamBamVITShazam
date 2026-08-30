@@ -224,6 +224,23 @@ function registerIpc(): void {
     sourceWatcher.watch(result.status.project.id, sourcePath);
     return result;
   });
+  const watchKdenliveScan = (scan: Awaited<ReturnType<ProjectService['refreshKdenliveRoots']>>) => {
+    scan.tracked.forEach(({ projectId, sourcePath }) => sourceWatcher.watch(projectId, sourcePath));
+    return scan;
+  };
+  ipcMain.handle(channels.addKdenliveFolder, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Choose a folder containing Kdenlive OTIO exports',
+      message: 'SnipSnap discovers .otio files below this folder and watches every valid timeline.',
+      properties: ['openDirectory'],
+    });
+    const folder = selection.filePaths[0];
+    if (selection.canceled || !folder) return null;
+    return watchKdenliveScan(await projects.addKdenliveRoot(folder));
+  });
+  ipcMain.handle(channels.refreshKdenliveFolders, async () => (
+    watchKdenliveScan(await projects.refreshKdenliveRoots())
+  ));
   ipcMain.handle(channels.openInKdenlive, async (_event, projectId: string, revision: string) => {
     const handoff = await projects.prepareKdenliveHandoff(projectId, revision);
     // Kdenlive has no command-line switch for its OTIO importer. Passing the
