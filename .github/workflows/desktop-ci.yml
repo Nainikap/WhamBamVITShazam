@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-15-intel, macos-latest]
     defaults:
       run:
         working-directory: snipsnap
@@ -41,4 +41,8 @@ jobs:
 
       - name: Packaged Electron workflows (Windows)
         if: runner.os == 'Windows'
+        run: npx playwright test
+
+      - name: Packaged Electron workflows (macOS)
+        if: runner.os == 'macOS'
         run: npx playwright test
