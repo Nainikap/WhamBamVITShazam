@@ -241,16 +241,14 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     listenForCollaborationChanges: () => window.snipsnap.onCollaborationChanged((projectId, collaboration) => {
       set({ collaboration });
-      const shouldRefresh = collaboration.mode === 'hosting'
-        || collaboration.progress?.stage === 'complete';
-      if (get().currentProjectId !== projectId || !shouldRefresh) return;
+      // Join, pull, and push refresh their peer state in the invoking action.
+      // Only a host receives repository changes initiated by another window.
+      if (get().currentProjectId !== projectId || collaboration.mode !== 'hosting') return;
       void run(async () => {
         await refresh(projectId, get().selectedRevision?.commit.id);
         set({
           overviews: await window.snipsnap.listOverviews(),
-          notice: collaboration.mode === 'hosting'
-            ? 'A peer pushed new commits. The project history is up to date.'
-            : 'Collaboration sync complete.',
+          notice: 'A peer pushed new commits. The project history is up to date.',
         });
       });
     }),
