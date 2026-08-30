@@ -20,6 +20,13 @@ import { channels } from './ipc';
 if (started) app.quit();
 
 app.commandLine.appendSwitch('enable-unsafe-webgpu');
+if (process.platform === 'win32') {
+  // Chromium otherwise promotes <video> into an independent DirectComposition
+  // surface. The first commit-to-commit seek can initialize that surface as a
+  // full-window black overlay before the decoded frame arrives. Keep normal GPU
+  // compositing and hardware decode, but composite video with the application.
+  app.commandLine.appendSwitch('disable-direct-composition-video-overlays');
+}
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'snipsnap-media',

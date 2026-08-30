@@ -183,6 +183,10 @@ async function applyStageAllAndCommit(message: string): Promise<void> {
 }
 
 test('lists the Resolve export and imports it on first open', async () => {
+  const videoOverlayDisabled = await application?.evaluate(({ app }) => (
+    app.commandLine.hasSwitch('disable-direct-composition-video-overlays')
+  ));
+  expect(videoOverlayDisabled).toBe(process.platform === 'win32');
   await expect(page.getByText('New from Resolve')).toBeVisible();
   await openProject();
 
