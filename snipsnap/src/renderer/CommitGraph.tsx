@@ -78,7 +78,7 @@ export function CommitGraph({ history, headCommit, selectedCommit, branches, onS
         return <div key={commit.id} role="listitem" className="min-w-0" style={{ height: ROW }}>
           <button
             type="button"
-            aria-label={`View commit ${commit.message}`}
+            aria-label={`Graph commit ${commit.message}`}
             aria-current={selected ? 'true' : undefined}
             onClick={() => onSelect(commit.id)}
             title={`${commit.message} · ${commit.id.slice(0, 8)} · ${author} · ${relativeTime(commit.authoredAt)}`}

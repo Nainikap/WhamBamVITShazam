@@ -324,9 +324,9 @@ test('divergent branch commits stay visible and independent fields merge cleanly
     await expect(graph.getByText('main', { exact: true })).toBeVisible();
     await expect(graph.locator('.vg-cube')).toHaveCount(0);
 
-    await graph.getByRole('button', { name: 'View commit Warm the interview look' }).click();
+    await graph.getByRole('button', { name: 'Graph commit Warm the interview look' }).click();
     await expect(page.getByRole('heading', { name: 'Warm the interview look' })).toBeVisible();
-    await graph.getByRole('button', { name: 'View commit Lower the interview gain' }).click();
+    await graph.getByRole('button', { name: 'Graph commit Lower the interview gain' }).click();
     await expect(page.getByRole('heading', { name: 'Lower the interview gain' })).toBeVisible();
 
     await expect(page.getByText(/change detected in Resolve/u)).toBeVisible();
