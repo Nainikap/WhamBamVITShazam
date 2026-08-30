@@ -6,6 +6,7 @@ import type {
   ProjectStatus,
   RevisionDetails,
   TimelineComparison,
+  WorkspaceComparisonScope,
 } from '../application';
 import type { ConflictChoice } from '../merge';
 import { errorMessage } from './error-message';
@@ -52,6 +53,7 @@ interface AppStore {
   checkout(branch: string, discard: boolean): Promise<void>;
   restoreSelected(discard: boolean): Promise<void>;
   openDiff(base: string, head: string): Promise<void>;
+  openWorkspaceDiff(scope: WorkspaceComparisonScope): Promise<void>;
   closeDiff(): void;
   merge(source: string): Promise<void>;
   resolve(conflictId: string, choice: ConflictChoice): Promise<void>;
@@ -92,6 +94,10 @@ export const useAppStore = create<AppStore>((set, get) => {
   async function refreshComparison(projectId: string): Promise<void> {
     const { comparison, diffOpen } = get();
     if (!diffOpen || !comparison) return;
+    if (comparison.kind === 'workspace') {
+      set({ diffOpen: false, comparison: null });
+      return;
+    }
     try {
       set({
         comparison: await window.snipsnap.compareTimelines(
@@ -137,6 +143,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         await refresh(projectId, get().selectedRevision?.commit.id);
         set({
           overviews: await window.snipsnap.listOverviews(),
+          ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
           // The editor already presents source changes beside the timeline.
           // A second global toast obscures the workspace while editors save.
           notice: null,
@@ -286,6 +293,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         await refresh(projectId, get().selectedRevision?.commit.id);
         set({
           overviews: await window.snipsnap.listOverviews(),
+          ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
           notice: 'A peer pushed new commits. The project history is up to date.',
         });
       });
@@ -304,7 +312,10 @@ export const useAppStore = create<AppStore>((set, get) => {
       const projectId = get().currentProjectId;
       if (!projectId) return;
       const result = await window.snipsnap.scanOtioSource(projectId);
-      set({ status: result.status });
+      set({
+        status: result.status,
+        ...(result.changed && get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
+      });
       if (result.error) set({ error: result.error });
       else set({ notice: result.changed ? 'Timeline changes are ready for review.' : 'The export is already up to date.' });
     }),
@@ -315,6 +326,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!currentProjectId || !status || !pending) return;
       set({
         status: await window.snipsnap.applyPendingSync(currentProjectId, pending.digest, status.workspaceVersion),
+        ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
         notice: 'Changes applied to the working timeline. Stage what you want to commit.',
       });
     }),
@@ -332,13 +344,19 @@ export const useAppStore = create<AppStore>((set, get) => {
     stage: (hunkIds) => run(async () => {
       const { currentProjectId, status } = get();
       if (!currentProjectId || !status || hunkIds.length === 0) return;
-      set({ status: await window.snipsnap.stage(currentProjectId, hunkIds, status.indexDigest) });
+      set({
+        status: await window.snipsnap.stage(currentProjectId, hunkIds, status.indexDigest),
+        ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
+      });
     }),
 
     unstage: (hunkIds) => run(async () => {
       const { currentProjectId, status } = get();
       if (!currentProjectId || !status || hunkIds.length === 0) return;
-      set({ status: await window.snipsnap.unstage(currentProjectId, hunkIds, status.indexDigest) });
+      set({
+        status: await window.snipsnap.unstage(currentProjectId, hunkIds, status.indexDigest),
+        ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
+      });
     }),
 
     commit: (commitMessage) => run(async () => {
@@ -371,7 +389,13 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!currentProjectId || !selectedRevision) return;
       const status = await window.snipsnap.createBranchFromRevision(currentProjectId, name, selectedRevision.commit.id);
       const details = await window.snipsnap.revisionDetails(currentProjectId, status.headCommit);
-      set({ status, selectedRevision: details, notice: `Created and switched to ${name} at ${details.commit.id.slice(0, 8)}.` });
+      set({
+        status,
+        selectedRevision: details,
+        comparison: null,
+        diffOpen: false,
+        notice: `Created and switched to ${name} at ${details.commit.id.slice(0, 8)}.`,
+      });
     }),
 
     checkout: (branch, discard) => run(async () => {
@@ -393,6 +417,7 @@ export const useAppStore = create<AppStore>((set, get) => {
           status.workspaceVersion,
           discard,
         ),
+        ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
         notice: `Restored ${selectedRevision.commit.id.slice(0, 8)} into the working timeline.`,
       });
     }),
@@ -402,6 +427,21 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!projectId) return;
       set({
         comparison: await window.snipsnap.compareTimelines(projectId, base, head),
+        diffOpen: true,
+      });
+    }),
+
+    openWorkspaceDiff: (scope) => run(async () => {
+      const { currentProjectId, status } = get();
+      if (!currentProjectId || !status) return;
+      set({
+        comparison: await window.snipsnap.compareWorkspaceTimelines(
+          currentProjectId,
+          scope,
+          status.headCommit,
+          status.indexDigest,
+          status.workspaceVersion,
+        ),
         diffOpen: true,
       });
     }),

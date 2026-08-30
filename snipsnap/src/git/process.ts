@@ -20,6 +20,8 @@ export class GitError extends Error {
 export interface GitOptions {
   input?: string;
   env?: NodeJS.ProcessEnv;
+  /** Permit only an explicitly requested host/test global Git config read. */
+  globalConfig?: 'host' | string;
 }
 
 const ALLOWED_GIT_ENVIRONMENT = new Set([
@@ -29,7 +31,10 @@ const ALLOWED_GIT_ENVIRONMENT = new Set([
   'GIT_COMMITTER_EMAIL',
 ]);
 
-function isolatedGitEnvironment(overrides: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+function isolatedGitEnvironment(
+  overrides: NodeJS.ProcessEnv | undefined,
+  globalConfig: GitOptions['globalConfig'],
+): NodeJS.ProcessEnv {
   const environment = { ...process.env };
   for (const key of Object.keys(environment)) {
     if (key.toUpperCase().startsWith('GIT_')) delete environment[key];
@@ -37,10 +42,12 @@ function isolatedGitEnvironment(overrides: NodeJS.ProcessEnv | undefined): NodeJ
   Object.assign(environment, {
     LC_ALL: 'C',
     GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'Never',
   });
+  if (globalConfig !== 'host') {
+    environment.GIT_CONFIG_GLOBAL = globalConfig ?? (process.platform === 'win32' ? 'NUL' : '/dev/null');
+  }
   for (const [key, value] of Object.entries(overrides ?? {})) {
     if (ALLOWED_GIT_ENVIRONMENT.has(key) && value !== undefined) environment[key] = value;
   }
@@ -65,7 +72,7 @@ export function runGit(repoPath: string, args: readonly string[], options: GitOp
       // pipes remain fully awaitable. Do not detach on Unix, where that would
       // create an unnecessary long-lived process group.
       ...gitProcessIsolation(),
-      env: isolatedGitEnvironment(options.env),
+      env: isolatedGitEnvironment(options.env, options.globalConfig),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const stdout: Buffer[] = [];

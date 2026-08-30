@@ -10,6 +10,7 @@ import type {
   RevisionDetails,
   SourceScanResult,
   TimelineComparison,
+  WorkspaceComparisonScope,
 } from '../application';
 import type { SemanticHunk } from '../diff';
 import type { ConflictResolution } from '../merge';
@@ -45,6 +46,7 @@ export const channels = {
   revisionDetails: 'projects:revision-details',
   compare: 'projects:compare',
   compareTimelines: 'projects:compare-timelines',
+  compareWorkspaceTimelines: 'projects:compare-workspace-timelines',
   merge: 'projects:merge',
   resolveConflict: 'projects:resolve-conflict',
   completeMerge: 'projects:complete-merge',
@@ -97,6 +99,13 @@ export interface SnipSnapApi {
   revisionDetails(projectId: string, revision: string, parentIndex?: number): Promise<RevisionDetails>;
   compare(projectId: string, base: string, head: string): Promise<SemanticHunk[]>;
   compareTimelines(projectId: string, base: string, head: string): Promise<TimelineComparison>;
+  compareWorkspaceTimelines(
+    projectId: string,
+    scope: WorkspaceComparisonScope,
+    expectedHead: string,
+    expectedIndexDigest: string,
+    expectedWorkspaceVersion: number,
+  ): Promise<TimelineComparison>;
   merge(projectId: string, target: string, source: string): Promise<MergeOutcome>;
   resolveConflict(projectId: string, sessionId: string, resolution: ConflictResolution): Promise<MergeSession>;
   completeMerge(projectId: string, sessionId: string): Promise<ProjectStatus>;

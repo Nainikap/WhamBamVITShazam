@@ -20,7 +20,13 @@ import {
   ProjectStructureSchema,
   type Project,
 } from '../domain';
-import { GitRepository, KeyedMutex, StaleRefError, type CommitInfo } from '../git';
+import {
+  GitRepository,
+  KeyedMutex,
+  StaleRefError,
+  type CommitIdentityProvider,
+  type CommitInfo,
+} from '../git';
 import {
   completeMerge,
   mergeThreeWay,
@@ -225,13 +231,28 @@ export interface ProjectOverview {
   missingMedia: number;
 }
 
-/** Two committed timelines side by side, with the lane-level differences between them. */
-export interface TimelineComparison {
+/** Two immutable commits side by side, with the lane-level differences between them. */
+export interface CommitTimelineComparison {
+  kind: 'commits';
   base: { commit: CommitInfo; plan: PreviewPlan };
   head: { commit: CommitInfo; plan: PreviewPlan };
   diff: TimelineDiff;
   hunks: SemanticHunk[];
 }
+
+export type WorkspaceComparisonScope = 'staged' | 'unstaged';
+export type WorkspaceComparisonState = 'head' | 'index' | 'working';
+
+export interface WorkspaceTimelineComparison {
+  kind: 'workspace';
+  scope: WorkspaceComparisonScope;
+  base: { state: WorkspaceComparisonState; label: string; plan: PreviewPlan };
+  head: { state: WorkspaceComparisonState; label: string; plan: PreviewPlan };
+  diff: TimelineDiff;
+  hunks: SemanticHunk[];
+}
+
+export type TimelineComparison = CommitTimelineComparison | WorkspaceTimelineComparison;
 
 export interface SourceSyncStatus {
   connected: boolean;
@@ -313,7 +334,11 @@ export class ProjectService {
 
   readonly library: ResolveLibrary;
 
-  constructor(readonly root: string, library?: ResolveLibrary) {
+  constructor(
+    readonly root: string,
+    library?: ResolveLibrary,
+    private readonly commitIdentity?: CommitIdentityProvider,
+  ) {
     this.library = library ?? new ResolveLibrary(() => this.resolveRoots());
   }
 
@@ -323,7 +348,7 @@ export class ProjectService {
   }
 
   private repository(projectId: string): GitRepository {
-    return new GitRepository(path.join(this.projectRoot(projectId), 'repo'));
+    return new GitRepository(path.join(this.projectRoot(projectId), 'repo'), this.commitIdentity);
   }
 
   private workspacePath(projectId: string): string {
@@ -520,7 +545,7 @@ export class ProjectService {
       }
       await mkdir(projectRoot, { recursive: true });
       try {
-        const repository = await GitRepository.create(path.join(projectRoot, 'repo'));
+        const repository = await GitRepository.create(path.join(projectRoot, 'repo'), this.commitIdentity);
         await repository.createInitialCommit(parsed, initialMessage);
         await this.writeWorkspace(parsed.id, { version: 0, working: parsed });
         await atomicWriteJson(this.metadataPath(parsed.id), {
@@ -1880,7 +1905,11 @@ export class ProjectService {
   }
 
   /** Build the split comparison between two immutable commits. */
-  async compareTimelines(projectId: string, baseRevision: string, headRevision: string): Promise<TimelineComparison> {
+  async compareTimelines(
+    projectId: string,
+    baseRevision: string,
+    headRevision: string,
+  ): Promise<CommitTimelineComparison> {
     const repository = this.repository(projectId);
     const [baseCommit, headCommit] = await Promise.all([
       repository.resolve(baseRevision),
@@ -1899,11 +1928,79 @@ export class ProjectService {
     const basePlan = buildPreviewPlan(baseSnapshot, baseCommit, baseCommit, projectDigest(baseSnapshot), baseAvailability);
     const headPlan = buildPreviewPlan(headSnapshot, headCommit, headCommit, projectDigest(headSnapshot), headAvailability);
     return {
+      kind: 'commits',
       base: { commit: baseInfo, plan: basePlan },
       head: { commit: headInfo, plan: headPlan },
       diff: buildTimelineDiff(basePlan, headPlan),
       hunks: semanticDiff(baseSnapshot, headSnapshot),
     };
+  }
+
+  /** Compare the exact semantic boundary represented by one source-control section. */
+  async compareWorkspaceTimelines(
+    projectId: string,
+    scope: WorkspaceComparisonScope,
+    expectedHead: string,
+    expectedIndexDigest: string,
+    expectedWorkspaceVersion: number,
+  ): Promise<WorkspaceTimelineComparison> {
+    return this.mutex.run(projectId, async () => {
+      const parsedScope = z.enum(['staged', 'unstaged']).parse(scope);
+      const parsedHead = CommitIdSchema.parse(expectedHead);
+      const parsedIndexDigest = z.string().regex(/^[a-f0-9]{64}$/u).parse(expectedIndexDigest);
+      const parsedWorkspaceVersion = z.number().int().nonnegative().parse(expectedWorkspaceVersion);
+      const repository = this.repository(projectId);
+      const [headCommit, indexSnapshot, workspace] = await Promise.all([
+        repository.resolve('HEAD'),
+        repository.readIndex(),
+        this.readWorkspace(projectId),
+      ]);
+      if (headCommit !== parsedHead) throw new StaleWorkspaceError('HEAD changed; reopen the change preview');
+      const indexDigest = projectDigest(indexSnapshot);
+      if (indexDigest !== parsedIndexDigest) {
+        throw new StaleWorkspaceError('The staging area changed; reopen the change preview');
+      }
+      if (workspace.version !== parsedWorkspaceVersion) {
+        throw new StaleWorkspaceError('The working timeline changed; reopen the change preview');
+      }
+
+      const headSnapshot = parsedScope === 'staged' ? await repository.readSnapshot(headCommit) : null;
+      const baseSnapshot = headSnapshot ?? indexSnapshot;
+      const headSnapshotForComparison = parsedScope === 'staged' ? indexSnapshot : workspace.working;
+      const [baseAvailability, headAvailability] = await Promise.all([
+        this.previewAvailability(projectId, baseSnapshot),
+        this.previewAvailability(projectId, headSnapshotForComparison),
+      ]);
+      const workingDigest = projectDigest(workspace.working);
+      const baseState: WorkspaceComparisonState = parsedScope === 'staged' ? 'head' : 'index';
+      const headState: WorkspaceComparisonState = parsedScope === 'staged' ? 'index' : 'working';
+      const baseId = baseState === 'head' ? headCommit : `index:${indexDigest}`;
+      const comparisonHeadId = headState === 'index' ? `index:${indexDigest}` : `working:${workingDigest}`;
+      const basePlan = buildPreviewPlan(baseSnapshot, baseId, baseId, projectDigest(baseSnapshot), baseAvailability);
+      const headPlan = buildPreviewPlan(
+        headSnapshotForComparison,
+        comparisonHeadId,
+        comparisonHeadId,
+        projectDigest(headSnapshotForComparison),
+        headAvailability,
+      );
+      return {
+        kind: 'workspace',
+        scope: parsedScope,
+        base: {
+          state: baseState,
+          label: parsedScope === 'staged' ? 'Last commit' : 'Staged changes',
+          plan: basePlan,
+        },
+        head: {
+          state: headState,
+          label: parsedScope === 'staged' ? 'Staged changes' : 'Working changes',
+          plan: headPlan,
+        },
+        diff: buildTimelineDiff(basePlan, headPlan),
+        hunks: semanticDiff(baseSnapshot, headSnapshotForComparison),
+      };
+    });
   }
 
   async verify(projectId: string): Promise<void> {

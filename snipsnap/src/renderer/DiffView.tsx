@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { CommitPlayer } from './CommitPlayer';
-import { framesToTimecode, relativeTime, shortId } from './format';
+import { authorName, framesToTimecode, relativeTime, shortId } from './format';
 
 /**
  * Footage that only one commit holds is green or red at the exact frames that
@@ -64,7 +64,7 @@ function RevisionPicker({ label, value, options, onChange }: {
       <SelectTrigger aria-label={label}><SelectValue /></SelectTrigger>
       <SelectContent>
         {options.map((commit) => <SelectItem key={commit.id} value={commit.id}>
-          {shortId(commit.id)} · {commit.message}
+          {shortId(commit.id)} · {commit.message} · {authorName(commit.author)}
         </SelectItem>)}
       </SelectContent>
     </Select>
@@ -253,11 +253,48 @@ export function DiffView({
   const totals = useMemo(() => tally(visibleSegments), [visibleSegments]);
   const identicalTimeline = changed.length === 0;
   const sharedPlaybackEnd = Math.min(comparison.base.plan.totalFrames, comparison.head.plan.totalFrames);
+  const previewSides = comparison.kind === 'commits'
+    ? [
+      {
+        key: comparison.base.commit.id,
+        label: 'Base',
+        title: comparison.base.commit.message,
+        detail: `${shortId(comparison.base.commit.id)} · ${authorName(comparison.base.commit.author)} · ${relativeTime(comparison.base.commit.authoredAt)}`,
+        author: comparison.base.commit.author,
+        plan: comparison.base.plan,
+      },
+      {
+        key: comparison.head.commit.id,
+        label: 'Compared',
+        title: comparison.head.commit.message,
+        detail: `${shortId(comparison.head.commit.id)} · ${authorName(comparison.head.commit.author)} · ${relativeTime(comparison.head.commit.authoredAt)}`,
+        author: comparison.head.commit.author,
+        plan: comparison.head.plan,
+      },
+    ]
+    : [
+      {
+        key: comparison.base.plan.commitId,
+        label: 'Base',
+        title: comparison.base.label,
+        detail: comparison.scope === 'staged' ? 'Committed timeline' : 'Current staging area',
+        author: undefined,
+        plan: comparison.base.plan,
+      },
+      {
+        key: comparison.head.plan.commitId,
+        label: 'Compared',
+        title: comparison.head.label,
+        detail: comparison.scope === 'staged' ? 'Ready to commit' : 'Not staged yet',
+        author: undefined,
+        plan: comparison.head.plan,
+      },
+    ];
 
   useEffect(() => {
     setPlayhead(0);
     setPlaying(false);
-  }, [comparison.base.commit.id, comparison.head.commit.id]);
+  }, [comparison.base.plan.commitId, comparison.head.plan.commitId]);
 
   useEffect(() => {
     setPlaying(false);
@@ -276,9 +313,23 @@ export function DiffView({
   return <section aria-label="Commit comparison" className="vg-diff-colors flex flex-col gap-3">
     <Card className="vg-diff-toolbar flex flex-wrap items-end gap-4 p-3">
       <div className="flex min-w-0 flex-[1_1_26rem] items-end gap-2">
-        <RevisionPicker label="Base" value={comparison.base.commit.id} options={history} onChange={onSelectBase} />
-        <ArrowRight className="mb-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
-        <RevisionPicker label="Compare" value={comparison.head.commit.id} options={history} onChange={onSelectHead} />
+        {comparison.kind === 'commits'
+          ? <>
+            <RevisionPicker label="Base" value={comparison.base.commit.id} options={history} onChange={onSelectBase} />
+            <ArrowRight className="mb-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <RevisionPicker label="Compare" value={comparison.head.commit.id} options={history} onChange={onSelectHead} />
+          </>
+          : <>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className="font-mono text-[9px] tracking-widest text-muted-foreground">Base</span>
+              <strong className="truncate rounded-md border border-border bg-card px-3 py-2 text-xs">{comparison.base.label}</strong>
+            </div>
+            <ArrowRight className="mb-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className="font-mono text-[9px] tracking-widest text-muted-foreground">Compare</span>
+              <strong className="truncate rounded-md border border-border bg-card px-3 py-2 text-xs">{comparison.head.label}</strong>
+            </div>
+          </>}
       </div>
       <div className="ml-auto flex items-center gap-3">
         <div className="flex flex-wrap items-center gap-2.5 text-[10px] text-muted-foreground">
@@ -292,14 +343,14 @@ export function DiffView({
     </Card>
 
     <div className="vg-diff-previews grid grid-cols-2 gap-3">
-      {[comparison.base, comparison.head].map((side, index) => <div key={side.commit.id + index} className="flex min-w-0 flex-col gap-2">
+      {previewSides.map((side, index) => <div key={side.key + index} className="flex min-w-0 flex-col gap-2">
         <div className="flex min-w-0 flex-col">
           <span className="font-mono text-[9px] tracking-widest text-muted-foreground">
             {index === 0 ? 'Base' : 'Compared'}
           </span>
-          <strong className="truncate text-sm">{side.commit.message}</strong>
-          <small className="font-mono text-[10px] text-muted-foreground">
-            {shortId(side.commit.id)} · {relativeTime(side.commit.authoredAt)}
+          <strong className="truncate text-sm">{side.title}</strong>
+          <small className="font-mono text-[10px] text-muted-foreground" title={side.author}>
+            {side.detail}
           </small>
         </div>
         <CommitPlayer
@@ -320,7 +371,9 @@ export function DiffView({
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">Timeline differences</h3>
           <p aria-live="polite" className="mt-0.5 truncate text-[10px] text-muted-foreground">
-            {selectedHunk ? `Focused change: ${selectedHunk.message}` : `Whole commit: ${comparison.hunks.length} change${comparison.hunks.length === 1 ? '' : 's'} together`}
+            {selectedHunk
+              ? `Focused change: ${selectedHunk.message}`
+              : `${comparison.kind === 'workspace' ? `All ${comparison.scope}` : 'Whole commit'}: ${comparison.hunks.length} change${comparison.hunks.length === 1 ? '' : 's'} together`}
           </p>
         </div>
         <span className="flex gap-2.5 font-mono text-[10px]">

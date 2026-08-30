@@ -199,6 +199,7 @@ test('lists the Resolve export and imports it on first open', async () => {
   await expect(page.getByRole('region', { name: 'Timeline tracks' })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Commit graph' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected commit' })).toContainText(/· by .+ ·/u);
   await expect(page.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled();
 });
 
@@ -457,8 +458,22 @@ test('shows one accurately named, atomic unstaged change for a blade cut', async
   await expect(changes.getByText('Split clip Opening into 2 clips', { exact: true })).toBeVisible();
   await expect(changes.getByRole('button', { name: 'Stage', exact: true })).toHaveCount(1);
 
+  await changes.getByRole('button', { name: 'View change Split clip Opening into 2 clips' }).click();
+  let comparison = page.getByRole('region', { name: 'Commit comparison' });
+  await expect(comparison).toBeVisible();
+  await expect(comparison.getByText('Staged changes', { exact: true }).first()).toBeVisible();
+  await expect(comparison.getByText('Working changes', { exact: true }).first()).toBeVisible();
+  await expect(comparison.getByText('Focused change: Split clip Opening into 2 clips')).toBeVisible();
+  await comparison.getByRole('button', { name: 'Close comparison' }).click();
+
   await changes.getByRole('button', { name: 'Stage', exact: true }).click();
   await expect(changes.getByRole('button', { name: 'Unstage', exact: true })).toHaveCount(1);
+  await changes.getByRole('button', { name: 'View change Split clip Opening into 2 clips' }).click();
+  comparison = page.getByRole('region', { name: 'Commit comparison' });
+  await expect(comparison.getByText('Last commit', { exact: true }).first()).toBeVisible();
+  await expect(comparison.getByText('Staged changes', { exact: true }).first()).toBeVisible();
+  await expect(comparison.getByText('Focused change: Split clip Opening into 2 clips')).toBeVisible();
+  await comparison.getByRole('button', { name: 'Close comparison' }).click();
   await changes.getByRole('button', { name: 'Unstage', exact: true }).click();
   await expect(changes.getByRole('button', { name: 'Stage', exact: true })).toHaveCount(1);
   await changes.getByRole('button', { name: 'Stage', exact: true }).click();

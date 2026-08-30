@@ -91,6 +91,50 @@ describe('V1 project workflow', () => {
     expect(status.staged).toHaveLength(1);
     expect(status.unstaged).toHaveLength(1);
 
+    const stagedComparison = await service.compareWorkspaceTimelines(
+      project.id,
+      'staged',
+      status.headCommit,
+      status.indexDigest,
+      status.workspaceVersion,
+    );
+    expect(stagedComparison).toMatchObject({
+      kind: 'workspace',
+      scope: 'staged',
+      base: { state: 'head', label: 'Last commit' },
+      head: { state: 'index', label: 'Staged changes' },
+    });
+    expect(stagedComparison.hunks.map(({ id }) => id)).toEqual(status.staged.map(({ id }) => id));
+
+    const unstagedComparison = await service.compareWorkspaceTimelines(
+      project.id,
+      'unstaged',
+      status.headCommit,
+      status.indexDigest,
+      status.workspaceVersion,
+    );
+    expect(unstagedComparison).toMatchObject({
+      kind: 'workspace',
+      scope: 'unstaged',
+      base: { state: 'index', label: 'Staged changes' },
+      head: { state: 'working', label: 'Working changes' },
+    });
+    expect(unstagedComparison.hunks.map(({ id }) => id)).toEqual(status.unstaged.map(({ id }) => id));
+    const unchanged = await service.status(project.id);
+    expect(unchanged).toMatchObject({
+      headCommit: status.headCommit,
+      indexDigest: status.indexDigest,
+      workspaceVersion: status.workspaceVersion,
+    });
+
+    await expect(service.compareWorkspaceTimelines(
+      project.id,
+      'staged',
+      status.headCommit,
+      '0'.repeat(64),
+      status.workspaceVersion,
+    )).rejects.toThrow(/staging area changed/u);
+
     status = await service.commit(project.id, 'Stage one editorial decision', status.headCommit, status.indexDigest);
     expect(status.staged).toEqual([]);
     expect(status.unstaged).toHaveLength(1);

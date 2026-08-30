@@ -12,7 +12,7 @@ import { CommitGraph } from './CommitGraph';
 import { CommitPlayer } from './CommitPlayer';
 import { DiffView } from './DiffView';
 import { TimelineTracks } from './TimelineTracks';
-import { absoluteTime, framesToTimecode, relativeTime, shortId } from './format';
+import { absoluteTime, authorName, framesToTimecode, relativeTime, shortId } from './format';
 import { useAppStore } from './store';
 
 const operationVariant = {
@@ -29,23 +29,35 @@ const operationRowTone = {
   reorder: 'border-edited/55 border-l-2 bg-card',
 } as const;
 
-function HunkRow({ hunk, actionLabel, onAction, fps }: {
+function HunkRow({ hunk, actionLabel, onAction, onView, selected, fps }: {
   hunk: SemanticHunk;
   actionLabel?: string;
   onAction?(): void;
+  onView?(): void;
+  selected?: boolean;
   fps: number;
 }) {
   const range = hunk.affectedFrameRange;
-  return <div className={cn('flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden rounded-md border px-2.5 py-2', operationRowTone[hunk.operation])}>
-    <div className="flex min-w-0 items-center justify-between gap-2">
-      <Badge variant={operationVariant[hunk.operation]} className="shrink-0">{hunk.operation}</Badge>
-      {actionLabel && onAction && <Button className="h-7 shrink-0 px-2" size="sm" variant="outline" onClick={onAction}>{actionLabel}</Button>}
-    </div>
-    <span className="min-w-0 break-words text-[11px] font-medium leading-snug">{hunk.message}</span>
-    <span className="min-w-0 break-words font-mono text-[9px] leading-snug text-muted-foreground">
-      {hunk.entityType} · {hunk.fieldGroup}
-      {range ? ` · ${framesToTimecode(range.start, fps)} → ${framesToTimecode(range.start + range.duration, fps)}` : ''}
-    </span>
+  return <div className={cn(
+    'flex w-full min-w-0 max-w-full items-stretch gap-1.5 overflow-hidden rounded-md border p-1.5',
+    operationRowTone[hunk.operation],
+    selected && 'ring-1 ring-edited',
+  )}>
+    <button
+      type="button"
+      aria-label={`View change ${hunk.message}`}
+      aria-pressed={selected}
+      className="flex min-w-0 flex-1 flex-col gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent/70"
+      onClick={onView}
+    >
+      <Badge variant={operationVariant[hunk.operation]} className="w-fit shrink-0">{hunk.operation}</Badge>
+      <span className="min-w-0 break-words text-[11px] font-medium leading-snug">{hunk.message}</span>
+      <span className="min-w-0 break-words font-mono text-[9px] leading-snug text-muted-foreground">
+        {hunk.entityType} · {hunk.fieldGroup}
+        {range ? ` · ${framesToTimecode(range.start, fps)} → ${framesToTimecode(range.start + range.duration, fps)}` : ''}
+      </span>
+    </button>
+    {actionLabel && onAction && <Button className="h-7 shrink-0 self-start px-2" size="sm" variant="outline" onClick={onAction}>{actionLabel}</Button>}
   </div>;
 }
 
@@ -123,6 +135,12 @@ export function Editor() {
     void store.openDiff(parent, revision.commit.id);
   }
 
+  function openWorkspaceDiff(scope: 'staged' | 'unstaged', hunkId: string): void {
+    setSelectedDiffHunkId(hunkId);
+    setExpandedCommitId(null);
+    void store.openWorkspaceDiff(scope);
+  }
+
   const submitCommit = (event: FormEvent) => {
     event.preventDefault();
     if (!commitMessage.trim() || !canCommit) return;
@@ -141,7 +159,8 @@ export function Editor() {
         <div className="flex flex-col gap-2 p-3">
           <h2 className="line-clamp-2 break-words text-sm font-semibold tracking-tight" title={revision.commit.message}>{revision.commit.message}</h2>
           <p className="font-mono text-[10px] text-muted-foreground">
-            {shortId(revision.commit.id)} · {absoluteTime(revision.commit.authoredAt)}
+            {shortId(revision.commit.id)} · by <span title={revision.commit.author}>{authorName(revision.commit.author)}</span>
+            {' · '}{absoluteTime(revision.commit.authoredAt)}
           </p>
           {revision.commit.parents.length > 1 && <div className="flex items-center gap-1">
             <span className="text-[10px] text-muted-foreground">Parent</span>
@@ -221,6 +240,9 @@ export function Editor() {
                 {status.staged.map((hunk) => <HunkRow
                   key={hunk.id} hunk={hunk} fps={fps} actionLabel="Unstage"
                   onAction={() => void store.unstage([hunk.id])}
+                  onView={() => openWorkspaceDiff('staged', hunk.id)}
+                  selected={diffOpen && store.comparison?.kind === 'workspace'
+                    && store.comparison.scope === 'staged' && selectedDiffHunkId === hunk.id}
                 />)}
               </div>}
               {status.unstaged.length > 0 && <div className="flex flex-col gap-1.5">
@@ -228,6 +250,9 @@ export function Editor() {
                 {status.unstaged.map((hunk) => <HunkRow
                   key={hunk.id} hunk={hunk} fps={fps} actionLabel="Stage"
                   onAction={() => void store.stage([hunk.id])}
+                  onView={() => openWorkspaceDiff('unstaged', hunk.id)}
+                  selected={diffOpen && store.comparison?.kind === 'workspace'
+                    && store.comparison.scope === 'unstaged' && selectedDiffHunkId === hunk.id}
                 />)}
               </div>}
             </>}
@@ -286,12 +311,16 @@ export function Editor() {
           history={status.history}
           selectedHunkId={selectedDiffHunkId}
           onSelectBase={(id) => {
+            const comparison = store.comparison;
+            if (comparison?.kind !== 'commits') return;
             setSelectedDiffHunkId(null);
-            void store.openDiff(id, store.comparison?.head.commit.id ?? id);
+            void store.openDiff(id, comparison.head.commit.id);
           }}
           onSelectHead={(id) => {
+            const comparison = store.comparison;
+            if (comparison?.kind !== 'commits') return;
             setSelectedDiffHunkId(null);
-            void store.openDiff(store.comparison?.base.commit.id ?? id, id);
+            void store.openDiff(comparison.base.commit.id, id);
           }}
           onClose={() => {
             setSelectedDiffHunkId(null);

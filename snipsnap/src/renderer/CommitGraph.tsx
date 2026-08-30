@@ -4,7 +4,7 @@ import type { CommitInfo } from '../git';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { layoutGraph, type GraphEdge } from './commit-graph-layout';
-import { relativeTime } from './format';
+import { authorName, relativeTime } from './format';
 
 const ROW = 56;
 const COLUMN = 12;
@@ -154,7 +154,7 @@ export function CommitGraph({
       const selected = commit.id === selectedCommit;
       const head = commit.id === headCommit;
       const merge = commit.parents.length > 1;
-      const author = commit.author.replace(/\s*<[^>]*>/u, '');
+      const author = authorName(commit.author);
       const expanded = selected && expandedCommitId === commit.id;
       return <div key={commit.id} role="listitem" className="min-w-0">
         <button
@@ -179,7 +179,10 @@ export function CommitGraph({
             </span>
             <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
               <code className="shrink-0 font-mono text-[9px] text-muted-foreground">{commit.id.slice(0, 8)}</code>
-              <span className="min-w-0 flex-1 truncate text-[9px] text-muted-foreground">{author} · {relativeTime(commit.authoredAt)}</span>
+              <span
+                className="min-w-0 flex-1 truncate text-[9px] text-muted-foreground"
+                title={commit.author}
+              >{author} · {relativeTime(commit.authoredAt)}</span>
             </span>
           </span>
         </button>

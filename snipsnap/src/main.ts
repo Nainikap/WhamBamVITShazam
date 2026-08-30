@@ -16,6 +16,7 @@ import {
   launchKdenlive,
   resolvePythonInvocation,
 } from './application';
+import { readGlobalCommitIdentity } from './git';
 import { channels } from './ipc';
 
 if (started) app.quit();
@@ -47,7 +48,7 @@ protocol.registerSchemesAsPrivileged([{
 const runFile = promisify(execFile);
 
 const dataRoot = process.env.SNIPSNAP_DATA_ROOT || path.join(app.getPath('userData'), 'v1-data');
-const projects = new ProjectService(dataRoot);
+const projects = new ProjectService(dataRoot, undefined, () => readGlobalCommitIdentity(process.cwd()));
 function notifySourceChanged(projectId: string): void {
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.sourceChanged, projectId);
 }
@@ -362,6 +363,16 @@ function registerIpc(): void {
   ipcMain.handle(channels.revisionDetails, (_event, projectId, revision, parentIndex) => projects.revisionDetails(projectId, revision, parentIndex));
   ipcMain.handle(channels.compare, (_event, projectId, base, head) => projects.compare(projectId, base, head));
   ipcMain.handle(channels.compareTimelines, (_event, projectId, base, head) => projects.compareTimelines(projectId, base, head));
+  ipcMain.handle(
+    channels.compareWorkspaceTimelines,
+    (_event, projectId, scope, expectedHead, expectedIndexDigest, expectedWorkspaceVersion) => projects.compareWorkspaceTimelines(
+      projectId,
+      scope,
+      expectedHead,
+      expectedIndexDigest,
+      expectedWorkspaceVersion,
+    ),
+  );
   ipcMain.handle(channels.merge, (_event, projectId, target, source) => projects.merge(projectId, target, source));
   ipcMain.handle(channels.resolveConflict, (_event, projectId, sessionId, resolution) => projects.resolveConflict(projectId, sessionId, resolution));
   ipcMain.handle(channels.completeMerge, (_event, projectId, sessionId) => projects.completeMerge(projectId, sessionId));

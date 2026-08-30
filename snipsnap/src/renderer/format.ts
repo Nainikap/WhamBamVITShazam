@@ -38,3 +38,7 @@ export function frameRateLabel(fps: number): string {
 export function shortId(id: string): string {
   return id.slice(0, 8);
 }
+
+export function authorName(author: string): string {
+  return author.replace(/\s*<[^>]*>\s*$/u, '').trim() || author;
+}
