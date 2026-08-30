@@ -34,28 +34,27 @@ export function prismLayout(kind: PrismLayoutKind): Triangle[] {
   if (kind === "hero") return [PRISM_TRIANGLE];
 
   const small = PRISM_TRIANGLE;
-  const scale = 0.72;
 
   if (kind === "strip") {
     return [
-      translate(small, [1.22, -0.18], scale),
-      translate(small, [0.38, 0.28], scale),
-      translate(small, [-0.42, -0.22], scale),
-      translate(small, [-1.28, 0.24], scale),
+      translate(small, [0.96, -0.16], 0.78),
+      translate(small, [0.32, 0.28], 0.78),
+      translate(small, [-0.32, -0.2], 0.78),
+      translate(small, [-0.96, 0.24], 0.78),
     ];
   }
 
-  const corner = PRISM_SIDE * 0.62;
+  const corner = PRISM_SIDE * 0.58;
   return [
-    translate(small, [1.15, -0.72], corner / PRISM_SIDE),
-    translate(small, [1.15, 0.72], corner / PRISM_SIDE),
-    translate(small, [-1.15, 0.72], corner / PRISM_SIDE),
-    translate(small, [-1.15, -0.72], corner / PRISM_SIDE),
+    translate(small, [0.86, -0.46], corner / PRISM_SIDE),
+    translate(small, [0.86, 0.46], corner / PRISM_SIDE),
+    translate(small, [-0.86, 0.46], corner / PRISM_SIDE),
+    translate(small, [-0.86, -0.46], corner / PRISM_SIDE),
   ];
 }
 
 export function layoutCameraDistance(kind: PrismLayoutKind): number {
   if (kind === "hero") return 1.25;
-  if (kind === "strip") return 2.55;
-  return 2.2;
+  if (kind === "strip") return 2.05;
+  return 1.92;
 }

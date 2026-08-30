@@ -92,7 +92,7 @@
   isolation: isolate;
   overflow: hidden;
   border-radius: 22px;
-  background: rgb(12 12 14 / 0.72);
+  background: rgb(12 12 14 / 0.82);
   color: #f2f2f2;
 }
 
@@ -198,8 +198,17 @@
   border-radius: 999px;
   cursor: pointer;
   transition:
-    transform 640ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 640ms ease;
+    transform 720ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 720ms ease;
+}
+
+.vg-continue .vg-glass-warp,
+.vg-continue .vg-glass-blur,
+.vg-continue .vg-glass-sheen {
+  transition:
+    padding 720ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 720ms ease,
+    transform 720ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .vg-continue .vg-glass-body {
@@ -214,8 +223,12 @@
 }
 
 .vg-continue:hover {
-  transform: scale(1.045) translateY(-1px);
-  filter: saturate(1.15);
+  transform: scale(1.07) translateY(-2px);
+  filter: saturate(1.2) brightness(1.06);
+}
+
+.vg-continue:hover .vg-glass-warp {
+  padding: 7px;
 }
 
 .vg-continue:hover .vg-glass-sheen {
@@ -869,6 +882,10 @@
   min-height: 0;
 }
 
+.vg-editor-grid > .vg-glass {
+  border-radius: 0;
+}
+
 @media (max-width: 1180px) {
   .vg-editor-grid {
     grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr) minmax(14rem, 17rem);
@@ -897,13 +914,17 @@
   z-index: 40;
   inset: 0;
   display: grid;
-  filter: blur(28px);
-  background: rgb(0 0 0 / 0.55);
-  transition: filter 900ms ease;
+  filter: blur(42px);
+  opacity: 0.35;
+  background: rgb(0 0 0 / 0.62);
+  transition:
+    filter 1.45s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 1.45s ease;
 }
 
 .vg-graph-modal[data-clear='true'] {
   filter: blur(0);
+  opacity: 1;
 }
 
 .vg-graph-dismiss {

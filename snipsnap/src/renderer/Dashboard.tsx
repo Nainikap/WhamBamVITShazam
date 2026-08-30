@@ -9,7 +9,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { durationLabel, frameRateLabel, relativeTime, shortId } from './format';
+import { durationLabel, frameRateLabel, relativeTime } from './format';
 import { GlassSurface } from './prism/LiquidGlass';
 import { useAppStore } from './store';
 
@@ -215,8 +215,7 @@ export function Dashboard() {
               <StatePill project={project} />
             </span>
             <Facts project={project} />
-            {project.linked && <span className="vg-item-commit">
-              <code>{shortId(project.headCommit)}</code>
+            {project.linked && project.headMessage && <span className="vg-item-commit">
               <span className="truncate">{project.headMessage}</span>
             </span>}
             <span className="vg-item-path" title={project.resolve.drpPath || project.path}>

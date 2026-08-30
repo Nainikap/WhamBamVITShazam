@@ -13,7 +13,7 @@ import {
   setOrbit,
   type PrismScene as HeroScene,
 } from './hero/scene';
-import { DEFAULT_PRISM_CONTROLS, DEFAULT_POSTPROCESS_CONTROLS } from './hero/types';
+import { DEFAULT_POSTPROCESS_CONTROLS, DEFAULT_PRISM_CONTROLS, PRISM_DEFAULT_BEAM_WIDTH } from './hero/types';
 
 /** Where the camera is along the beam, and how much of the scene should show through. */
 export interface PrismState {
@@ -158,5 +158,7 @@ function applyLayout(scene: HeroScene, state: PrismState, sync: () => void): voi
   const kind = layoutFor(state);
   if (scene.runtime.layout === kind) return;
   setLayout(scene, kind);
+  const beamWidth = kind === 'hero' ? PRISM_DEFAULT_BEAM_WIDTH : 0.048;
+  setControls(scene, { ...scene.runtime.controls, beamWidth });
   sync();
 }

@@ -23,7 +23,9 @@ import {
   PRISM_DISPERSION_PRESETS,
   PRISM_FRONT_Z,
   PRISM_MOUSE_Y_MIDPOINT_INCIDENCE_DEGREES,
+  PRISM_TRIANGLE,
   lampForIncidence,
+  lampForTriangle,
   type BeamMouseYControls,
   type CollimatedLight,
   type PrismControls,
@@ -273,11 +275,11 @@ function refreshLightMesh(runtime: PrismRuntime): void {
   const dispersion =
     runtime.controls.spectralDispersion ??
     PRISM_DISPERSION_PRESETS[runtime.controls.dispersion];
-  const first = lampAt(
-    runtime.lampArc,
+  const first = lampForTriangle(
+    runtime.triangles[0] ?? PRISM_TRIANGLE,
+    incidenceAt(runtime.lampArc, runtime.controls.beamMouseY),
     runtime.controls.beamWidth,
-    runtime.lampTarget,
-    runtime.controls.beamMouseY
+    runtime.lampTarget
   );
   const lights = lightsThroughPrisms(runtime.triangles, first, dispersion);
   const wallHalfExtent = lightWallExtent(

@@ -89,7 +89,9 @@ export function CommitGraphModal({
       setClear(0);
       return undefined;
     }
-    const frame = window.requestAnimationFrame(() => setClear(1));
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => setClear(1));
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [open]);
 

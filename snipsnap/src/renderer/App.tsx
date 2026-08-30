@@ -72,7 +72,7 @@ export function App() {
       <div className="vg-project">
         <GlassSurface />
         <div className="vg-glass-body vg-project-body">
-          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
+          <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-border px-5 py-2">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

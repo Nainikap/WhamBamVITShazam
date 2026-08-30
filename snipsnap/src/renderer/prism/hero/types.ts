@@ -448,11 +448,11 @@ export const PRISM_ENTRY_FACE_MIDPOINT: Vec2 = [
 ];
 
 /** Point along the entry edge, ordered left-to-right as it appears on screen. */
-export function prismEntryPoint(position: number): Vec2 {
+export function prismEntryPoint(position: number, triangle: Triangle = PRISM_TRIANGLE): Vec2 {
   const clamped = Math.min(1, Math.max(0, position));
   return [
-    PRISM_TRIANGLE.a[0] + (PRISM_TRIANGLE.c[0] - PRISM_TRIANGLE.a[0]) * clamped,
-    PRISM_TRIANGLE.a[1] + (PRISM_TRIANGLE.c[1] - PRISM_TRIANGLE.a[1]) * clamped,
+    triangle.a[0] + (triangle.c[0] - triangle.a[0]) * clamped,
+    triangle.a[1] + (triangle.c[1] - triangle.a[1]) * clamped,
   ];
 }
 
@@ -534,9 +534,19 @@ export function lampForIncidence(
   beamWidth = PRISM_DEFAULT_BEAM_WIDTH,
   entryPosition = 0.5
 ): CollimatedLight {
+  return lampForTriangle(PRISM_TRIANGLE, incidenceDegrees, beamWidth, entryPosition);
+}
+
+/** Same homepage lamp, aimed at any solid's right-hand entry face. */
+export function lampForTriangle(
+  triangle: Triangle,
+  incidenceDegrees: number,
+  beamWidth = PRISM_DEFAULT_BEAM_WIDTH,
+  entryPosition = 0.5
+): CollimatedLight {
   const face: Vec2 = [
-    PRISM_TRIANGLE.a[0] - PRISM_TRIANGLE.c[0],
-    PRISM_TRIANGLE.a[1] - PRISM_TRIANGLE.c[1],
+    triangle.a[0] - triangle.c[0],
+    triangle.a[1] - triangle.c[1],
   ];
   const faceLength = Math.hypot(face[0], face[1]);
   // Outward normal of a counter-clockwise edge, flipped to point into the glass:
@@ -558,7 +568,8 @@ export function lampForIncidence(
       1e-4
   );
   const entryPoint = prismEntryPoint(
-    Math.min(1 - entryMargin, Math.max(entryMargin, entryPosition))
+    Math.min(1 - entryMargin, Math.max(entryMargin, entryPosition)),
+    triangle
   );
   return collimatedLightBetween(
     [

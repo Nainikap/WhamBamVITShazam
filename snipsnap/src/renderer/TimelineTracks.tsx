@@ -4,6 +4,7 @@ import type { PreviewPlan, PreviewSegment, PreviewTrack } from '../preview';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { framesToTimecode } from './format';
+import { GlassSurface } from './prism/LiquidGlass';
 
 const kindLabel: Record<PreviewTrack['kind'], string> = { video: 'VIDEO', audio: 'AUDIO', caption: 'TEXT' };
 
@@ -62,7 +63,9 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
     onSeek(Math.min(total - 1, Math.max(0, next)));
   }
 
-  return <section aria-label="Timeline tracks" className="shrink-0 overflow-hidden rounded-lg border border-border bg-card">
+  return <section aria-label="Timeline tracks" className="vg-glass shrink-0 overflow-hidden">
+    <GlassSurface />
+    <div className="vg-glass-body">
     <header className="flex items-center gap-3 border-b border-border px-3 py-2">
       <span className="text-xs font-semibold">Sequence</span>
       <span className="timeline-counter font-mono text-[10px] text-muted-foreground">
@@ -145,6 +148,7 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
           />
         </div>
       </div>
+    </div>
     </div>
   </section>;
 }

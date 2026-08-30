@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { CommitGraph } from './CommitGraph';
 import { CommitPlayer } from './CommitPlayer';
+import { GlassSurface } from './prism/LiquidGlass';
 import { DiffView } from './DiffView';
 import { TimelineTracks } from './TimelineTracks';
 import { absoluteTime, framesToTimecode, relativeTime, shortId } from './format';
@@ -113,7 +114,9 @@ export function Editor() {
   };
 
   return <main className="vg-editor-grid">
-    <aside aria-label="Source control" className="flex min-h-0 flex-col border-r border-border">
+    <aside aria-label="Source control" className="vg-glass flex min-h-0 flex-col">
+      <GlassSurface />
+      <div className="vg-glass-body flex min-h-0 flex-col">
       <section aria-label="Working changes" className="flex min-h-0 flex-col">
         <PanelHeading
           title="Changes"
@@ -213,6 +216,7 @@ export function Editor() {
           </div>
         </ScrollArea>
       </section>
+      </div>
     </aside>
 
     <section className="flex min-w-0 flex-col gap-3 overflow-y-auto p-4">
@@ -311,7 +315,9 @@ export function Editor() {
         </>}
     </section>
 
-    <aside aria-label="Inspector" className="flex min-h-0 flex-col overflow-y-auto border-l border-border">
+    <aside aria-label="Inspector" className="vg-glass flex min-h-0 flex-col overflow-y-auto">
+      <GlassSurface />
+      <div className="vg-glass-body flex min-h-0 flex-col overflow-y-auto">
       <PanelHeading
         title="Collaborate"
         action={<Badge variant={collaboration.connected ? 'added' : 'outline'}>
@@ -479,6 +485,7 @@ export function Editor() {
           branches={status.branches}
           onSelect={(commitId) => void store.loadRevision(commitId)}
         />
+      </div>
       </div>
     </aside>
   </main>;
