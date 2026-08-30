@@ -1,6 +1,5 @@
 import { _electron as electron, expect, test } from '@playwright/test';
-import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ProjectService, ResolveLibrary, resolveProjectId } from '../../src/application';
@@ -48,10 +47,14 @@ const timeline = (children: unknown[]) => JSON.stringify({
   metadata: {},
 });
 
-const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
+function packagedAppPath(): string {
+  const packageRoot = path.resolve('out', `SnipSnap-${process.platform}-${process.arch}`);
+  return process.platform === 'darwin'
+    ? path.join(packageRoot, 'SnipSnap.app', 'Contents', 'Resources', 'app.asar')
+    : path.join(packageRoot, 'resources', 'app.asar');
+}
 
 test('a title over part of the timeline shows up as a commit', async () => {
-  test.skip(!hasFfmpeg, 'needs ffmpeg to render the clip the title sits over');
   test.setTimeout(300_000);
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-title-'));
   const dataRoot = path.join(workspace, 'data');
@@ -61,10 +64,7 @@ test('a title over part of the timeline shows up as a commit', async () => {
   await mkdir(folder, { recursive: true });
 
   const media = path.join(folder, 'interview.mp4');
-  spawnSync('ffmpeg', [
-    '-y', '-f', 'lavfi', '-i', `testsrc=size=480x270:rate=${RATE}:duration=10`,
-    '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', media,
-  ], { stdio: 'ignore' });
+  await writeFile(media, 'synthetic offline media for timeline tests');
 
   const drp = path.join(folder, 'Launch Promo.drp');
   const otio = path.join(folder, 'Launch Promo.otio');
@@ -90,7 +90,7 @@ test('a title over part of the timeline shows up as a commit', async () => {
   await service.commit(projectId, 'Add the GOAT title over the middle', status.headCommit, status.indexDigest);
 
   const application = await electron.launch({
-    args: [path.resolve('out', 'SnipSnap-darwin-arm64', 'SnipSnap.app', 'Contents', 'Resources', 'app.asar')],
+    args: [packagedAppPath()],
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: dataRoot,
@@ -105,7 +105,11 @@ test('a title over part of the timeline shows up as a commit', async () => {
   await expect(page.getByLabel('Commit history')).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(2000);
 
-  await page.getByRole('button', { name: 'See diff' }).click();
+  await page.getByRole('button', { name: 'View commit Add the GOAT title over the middle' }).click();
+  const commitChanges = page.getByRole('region', { name: 'Changes in commit Add the GOAT title over the middle' });
+  await expect(commitChanges).toBeVisible();
+  await expect(commitChanges.getByRole('button', { name: 'View diff Added track V2 with 3 timeline items' })).toBeVisible();
+  await commitChanges.getByRole('button', { name: 'View all changes in commit Add the GOAT title over the middle' }).click();
   const comparison = page.getByRole('region', { name: 'Commit comparison' });
   await expect(comparison).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(2500);
@@ -122,6 +126,7 @@ test('a title over part of the timeline shows up as a commit', async () => {
   console.log('TITLE SHARE OF LANE:', share.toFixed(3), 'expected', (TITLE_FRAMES / FRAMES).toFixed(3));
   expect(share).toBeGreaterThan(0.2);
   expect(share).toBeLessThan(0.45);
-  console.log('WHAT CHANGED:', (await comparison.getByRole('listitem').allInnerTexts()).join(' ~ ').replace(/\n/gu, ' ').slice(0, 260));
+  console.log('COMMIT SIDEBAR:', (await commitChanges.allInnerTexts()).join(' ~ ').replace(/\n/gu, ' ').slice(0, 260));
   await application.close();
+  await rm(workspace, { recursive: true, force: true });
 });

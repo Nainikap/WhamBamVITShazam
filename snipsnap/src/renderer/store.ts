@@ -321,7 +321,11 @@ export const useAppStore = create<AppStore>((set, get) => {
     loadRevision: (revision, parentIndex = 0) => run(async () => {
       const projectId = get().currentProjectId;
       if (!projectId) return;
-      set({ selectedRevision: await window.snipsnap.revisionDetails(projectId, revision, parentIndex) });
+      set({
+        selectedRevision: await window.snipsnap.revisionDetails(projectId, revision, parentIndex),
+        comparison: null,
+        diffOpen: false,
+      });
     }),
 
     createBranchFromSelected: (name) => run(async () => {

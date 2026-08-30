@@ -147,16 +147,30 @@ export function reconcileImportedProject(base: Project, imported: Project): Proj
         if (matchedId) clip.id = matchedId;
       } else if (gap) {
         matchedId = baseGaps.find(({ id }) => id === gap.id && !usedItems.has(id))?.id
-          ?? (baseTrack?.itemIds[position]
-            ? baseGaps.find(({ id }) => id === baseTrack.itemIds[position] && !usedItems.has(id))?.id
-            : undefined);
+          ?? baseGaps
+            .filter((existing) => !usedItems.has(existing.id) && existing.durationFrames === gap.durationFrames)
+            .sort((left, right) => Math.abs((basePositions.get(left.id) ?? position) - position)
+              - Math.abs((basePositions.get(right.id) ?? position) - position))[0]?.id
+          ?? baseGaps
+            .filter((existing) => !usedItems.has(existing.id))
+            .sort((left, right) => Math.abs((basePositions.get(left.id) ?? position) - position)
+              - Math.abs((basePositions.get(right.id) ?? position) - position))[0]?.id;
         gap.trackId = candidateTrack.id;
         if (matchedId) gap.id = matchedId;
       } else if (transition) {
         matchedId = baseTransitions.find(({ id }) => id === transition.id && !usedItems.has(id))?.id
-          ?? (baseTrack?.itemIds[position]
-            ? baseTransitions.find(({ id }) => id === baseTrack.itemIds[position] && !usedItems.has(id))?.id
-            : undefined);
+          ?? baseTransitions
+            .filter((existing) => !usedItems.has(existing.id)
+              && existing.name === transition.name
+              && existing.transitionType === transition.transitionType
+              && existing.inOffsetFrames === transition.inOffsetFrames
+              && existing.outOffsetFrames === transition.outOffsetFrames)
+            .sort((left, right) => Math.abs((basePositions.get(left.id) ?? position) - position)
+              - Math.abs((basePositions.get(right.id) ?? position) - position))[0]?.id
+          ?? baseTransitions
+            .filter((existing) => !usedItems.has(existing.id))
+            .sort((left, right) => Math.abs((basePositions.get(left.id) ?? position) - position)
+              - Math.abs((basePositions.get(right.id) ?? position) - position))[0]?.id;
         transition.trackId = candidateTrack.id;
         if (matchedId) transition.id = matchedId;
       } else if (caption) {

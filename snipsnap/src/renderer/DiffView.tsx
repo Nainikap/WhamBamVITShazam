@@ -1,9 +1,9 @@
 import { ArrowRight, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { TimelineComparison } from '../application';
+import type { SemanticHunk } from '../diff';
 import type { CommitInfo } from '../git';
-import type { TimelineDiffSegment, TimelineDiffTrack } from '../preview';
-import { Badge } from '@/components/ui/badge';
+import type { TimelineChangeField, TimelineDiffSegment, TimelineDiffTrack } from '../preview';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -32,20 +32,6 @@ const toneLabel: Record<Tone, string> = {
   moved: 'moved',
   edited: 'edited',
   unchanged: 'unchanged',
-};
-
-const fieldLabel: Record<string, string> = {
-  trim: 'in/out point',
-  position: 'timeline position',
-  footage: 'source footage',
-  gain: 'level',
-  look: 'look',
-  name: 'name',
-  text: 'caption text',
-  enabled: 'enabled state',
-  markers: 'markers',
-  effects: 'effects',
-  settings: 'editor settings',
 };
 
 function frameSummary(segment: TimelineDiffSegment, fps: number): string | null {
@@ -89,6 +75,70 @@ function tally(segments: TimelineDiffSegment[]): Record<Tone, number> {
   const counts: Record<Tone, number> = { added: 0, removed: 0, trimmed: 0, moved: 0, edited: 0, unchanged: 0 };
   for (const segment of segments) counts[toneOf(segment)] += 1;
   return counts;
+}
+
+function hunkEntityIds(hunk: SemanticHunk): Set<string> {
+  const ids = new Set([hunk.entityId]);
+  const visit = (part: SemanticHunk) => {
+    ids.add(part.entityId);
+    part.parts?.forEach(visit);
+  };
+  hunk.parts?.forEach(visit);
+  return ids;
+}
+
+const semanticFieldMap: Record<string, TimelineChangeField> = {
+  sourceRange: 'trim',
+  range: 'trim',
+  durationFrames: 'trim',
+  split: 'trim',
+  itemIds: 'position',
+  trackIds: 'position',
+  trackId: 'position',
+  assetId: 'footage',
+  fingerprint: 'footage',
+  gainDb: 'gain',
+  preset: 'look',
+  name: 'name',
+  text: 'text',
+  enabled: 'enabled',
+  markers: 'markers',
+  effects: 'effects',
+  extras: 'settings',
+};
+
+function hunkFields(hunk: SemanticHunk): Set<TimelineChangeField> {
+  const fields = new Set<TimelineChangeField>();
+  const visit = (part: SemanticHunk) => {
+    part.fieldGroup.split('+').forEach((field) => {
+      const mapped = semanticFieldMap[field];
+      if (mapped) fields.add(mapped);
+    });
+    part.parts?.forEach(visit);
+  };
+  visit(hunk);
+  return fields;
+}
+
+/** Remove unrelated clip fields when one atomic semantic hunk is focused. */
+function segmentForHunk(segment: TimelineDiffSegment, hunk: SemanticHunk): TimelineDiffSegment {
+  if (hunk.operation === 'add' || hunk.operation === 'delete' || hunk.fieldGroup === 'structure') return segment;
+  const fields = hunkFields(hunk);
+  const changedFields = segment.changedFields.filter((field) => fields.has(field));
+  const retainsFrameDelta = changedFields.includes('trim');
+  return {
+    ...segment,
+    changedFields,
+    timingChanged: changedFields.includes('trim') || changedFields.includes('position'),
+    addedFrames: retainsFrameDelta ? segment.addedFrames : 0,
+    removedFrames: retainsFrameDelta ? segment.removedFrames : 0,
+    parts: retainsFrameDelta ? segment.parts : [{
+      change: 'kept',
+      laneStart: segment.laneStart,
+      laneDuration: segment.laneDuration,
+      contentStart: segment.after?.sourceStart ?? segment.before?.sourceStart ?? 0,
+    }],
+  };
 }
 
 function Lane({ track, laneFrames, fps }: { track: TimelineDiffTrack; laneFrames: number; fps: number }) {
@@ -149,12 +199,20 @@ function Lane({ track, laneFrames, fps }: { track: TimelineDiffTrack; laneFrames
 export interface DiffViewProps {
   comparison: TimelineComparison;
   history: CommitInfo[];
+  selectedHunkId: string | null;
   onSelectBase(id: string): void;
   onSelectHead(id: string): void;
   onClose(): void;
 }
 
-export function DiffView({ comparison, history, onSelectBase, onSelectHead, onClose }: DiffViewProps) {
+export function DiffView({
+  comparison,
+  history,
+  selectedHunkId,
+  onSelectBase,
+  onSelectHead,
+  onClose,
+}: DiffViewProps) {
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const { diff } = comparison;
@@ -164,8 +222,41 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
       .map((segment) => ({ track, segment }))),
     [diff],
   );
-  const totals = useMemo(() => tally(diff.tracks.flatMap(({ segments }) => segments)), [diff]);
-  const identical = changed.length === 0;
+  const selectedHunk = comparison.hunks.find(({ id }) => id === selectedHunkId) ?? null;
+  const visibleTracks = useMemo(() => {
+    if (!selectedHunk) return diff.tracks;
+    const entityIds = hunkEntityIds(selectedHunk);
+    return diff.tracks.flatMap((track) => {
+      const matched = track.segments
+        .filter((segment) => entityIds.has(segment.id))
+        .map((segment) => segmentForHunk(segment, selectedHunk));
+      if (matched.length > 0) return [{ ...track, segments: matched }];
+      if (entityIds.has(track.id)) {
+        return [{ ...track, segments: track.segments.filter(({ change }) => change !== 'unchanged') }];
+      }
+      return [];
+    });
+  }, [diff.tracks, selectedHunk]);
+  const visibleSegments = useMemo(() => visibleTracks.flatMap(({ segments }) => segments), [visibleTracks]);
+  const totals = useMemo(() => tally(visibleSegments), [visibleSegments]);
+  const identicalTimeline = changed.length === 0;
+  const sharedPlaybackEnd = Math.min(comparison.base.plan.totalFrames, comparison.head.plan.totalFrames);
+
+  useEffect(() => {
+    setPlayhead(0);
+    setPlaying(false);
+  }, [comparison.base.commit.id, comparison.head.commit.id]);
+
+  useEffect(() => {
+    setPlaying(false);
+    if (!selectedHunk) {
+      setPlayhead(0);
+      return;
+    }
+    const ids = hunkEntityIds(selectedHunk);
+    const segment = changed.find((entry) => ids.has(entry.segment.id))?.segment;
+    if (segment) setPlayhead(segment.after?.timelineStart ?? segment.before?.timelineStart ?? 0);
+  }, [changed, selectedHunk]);
 
   return <section aria-label="Commit comparison" className="flex flex-col gap-3">
     <Card className="flex flex-wrap items-end gap-4 p-3">
@@ -204,58 +295,39 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
           onPlayheadChange={setPlayhead}
           playing={playing}
           onPlayingChange={setPlaying}
+          playbackLimit={sharedPlaybackEnd}
         />
       </div>)}
     </div>
 
     <Card className="p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold">Timeline differences</h3>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">Timeline differences</h3>
+          <p aria-live="polite" className="mt-0.5 truncate text-[10px] text-muted-foreground">
+            {selectedHunk ? `Focused change: ${selectedHunk.message}` : `Whole commit: ${comparison.hunks.length} change${comparison.hunks.length === 1 ? '' : 's'} together`}
+          </p>
+        </div>
         <span className="flex gap-2.5 font-mono text-[10px]">
-          <span className="text-added">+{diff.counts.addedFrames}f added</span>
-          <span className="text-removed">−{diff.counts.removedFrames}f cut</span>
+          <span className="text-added">+{visibleSegments.reduce((sum, segment) => sum + segment.addedFrames, 0)}f added</span>
+          <span className="text-removed">−{visibleSegments.reduce((sum, segment) => sum + segment.removedFrames, 0)}f cut</span>
           <span className="text-retimed">{totals.trimmed} trimmed</span>
           <span className="text-retimed">{totals.moved} moved</span>
           <span className="text-edited">{totals.edited} edited</span>
         </span>
       </div>
-      {identical
+      {selectedHunk && visibleTracks.length === 0
+        ? <p className="text-xs text-muted-foreground">
+          This project-level change has no frame range to highlight. The two complete commit previews remain available above.
+        </p>
+        : identicalTimeline
         ? <p className="text-xs text-muted-foreground">
           These two commits hold an identical timeline on every video and audio track.
         </p>
         : <div className="flex flex-col gap-1.5">
-          {diff.tracks.map((track) => <Lane key={track.id} track={track} laneFrames={diff.laneFrames} fps={diff.fps} />)}
+          {visibleTracks.map((track) => <Lane key={track.id} track={track} laneFrames={diff.laneFrames} fps={diff.fps} />)}
         </div>}
     </Card>
 
-    {!identical && <Card className="p-3">
-      <h3 className="mb-3 text-sm font-semibold">What changed</h3>
-      <ul className="flex flex-col gap-1.5">
-        {changed.map(({ track, segment }) => {
-          const tone = toneOf(segment);
-          return <li
-            key={`${track.id}-${segment.id}`}
-            className={cn('flex items-center gap-3 rounded-md border-l-2 bg-secondary/60 px-3 py-2', {
-              'border-l-added': tone === 'added',
-              'border-l-removed': tone === 'removed',
-              'border-l-retimed': tone === 'trimmed' || tone === 'moved',
-              'border-l-edited': tone === 'edited',
-            })}
-          >
-            <Badge variant={tone === 'trimmed' || tone === 'moved' ? 'retimed' : tone === 'unchanged' ? 'outline' : tone}>
-              {toneLabel[tone]}
-            </Badge>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <strong className="truncate text-xs">{track.name} · {segment.name}</strong>
-              <small className="font-mono text-[10px] text-muted-foreground">{timing(segment, diff.fps)}</small>
-              {frameSummary(segment, diff.fps) && <small className="font-mono text-[10px]">{frameSummary(segment, diff.fps)}</small>}
-              {segment.changedFields.length > 0 && <small className="text-[10px] text-muted-foreground">
-                {segment.changedFields.map((field) => fieldLabel[field] ?? field).join(', ')}
-              </small>}
-            </div>
-          </li>;
-        })}
-      </ul>
-    </Card>}
   </section>;
 }

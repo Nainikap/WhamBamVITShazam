@@ -40,6 +40,37 @@ describe('Resolve source synchronization', () => {
     expect(hunks.filter(({ entityType }) => entityType === 'clip').every(({ operation }) => operation !== 'add' && operation !== 'delete')).toBe(true);
   });
 
+  it('keeps downstream identities stable and reports one change for a metadata-free blade cut', () => {
+    const clean = withoutVideoGitMetadata(JSON.parse(fixture) as unknown) as {
+      tracks: { children: Array<{ children: Array<{
+        name?: string;
+        source_range?: {
+          start_time: { value: number };
+          duration: { value: number };
+        };
+      }> }> };
+    };
+    const base = importOtio(clean).project;
+    const changed = structuredClone(clean);
+    const videoTrack = changed.tracks.children[0];
+    const opening = videoTrack?.children[0];
+    if (!videoTrack || !opening?.source_range) throw new Error('Fixture opening clip missing');
+    const secondHalf = structuredClone(opening);
+    const half = opening.source_range.duration.value / 2;
+    opening.source_range.duration.value = half;
+    if (!secondHalf.source_range) throw new Error('Split clip range missing');
+    secondHalf.source_range.start_time.value += half;
+    secondHalf.source_range.duration.value = half;
+    videoTrack.children.splice(1, 0, secondHalf);
+
+    const reconciled = reconcileImportedProject(base, importOtio(changed).project);
+    expect(reconciled.gaps.map(({ id }) => id)).toEqual(base.gaps.map(({ id }) => id));
+    expect(reconciled.transitions.map(({ id }) => id)).toEqual(base.transitions.map(({ id }) => id));
+    expect(semanticDiff(base, reconciled)).toEqual([
+      expect.objectContaining({ fieldGroup: 'split', message: 'Split clip Opening into 2 clips' }),
+    ]);
+  });
+
   it('reconciles transition references when Resolve rewrites track identities', () => {
     const base = importOtio(fixture).project;
     const imported = structuredClone(base);

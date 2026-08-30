@@ -163,7 +163,7 @@ describe('Resolve library', () => {
     expect(reopened.source.state).toBe('changes-ready');
     const messages = reopened.source.pending?.changes.map(({ message }) => message) ?? [];
     expect(messages).toEqual(expect.arrayContaining([
-      expect.stringContaining('Trimmed clip Intro'),
+      expect.stringContaining('Trimmed end of clip Intro by 48 frames'),
       expect.stringContaining('added 1 markers'),
     ]));
   });

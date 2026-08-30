@@ -55,6 +55,13 @@ function PanelHeading({ title, count, action }: { title: string; count?: number;
   </div>;
 }
 
+function commitDiffVariant(hunk: SemanticHunk): 'added' | 'removed' | 'retimed' | 'edited' {
+  if (hunk.operation === 'add') return 'added';
+  if (hunk.operation === 'delete') return 'removed';
+  if (hunk.operation === 'reorder') return 'edited';
+  return ['sourceRange', 'range', 'durationFrames', 'split'].includes(hunk.fieldGroup) ? 'retimed' : 'edited';
+}
+
 export function Editor() {
   const store = useAppStore();
   const status = store.status;
@@ -63,8 +70,13 @@ export function Editor() {
   const [branchName, setBranchName] = useState('');
   const [mergeSource, setMergeSource] = useState('');
   const [playhead, setPlayhead] = useState(0);
+  const [selectedDiffHunkId, setSelectedDiffHunkId] = useState<string | null>(null);
+  const [expandedCommitId, setExpandedCommitId] = useState<string | null>(null);
 
-  useEffect(() => { setPlayhead(0); }, [revision?.commit.id]);
+  useEffect(() => {
+    setPlayhead(0);
+    setSelectedDiffHunkId(null);
+  }, [revision?.commit.id, revision?.comparedParent]);
 
   const otherBranches = useMemo(
     () => (status?.branches ?? []).filter(({ name }) => name !== status?.branch),
@@ -97,8 +109,19 @@ export function Editor() {
 
   function openDiff(): void {
     if (!status || !revision) return;
-    const parent = revision.commit.parents[0];
+    const parent = revision.comparedParent ?? revision.commit.parents[0];
+    setSelectedDiffHunkId(null);
+    setExpandedCommitId(revision.commit.id);
     void store.openDiff(parent ?? revision.commit.id, parent ? revision.commit.id : status.headCommit);
+  }
+
+  function openRevisionDiff(hunkId: string | null): void {
+    if (!revision) return;
+    const parent = revision.comparedParent ?? revision.commit.parents[0];
+    if (!parent) return;
+    setSelectedDiffHunkId(hunkId);
+    setExpandedCommitId(revision.commit.id);
+    void store.openDiff(parent, revision.commit.id);
   }
 
   const submitCommit = (event: FormEvent) => {
@@ -185,34 +208,87 @@ export function Editor() {
         <PanelHeading title="Commits" count={status.history.length} />
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col gap-1 p-2">
-            {status.history.map((commit) => <button
-              key={commit.id}
-              aria-label={`View commit ${commit.message}`}
-              onClick={() => void store.loadRevision(commit.id)}
-              className={cn(
-                'flex items-start gap-2 rounded-md border border-transparent px-2.5 py-2 text-left transition-colors',
-                commit.id === revision.commit.id ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
-              )}
-            >
-              <span className={cn(
-                'mt-1 h-2.5 w-2.5 shrink-0 rounded-full border border-primary',
-                commit.id === status.headCommit && 'bg-primary',
-                commit.parents.length > 1 && 'ring-2 ring-edited/40',
-              )} />
-              <span className="flex min-w-0 flex-1 flex-col gap-1">
-                <strong className="truncate text-xs font-medium">{commit.message}</strong>
-                <small className="truncate text-[10px] text-muted-foreground">
-                  {commit.author.replace(/\s*<[^>]*>/u, '')} · {relativeTime(commit.authoredAt)}
-                </small>
-                <span className="flex items-center gap-1 overflow-hidden">
-                  <code className="font-mono text-[9px] text-muted-foreground">{shortId(commit.id)}</code>
-                  {status.branches.filter(({ commitId }) => commitId === commit.id).map(({ name }) => (
-                    <Badge key={name} variant="info">{name}</Badge>
-                  ))}
-                  {commit.parents.length > 1 && <Badge variant="edited">merge</Badge>}
-                </span>
-              </span>
-            </button>)}
+            {status.history.map((commit) => {
+              const selected = commit.id === revision.commit.id;
+              return <div key={commit.id} className="flex flex-col">
+                <button
+                  aria-label={`View commit ${commit.message}`}
+                  aria-expanded={selected && expandedCommitId === commit.id}
+                  onClick={() => {
+                    if (selected && expandedCommitId === commit.id) {
+                      setExpandedCommitId(null);
+                      return;
+                    }
+                    setExpandedCommitId(commit.id);
+                    setSelectedDiffHunkId(null);
+                    if (!selected || store.diffOpen) void store.loadRevision(commit.id);
+                  }}
+                  className={cn(
+                    'flex items-start gap-2 rounded-md border border-transparent px-2.5 py-2 text-left transition-colors',
+                    selected ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
+                  )}
+                >
+                  <span className={cn(
+                    'mt-1 h-2.5 w-2.5 shrink-0 rounded-full border border-primary',
+                    commit.id === status.headCommit && 'bg-primary',
+                    commit.parents.length > 1 && 'ring-2 ring-edited/40',
+                  )} />
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <strong className="truncate text-xs font-medium">{commit.message}</strong>
+                    <small className="truncate text-[10px] text-muted-foreground">
+                      {commit.author.replace(/\s*<[^>]*>/u, '')} · {relativeTime(commit.authoredAt)}
+                    </small>
+                    <span className="flex items-center gap-1 overflow-hidden">
+                      <code className="font-mono text-[9px] text-muted-foreground">{shortId(commit.id)}</code>
+                      {status.branches.filter(({ commitId }) => commit.id === commitId).map(({ name }) => (
+                        <Badge key={name} variant="info">{name}</Badge>
+                      ))}
+                      {commit.parents.length > 1 && <Badge variant="edited">merge</Badge>}
+                    </span>
+                  </span>
+                </button>
+
+                {selected && expandedCommitId === commit.id && commit.parents.length > 0 && <section
+                  aria-label={`Changes in commit ${commit.message}`}
+                  className="ml-5 flex flex-col gap-1 border-l border-border py-1 pl-2"
+                >
+                  <button
+                    type="button"
+                    aria-label={`View all changes in commit ${commit.message}`}
+                    aria-pressed={store.diffOpen && selectedDiffHunkId === null}
+                    onClick={() => openRevisionDiff(null)}
+                    className={cn(
+                      'flex items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[10px] transition-colors hover:bg-accent',
+                      store.diffOpen && selectedDiffHunkId === null && 'bg-primary/10 text-foreground',
+                    )}
+                  >
+                    <span className="font-medium">All changes</span>
+                    <Badge variant="outline">{revision.diff.length}</Badge>
+                  </button>
+                  {revision.diff.map((hunk) => <button
+                    key={hunk.id}
+                    type="button"
+                    aria-label={`View diff ${hunk.message}`}
+                    aria-pressed={store.diffOpen && selectedDiffHunkId === hunk.id}
+                    onClick={() => openRevisionDiff(hunk.id)}
+                    className={cn(
+                      'flex items-start gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent',
+                      store.diffOpen && selectedDiffHunkId === hunk.id && 'bg-primary/10',
+                    )}
+                  >
+                    <Badge variant={commitDiffVariant(hunk)} className="mt-0.5 shrink-0 px-1.5 py-0 text-[8px]">
+                      {hunk.operation}
+                    </Badge>
+                    <span className="min-w-0">
+                      <span className="line-clamp-2 text-[10px] font-medium leading-snug">{hunk.message}</span>
+                      <span className="mt-0.5 block truncate font-mono text-[8px] text-muted-foreground">
+                        {hunk.entityType} · {hunk.fieldGroup}
+                      </span>
+                    </span>
+                  </button>)}
+                </section>}
+              </div>;
+            })}
           </div>
         </ScrollArea>
       </section>
@@ -224,9 +300,19 @@ export function Editor() {
         ? <DiffView
           comparison={store.comparison}
           history={status.history}
-          onSelectBase={(id) => void store.openDiff(id, store.comparison?.head.commit.id ?? id)}
-          onSelectHead={(id) => void store.openDiff(store.comparison?.base.commit.id ?? id, id)}
-          onClose={store.closeDiff}
+          selectedHunkId={selectedDiffHunkId}
+          onSelectBase={(id) => {
+            setSelectedDiffHunkId(null);
+            void store.openDiff(id, store.comparison?.head.commit.id ?? id);
+          }}
+          onSelectHead={(id) => {
+            setSelectedDiffHunkId(null);
+            void store.openDiff(store.comparison?.base.commit.id ?? id, id);
+          }}
+          onClose={() => {
+            setSelectedDiffHunkId(null);
+            store.closeDiff();
+          }}
         />
         : <>
           <div className="flex items-start justify-between gap-4">
