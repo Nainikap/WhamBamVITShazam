@@ -116,12 +116,9 @@ export function Editor() {
     <aside aria-label="Source control" className="flex min-h-0 flex-col border-r border-border">
       <section aria-label="Working changes" className="flex min-h-0 flex-col">
         <PanelHeading
-          title="Source control"
+          title="Changes"
           count={status.unstaged.length + status.staged.length}
-          action={<div className="flex items-center gap-1">
-            <Badge variant="info" aria-label={`Current branch ${status.branch}`}>
-              <GitBranch className="h-3 w-3" />{status.branch}
-            </Badge>
+          action={<div className="flex gap-1">
             <Button
               size="sm"
               variant="ghost"
@@ -138,30 +135,26 @@ export function Editor() {
         />
         <ScrollArea className="max-h-[38vh] min-h-0 flex-1">
           <div className="flex flex-col gap-3 p-3">
-            <div className="flex flex-col gap-1.5" aria-label="Staged changes">
-              <span className="flex items-center justify-between font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
-                Staged changes <Badge variant="outline">{status.staged.length}</Badge>
-              </span>
-              {status.staged.length === 0
-                ? <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-[10px] text-muted-foreground">Nothing staged for the next commit.</p>
-                : status.staged.map((hunk) => <HunkRow
-                  key={hunk.id} hunk={hunk} fps={fps} actionLabel="Unstage"
-                  onAction={() => void store.unstage([hunk.id])}
-                />)}
-            </div>
-            <div className="flex flex-col gap-1.5" aria-label="Unstaged changes">
-              <span className="flex items-center justify-between font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
-                Unstaged changes <Badge variant="outline">{status.unstaged.length}</Badge>
-              </span>
-              {status.unstaged.length === 0
-                ? <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-[10px] text-muted-foreground">
-                  The latest saved Resolve timeline matches the staged version.
-                </p>
-                : status.unstaged.map((hunk) => <HunkRow
-                  key={hunk.id} hunk={hunk} fps={fps} actionLabel="Stage"
-                  onAction={() => void store.stage([hunk.id])}
-                />)}
-            </div>
+            {status.unstaged.length + status.staged.length === 0
+              ? <p className="text-xs text-muted-foreground">
+                The latest saved Resolve timeline matches this commit.
+              </p>
+              : <>
+                {status.staged.length > 0 && <div className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Staged</span>
+                  {status.staged.map((hunk) => <HunkRow
+                    key={hunk.id} hunk={hunk} fps={fps} actionLabel="Unstage"
+                    onAction={() => void store.unstage([hunk.id])}
+                  />)}
+                </div>}
+                {status.unstaged.length > 0 && <div className="flex flex-col gap-1.5">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Unstaged</span>
+                  {status.unstaged.map((hunk) => <HunkRow
+                    key={hunk.id} hunk={hunk} fps={fps} actionLabel="Stage"
+                    onAction={() => void store.stage([hunk.id])}
+                  />)}
+                </div>}
+              </>}
           </div>
         </ScrollArea>
 
@@ -188,15 +181,35 @@ export function Editor() {
       <section aria-label="Commit history" className="flex min-h-0 flex-1 flex-col">
         <PanelHeading title="Commits" count={status.history.length} />
         <ScrollArea className="min-h-0 flex-1">
-          <div className="p-2">
-            <CommitGraph
-              history={status.history}
-              headCommit={status.headCommit}
-              selectedCommit={revision.commit.id}
-              branches={status.branches}
-              onSelect={(commitId) => void store.loadRevision(commitId)}
-              onDiff={(commitId, parentId) => void store.openDiff(parentId, commitId)}
-            />
+          <div className="flex flex-col gap-1 p-2">
+            {status.history.map((commit) => <button
+              key={commit.id}
+              aria-label={`View commit ${commit.message}`}
+              onClick={() => void store.loadRevision(commit.id)}
+              className={cn(
+                'flex items-start gap-2 rounded-md border border-transparent px-2.5 py-2 text-left transition-colors',
+                commit.id === revision.commit.id ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
+              )}
+            >
+              <span className={cn(
+                'mt-1 h-2.5 w-2.5 shrink-0 rounded-full border border-primary',
+                commit.id === status.headCommit && 'bg-primary',
+                commit.parents.length > 1 && 'ring-2 ring-edited/40',
+              )} />
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <strong className="truncate text-xs font-medium">{commit.message}</strong>
+                <small className="truncate text-[10px] text-muted-foreground">
+                  {commit.author.replace(/\s*<[^>]*>/u, '')} · {relativeTime(commit.authoredAt)}
+                </small>
+                <span className="flex items-center gap-1 overflow-hidden">
+                  <code className="font-mono text-[9px] text-muted-foreground">{shortId(commit.id)}</code>
+                  {status.branches.filter(({ commitId }) => commitId === commit.id).map(({ name }) => (
+                    <Badge key={name} variant="info">{name}</Badge>
+                  ))}
+                  {commit.parents.length > 1 && <Badge variant="edited">merge</Badge>}
+                </span>
+              </span>
+            </button>)}
           </div>
         </ScrollArea>
       </section>
@@ -300,34 +313,6 @@ export function Editor() {
 
     <aside aria-label="Inspector" className="flex min-h-0 flex-col overflow-y-auto border-l border-border">
       <PanelHeading
-        title={`Branch · ${status.branch}`}
-        count={status.branches.length}
-        action={<Badge variant="added">checked out</Badge>}
-      />
-      <div className="flex flex-col gap-3 p-3">
-        <Select value={status.branch} onValueChange={guardedCheckout}>
-          <SelectTrigger aria-label="Switch branch">
-            <span className="flex items-center gap-2"><GitBranch className="h-3.5 w-3.5 text-primary" /><SelectValue /></span>
-          </SelectTrigger>
-          <SelectContent>
-            {status.branches.map(({ name, commitId }) => <SelectItem key={name} value={name}>
-              {name} · {shortId(commitId)}
-            </SelectItem>)}
-          </SelectContent>
-        </Select>
-        <form className="flex gap-2" onSubmit={submitBranch}>
-          <Input
-            aria-label="Branch from selected commit"
-            value={branchName}
-            placeholder={`Branch from ${shortId(revision.commit.id)}`}
-            onChange={(event) => setBranchName(event.target.value)}
-          />
-          <Button disabled={!branchName.trim()}>Create</Button>
-        </form>
-      </div>
-
-      <Separator />
-      <PanelHeading
         title="Collaborate"
         action={<Badge variant={collaboration.connected ? 'added' : 'outline'}>
           {collaboration.mode === 'hosting' ? 'Hosting' : collaboration.mode === 'peer' ? 'Connected' : 'Local'}
@@ -407,6 +392,35 @@ export function Editor() {
         </div>}
       </div>
 
+      <Separator />
+      <PanelHeading title="Branch" count={status.branches.length} />
+      <div className="flex flex-col gap-3 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <Badge variant="info"><GitBranch className="h-3 w-3" />{status.branch}</Badge>
+          <code className="font-mono text-[10px] text-muted-foreground">{shortId(status.headCommit)}</code>
+        </div>
+        <Select value={status.branch} onValueChange={guardedCheckout}>
+          <SelectTrigger aria-label="Switch branch">
+            <span className="flex items-center gap-2"><GitBranch className="h-3.5 w-3.5 text-primary" /><SelectValue /></span>
+          </SelectTrigger>
+          <SelectContent>
+            {status.branches.map(({ name, commitId }) => <SelectItem key={name} value={name}>
+              {name} · {shortId(commitId)}
+            </SelectItem>)}
+          </SelectContent>
+        </Select>
+        <form className="flex gap-2" onSubmit={submitBranch}>
+          <Input
+            aria-label="Branch from selected commit"
+            value={branchName}
+            placeholder={`Branch from ${shortId(revision.commit.id)}`}
+            onChange={(event) => setBranchName(event.target.value)}
+          />
+          <Button disabled={!branchName.trim()}>Create</Button>
+        </form>
+      </div>
+
+      <Separator />
       <PanelHeading title="Merge" />
       <div className="flex flex-col gap-2 p-3">
         <Select value={mergeSource} onValueChange={setMergeSource}>
@@ -454,6 +468,18 @@ export function Editor() {
           </dd>
         </div>)}
       </dl>
+
+      <Separator />
+      <PanelHeading title="Commit graph" count={status.history.length} />
+      <div className="p-2">
+        <CommitGraph
+          history={status.history}
+          headCommit={status.headCommit}
+          selectedCommit={revision.commit.id}
+          branches={status.branches}
+          onSelect={(commitId) => void store.loadRevision(commitId)}
+        />
+      </div>
     </aside>
   </main>;
 }

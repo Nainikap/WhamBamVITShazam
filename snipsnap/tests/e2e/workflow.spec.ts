@@ -117,10 +117,7 @@ test('lists the Resolve export and imports it on first open', async () => {
   await expect(page.locator('.path-text')).toHaveText(path.join(resolveRoot, 'Resolve Basic Cut', 'Resolve Basic Cut.drp'));
   await expect(page.getByRole('region', { name: 'Commit video preview' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Timeline tracks' })).toBeVisible();
-  await expect(page.getByLabel('Staged changes', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Unstaged changes', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Current branch main')).toBeVisible();
-  await expect(page.getByText('Branch · main', { exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Commit graph' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled();
 });
@@ -144,7 +141,7 @@ test('splits the window into two commits and shows the frames the trim removed',
   await exportResolveTrim(90);
   await applyStageAndCommit('Tighten the opening');
 
-  await page.getByRole('button', { name: 'View diff for Tighten the opening' }).click();
+  await page.getByRole('button', { name: 'See diff' }).click();
   const comparison = page.getByRole('region', { name: 'Commit comparison' });
   await expect(comparison).toBeVisible();
   await expect(page.getByRole('region', { name: 'Base commit video preview' })).toBeVisible();
