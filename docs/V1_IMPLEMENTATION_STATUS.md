@@ -36,10 +36,11 @@ peer media during Push. Both computers must be able to reach each other on the s
 must keep SnipSnap open, and current originals are sent when no pre-existing proxy asset is available.
 
 An approved V2 Kdenlive OTIO slice also lets a Kdenlive export become a watched SnipSnap project and
-opens any immutable commit in Kdenlive through an atomic OTIO handoff. Every handoff includes a
+prepares any immutable commit for Kdenlive through an atomic OTIO handoff. Every handoff includes a
 validated JSON fidelity report. This is portable editorial interchange, not native `.kdenlive`/MLT
 versioning or a claim that captions, effects, generators, or Resolve Color/Fusion state are editable
-across NLEs.
+across NLEs. Kdenlive's supported File > OpenTimelineIO Import action remains an explicit step because
+its command line cannot invoke that importer.
 
 ## Requirement traceability
 

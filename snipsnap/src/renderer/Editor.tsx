@@ -158,7 +158,7 @@ export function Editor() {
   return <main className="vg-editor-grid">
     <aside aria-label="Source control" className="vg-source-control vg-glass flex min-h-0 flex-col">
       <GlassSurface />
-      <div className="vg-glass-body flex min-h-0 flex-col">
+      <div className="vg-glass-body flex min-h-0 flex-1 flex-col">
       <section aria-label="Working changes" className="flex min-h-0 flex-col">
         <PanelHeading
           title="Changes"
@@ -223,7 +223,7 @@ export function Editor() {
 
       <Separator />
 
-      <section aria-label="Commit history" className="flex min-h-0 flex-1 flex-col">
+      <section aria-label="Commit history" className="flex min-h-[8rem] flex-1 flex-col">
         <PanelHeading title="Commits" count={status.history.length} />
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col gap-1 p-2">

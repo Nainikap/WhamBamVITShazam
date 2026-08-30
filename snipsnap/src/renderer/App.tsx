@@ -95,7 +95,7 @@ export function App() {
                 variant="secondary"
                 className="shrink-0"
                 onClick={() => void store.openRevisionInKdenlive(store.selectedRevision?.commit.id ?? status.headCommit)}
-              >Open in Kdenlive</Button>
+              >Prepare for Kdenlive</Button>
               <Button
                 size="sm"
                 className="shrink-0"

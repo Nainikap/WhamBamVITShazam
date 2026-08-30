@@ -31,17 +31,19 @@ export function defaultKdenliveBinary(
     ?? (platform === 'win32' ? 'kdenlive.exe' : 'kdenlive');
 }
 
-export function kdenliveLaunchPlan(filePath: string): KdenliveLaunchPlan {
-  if (!filePath) throw new Error('Kdenlive handoff path is required');
+export function kdenliveLaunchPlan(): KdenliveLaunchPlan {
   return {
     command: defaultKdenliveBinary(),
-    args: [filePath],
+    // Kdenlive's positional argument opens a native .kdenlive document. An
+    // .otio argument is instead added to the bin as a clip, so OTIO must be
+    // imported through File > OpenTimelineIO Import.
+    args: [],
     options: { shell: false, detached: true, stdio: 'ignore' },
   };
 }
 
-export async function launchKdenlive(filePath: string): Promise<void> {
-  const plan = kdenliveLaunchPlan(filePath);
+export async function launchKdenlive(): Promise<void> {
+  const plan = kdenliveLaunchPlan();
   await new Promise<void>((resolve, reject) => {
     const child = spawn(plan.command, plan.args, plan.options);
     child.once('error', reject);

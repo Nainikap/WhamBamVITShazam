@@ -11,9 +11,10 @@ boundary. Canonical `timeline.json` remains the only timeline representation sto
 3. Export later Kdenlive edits to the same file. SnipSnap watches it and presents the semantic
    difference as a pending editor update.
 4. Apply, stage, and commit selected semantic changes normally.
-5. Select a commit and choose **Open in Kdenlive**. SnipSnap resolves the revision to an immutable
+5. Select a commit and choose **Prepare for Kdenlive**. SnipSnap resolves the revision to an immutable
    commit ID, writes `<commit>.otio` and `<commit>.report.json` atomically below the project's local
-   `kdenlive-handoffs` directory, and launches Kdenlive without a shell.
+   `kdenlive-handoffs` directory, copies/reveals the OTIO path, and launches Kdenlive without a shell.
+6. In Kdenlive choose **File > OpenTimelineIO Import**, then paste or select the prepared path.
 
 Kdenlive may remove SnipSnap UUID metadata when it exports again. The source-sync layer reconciles
 sequences, tracks, assets, clips, gaps, transitions, and captions against the current canonical
@@ -42,9 +43,11 @@ No unsupported feature is silently advertised as portable.
 - macOS searches the standard Kdenlive application bundle, then `PATH`.
 - `SNIPSNAP_KDENLIVE_BINARY` overrides discovery on every platform.
 
-The process receives the OTIO path as one argument with `shell: false`. Paths containing spaces or
-shell metacharacters therefore remain literal. If Kdenlive is unavailable, SnipSnap reports the
-launch error and leaves the already-written immutable handoff and fidelity report intact.
+Kdenlive's CLI only accepts a native Kdenlive document as its positional `file`; it has no CLI switch
+for OpenTimelineIO Import. Passing `.otio` there adds the JSON as a bin clip instead of importing its
+timeline. SnipSnap therefore launches Kdenlive with no file argument and directs the editor through
+the supported File menu action. If Kdenlive is unavailable, SnipSnap reports the launch error and
+leaves the already-written immutable handoff and fidelity report intact.
 
 ## Deliberate limits
 

@@ -172,7 +172,9 @@ metadata, so the hub must reconcile into stable canonical identities before diff
 - Environment overrides exist: `SNIPSNAP_RESOLVE_ROOT`, `SNIPSNAP_RESOLVE_DATABASE`,
   `SNIPSNAP_RESOLVE_SCRIPTS`, and `SNIPSNAP_RESOLVE_SCAN` for nonstandard installations.
 - The Electron app and Kdenlive handoff have been exercised in an Omarchy Hyprland/Wayland session;
-  packaged Playwright remains the repeatable UI acceptance path.
+  Kdenlive requires its explicit File > OpenTimelineIO Import action because a positional `.otio`
+  argument is treated as a bin clip. Packaged Playwright runs hidden and remains the repeatable UI
+  acceptance path without mapping test windows into Hyprland.
 
 ### Cross-NLE / Kdenlive
 

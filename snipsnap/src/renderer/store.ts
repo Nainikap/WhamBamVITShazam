@@ -139,16 +139,11 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
       void run(async () => {
         await refresh(projectId, get().selectedRevision?.commit.id);
-        const pending = get().status?.source.pending;
-        const source = get().status?.source;
-        const count = get().status?.workingChanges.length ?? 0;
         set({
           overviews: await window.snipsnap.listOverviews(),
-          notice: pending
-            ? `${source?.mode === 'kdenlive' ? 'Kdenlive' : 'Resolve'} exported ${pending.changeCount} timeline change${pending.changeCount === 1 ? '' : 's'}. Review before applying.`
-            : source?.mode === 'resolve' && source.lastSavedAt
-              ? `Resolve save synchronized. ${count} uncommitted change${count === 1 ? '' : 's'} since HEAD.`
-              : `${source?.mode === 'kdenlive' ? 'Kdenlive' : 'Resolve'} source status updated.`,
+          // The editor already presents source changes beside the timeline.
+          // A second global toast obscures the workspace while editors save.
+          notice: null,
         });
       });
     }),
@@ -461,8 +456,8 @@ export const useAppStore = create<AppStore>((set, get) => {
       const limitationCount = handoff.report.losses.reduce((count, loss) => count + loss.count, 0);
       set({
         notice: limitationCount > 0
-          ? `Opened ${handoff.commitId.slice(0, 10)} in Kdenlive with ${limitationCount} fidelity warning${limitationCount === 1 ? '' : 's'}. The report is beside the OTIO handoff.`
-          : `Opened commit ${handoff.commitId.slice(0, 10)} in Kdenlive.`,
+          ? `Prepared ${handoff.commitId.slice(0, 10)} with ${limitationCount} fidelity warning${limitationCount === 1 ? '' : 's'}. In Kdenlive choose File > OpenTimelineIO Import; the OTIO path is copied.`
+          : `Prepared ${handoff.commitId.slice(0, 10)}. In Kdenlive choose File > OpenTimelineIO Import; the OTIO path is copied.`,
       });
     }),
 

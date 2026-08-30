@@ -70,6 +70,7 @@ export interface SnipSnapApi {
     filePath: string;
     reportPath: string;
     report: KdenliveInterchangeReport;
+    requiresManualImport: true;
   }>;
   exportFromResolve(): Promise<{ ok: boolean; installed?: boolean; message: string }>;
   resolveRoots(): Promise<string[]>;

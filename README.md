@@ -180,9 +180,9 @@ SnipSnap uses that supported boundary rather than writing Kdenlive's versioned M
 3. Continue editing in Kdenlive. Export back to the same `.otio` path when you want SnipSnap to
    detect the next saved timeline state.
 4. Review, apply, stage, and commit the semantic changes in SnipSnap.
-5. Select any immutable commit and choose **Open in Kdenlive**. SnipSnap atomically writes the OTIO
-   handoff plus `<commit>.report.json`, then launches Kdenlive with the handoff as one literal
-   argument.
+5. Select any immutable commit and choose **Prepare for Kdenlive**. SnipSnap atomically writes the
+   OTIO handoff plus `<commit>.report.json`, copies the path, reveals the file, and launches Kdenlive.
+   In Kdenlive choose **File > OpenTimelineIO Import** and paste/select that handoff.
 
 Portable cuts, tracks, gaps, source ranges, media references, and markers are supported. Marker
 instance semantics, transitions, audio gain, disabled state, and colour labels are best-effort.
@@ -264,8 +264,10 @@ available through `SNIPSNAP_RESOLVE_ROOT`, `SNIPSNAP_RESOLVE_DATABASE`,
 
 Kdenlive launch discovery covers `/usr/bin`, `/usr/local/bin`, the macOS application bundle, and
 standard Windows Program Files/local-app installs. Set `SNIPSNAP_KDENLIVE_BINARY` for portable or
-custom installations. Native MLT support may be added later for Kdenlive-only fidelity, but MLT
-must not replace canonical JSON as Git source of truth.
+custom installations. Kdenlive does not expose its OpenTimelineIO importer as a command-line option;
+passing `.otio` as the document argument incorrectly adds it as a bin clip, so SnipSnap deliberately
+uses the explicit in-app import step. Native MLT support may be added later for Kdenlive-only
+fidelity, but MLT must not replace canonical JSON as Git source of truth.
 
 ## Verification
 

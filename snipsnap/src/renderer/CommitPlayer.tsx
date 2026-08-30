@@ -241,7 +241,7 @@ export function CommitPlayer({
   }
 
   return <section
-    className={cn('viewer flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-black/60')}
+    className={cn('viewer flex min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-black/60')}
     aria-label={label ?? 'Commit video preview'}
     data-variant={variant}
   >

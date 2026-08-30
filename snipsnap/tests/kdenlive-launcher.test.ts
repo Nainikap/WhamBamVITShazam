@@ -6,11 +6,11 @@ describe('Kdenlive launcher', () => {
     delete process.env.SNIPSNAP_KDENLIVE_BINARY;
   });
 
-  it('passes one literal file argument without a shell', () => {
+  it('does not pass OTIO as a positional document argument', () => {
     process.env.SNIPSNAP_KDENLIVE_BINARY = '/opt/Kden Live/bin/kdenlive';
-    expect(kdenliveLaunchPlan('/tmp/cut;touch pwned.otio')).toEqual({
+    expect(kdenliveLaunchPlan()).toEqual({
       command: '/opt/Kden Live/bin/kdenlive',
-      args: ['/tmp/cut;touch pwned.otio'],
+      args: [],
       options: { shell: false, detached: true, stdio: 'ignore' },
     });
   });
@@ -25,7 +25,7 @@ describe('Kdenlive launcher', () => {
     expect(defaultKdenliveBinary('win32', environment, () => false)).toBe('kdenlive.exe');
   });
 
-  it('uses native Linux and macOS application locations without changing file arguments', () => {
+  it('uses native Linux and macOS application locations', () => {
     expect(defaultKdenliveBinary('linux', {}, (candidate) => candidate === '/usr/bin/kdenlive'))
       .toBe('/usr/bin/kdenlive');
     expect(defaultKdenliveBinary('darwin', {}, (candidate) => candidate.startsWith('/Applications/Kdenlive')))

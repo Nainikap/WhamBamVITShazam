@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { packagedElectronArgs } from './electron-args';
 
 let application: ElectronApplication | undefined;
 let peerApplication: ElectronApplication | undefined;
@@ -103,7 +104,7 @@ test.beforeEach(async ({ browserName }, testInfo) => {
   await mkdir(resolveRoot, { recursive: true });
   await seedResolveExport(testInfo.title.includes('scrubbing') || testInfo.title.includes('playback'));
   application = await electron.launch({
-    args: [packagedAppPath()],
+    args: packagedElectronArgs(packagedAppPath()),
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: dataRoot,
@@ -183,6 +184,10 @@ async function applyStageAllAndCommit(message: string): Promise<void> {
 }
 
 test('lists the Resolve export and imports it on first open', async () => {
+  const nativeWindowVisible = await application?.evaluate(({ BrowserWindow }) => (
+    BrowserWindow.getAllWindows()[0]?.isVisible()
+  ));
+  expect(nativeWindowVisible).toBe(false);
   const videoOverlayDisabled = await application?.evaluate(({ app }) => (
     app.commandLine.hasSwitch('disable-direct-composition-video-overlays')
   ));
@@ -240,6 +245,7 @@ test('keeps the project rendered in one window while a Resolve save refreshes it
   const initialWindowCount = application?.windows().length;
   await exportResolveTrim(90);
   await expect(page.getByText(/change detected in Resolve/u)).toBeVisible();
+  await expect(page.getByRole('status')).toHaveCount(0);
 
   await expect(page.locator('.vg-project')).toHaveCSS('visibility', 'visible');
   await expect(page.locator('.vg-project')).toHaveCSS('opacity', '1');
@@ -251,7 +257,7 @@ test('keeps the project rendered in one window while a Resolve save refreshes it
 test('hides a project whose Resolve files have gone', async () => {
   await rm(path.join(resolveRoot, 'Resolve Basic Cut', 'Resolve Basic Cut.drp'));
   await page.getByRole('button', { name: 'Refresh' }).click();
-  await expect(page.getByRole('heading', { name: 'No Resolve projects found yet' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No video projects found yet' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open Resolve Basic Cut' })).toHaveCount(0);
 });
 
@@ -412,7 +418,7 @@ test('hosts a project and lets a second app join and push a branch', async () =>
   await mkdir(peerRoot, { recursive: true });
   await mkdir(peerResolveRoot, { recursive: true });
   peerApplication = await electron.launch({
-    args: [packagedAppPath()],
+    args: packagedElectronArgs(packagedAppPath()),
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: peerRoot,

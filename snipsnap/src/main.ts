@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from 'electron';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createReadStream, existsSync } from 'node:fs';
@@ -20,6 +20,13 @@ import { channels } from './ipc';
 
 if (started) app.quit();
 
+const keepE2eWindowHidden = process.env.SNIPSNAP_E2E_HEADLESS === '1';
+if (keepE2eWindowHidden && process.platform === 'linux') {
+  // Hidden Wayland toplevels cannot own Radix popup surfaces. X11/Xvfb keeps
+  // the packaged UI testable without mapping anything into Hyprland.
+  app.commandLine.appendSwitch('ozone-platform', 'x11');
+  app.commandLine.appendSwitch('disable-gpu');
+}
 app.commandLine.appendSwitch('enable-unsafe-webgpu');
 if (process.platform === 'win32') {
   // Chromium otherwise promotes <video> into an independent DirectComposition
@@ -219,8 +226,15 @@ function registerIpc(): void {
   });
   ipcMain.handle(channels.openInKdenlive, async (_event, projectId: string, revision: string) => {
     const handoff = await projects.prepareKdenliveHandoff(projectId, revision);
-    await launchKdenlive(handoff.filePath);
-    return handoff;
+    // Kdenlive has no command-line switch for its OTIO importer. Passing the
+    // file positionally is actively wrong: it treats the JSON as a media clip.
+    // Prepare a truthful handoff instead and put the exact file one paste away.
+    if (process.env.SNIPSNAP_E2E_HEADLESS !== '1') {
+      clipboard.writeText(handoff.filePath);
+      shell.showItemInFolder(handoff.filePath);
+    }
+    await launchKdenlive();
+    return { ...handoff, requiresManualImport: true as const };
   });
   ipcMain.handle(channels.addResolveProjectFile, async () => {
     const selection = await dialog.showOpenDialog({
@@ -379,12 +393,15 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: !keepE2eWindowHidden,
     },
   });
 
   // Do not expose Chromium's empty native surface while the renderer is
   // loading. On Windows that surface appears as a full black window.
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', () => {
+    if (!keepE2eWindowHidden) window.show();
+  });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.once('did-finish-load', () => {

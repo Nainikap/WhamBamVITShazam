@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ProjectService, ResolveLibrary, resolveProjectId } from '../../src/application';
+import { packagedElectronArgs } from './electron-args';
 
 const RATE = 30;
 const FRAMES = 300;
@@ -90,7 +91,7 @@ test('a title over part of the timeline shows up as a commit', async () => {
   await service.commit(projectId, 'Add the GOAT title over the middle', status.headCommit, status.indexDigest);
 
   const application = await electron.launch({
-    args: [packagedAppPath()],
+    args: packagedElectronArgs(packagedAppPath()),
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: dataRoot,

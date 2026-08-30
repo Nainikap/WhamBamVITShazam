@@ -5,6 +5,7 @@ import path from 'node:path';
 import { exportKdenliveOtio, KdenliveInterchangeReportSchema } from '../../src/adapters/kdenlive';
 import { ProjectService } from '../../src/application';
 import { createDemoProject } from '../../src/domain/fixture';
+import { packagedElectronArgs } from './electron-args';
 
 function packagedAppPath(): string {
   const packageRoot = path.resolve('out', `SnipSnap-${process.platform}-${process.arch}`);
@@ -13,7 +14,7 @@ function packagedAppPath(): string {
     : path.join(packageRoot, 'resources', 'app.asar');
 }
 
-test('imports Kdenlive OTIO, watches edits, and opens an immutable handoff', async () => {
+test('imports Kdenlive OTIO, watches edits, and prepares an immutable handoff', async () => {
   test.setTimeout(180_000);
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-kdenlive-e2e-'));
   const dataRoot = path.join(workspace, 'data');
@@ -29,7 +30,7 @@ test('imports Kdenlive OTIO, watches edits, and opens an immutable handoff', asy
   const projectId = imported.status.project.id;
 
   const application = await electron.launch({
-    args: [packagedAppPath()],
+    args: packagedElectronArgs(packagedAppPath()),
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: dataRoot,
@@ -48,8 +49,8 @@ test('imports Kdenlive OTIO, watches edits, and opens an immutable handoff', asy
     await page.getByRole('button', { name: 'Open Kdenlive Cut' }).click();
     await expect(page.getByText(/Kdenlive · kdenlive-export\.otio/u)).toBeVisible();
 
-    await page.getByRole('button', { name: 'Open in Kdenlive' }).click();
-    await expect(page.getByRole('status')).toContainText(/Opened .* in Kdenlive/u);
+    await page.getByRole('button', { name: 'Prepare for Kdenlive' }).click();
+    await expect(page.getByRole('status')).toContainText(/File > OpenTimelineIO Import/u);
     const handoffRoot = path.join(dataRoot, 'projects', projectId, 'kdenlive-handoffs');
     const reportPath = path.join(handoffRoot, `${imported.status.headCommit}.report.json`);
     expect(KdenliveInterchangeReportSchema.parse(JSON.parse(await readFile(reportPath, 'utf8'))).editor)
