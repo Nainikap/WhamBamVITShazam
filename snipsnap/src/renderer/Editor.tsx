@@ -70,6 +70,7 @@ export function Editor() {
   const [mergeSource, setMergeSource] = useState('');
   const [playhead, setPlayhead] = useState(0);
   const [selectedDiffHunkId, setSelectedDiffHunkId] = useState<string | null>(null);
+  const [expandedCommitId, setExpandedCommitId] = useState<string | null>(null);
 
   useEffect(() => {
     setPlayhead(0);
@@ -109,6 +110,7 @@ export function Editor() {
     if (!status || !revision) return;
     const parent = revision.comparedParent ?? revision.commit.parents[0];
     setSelectedDiffHunkId(null);
+    setExpandedCommitId(revision.commit.id);
     void store.openDiff(parent ?? revision.commit.id, parent ? revision.commit.id : status.headCommit);
   }
 
@@ -117,6 +119,7 @@ export function Editor() {
     const parent = revision.comparedParent ?? revision.commit.parents[0];
     if (!parent) return;
     setSelectedDiffHunkId(hunkId);
+    setExpandedCommitId(revision.commit.id);
     void store.openDiff(parent, revision.commit.id);
   }
 
@@ -207,7 +210,16 @@ export function Editor() {
               return <div key={commit.id} className="flex flex-col">
                 <button
                   aria-label={`View commit ${commit.message}`}
-                  onClick={() => void store.loadRevision(commit.id)}
+                  aria-expanded={selected && expandedCommitId === commit.id}
+                  onClick={() => {
+                    if (selected && expandedCommitId === commit.id) {
+                      setExpandedCommitId(null);
+                      return;
+                    }
+                    setExpandedCommitId(commit.id);
+                    setSelectedDiffHunkId(null);
+                    if (!selected || store.diffOpen) void store.loadRevision(commit.id);
+                  }}
                   className={cn(
                     'flex items-start gap-2 rounded-md border border-transparent px-2.5 py-2 text-left transition-colors',
                     selected ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
@@ -233,7 +245,7 @@ export function Editor() {
                   </span>
                 </button>
 
-                {selected && commit.parents.length > 0 && <section
+                {selected && expandedCommitId === commit.id && commit.parents.length > 0 && <section
                   aria-label={`Changes in commit ${commit.message}`}
                   className="ml-5 flex flex-col gap-1 border-l border-border py-1 pl-2"
                 >

@@ -235,10 +235,19 @@ test('shows commit diffs in the left history and focuses each semantic change in
   await applyStageAllAndCommit('Polish the opening');
 
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
+  await expect(page.getByRole('heading', { name: 'Import Resolve Basic Cut from Resolve' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Changes in commit Polish the opening' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'View commit Polish the opening' }).click();
+  const polishCommit = page.getByRole('button', { name: 'View commit Polish the opening' });
+  await polishCommit.click();
+  await expect(page.getByRole('heading', { name: 'Polish the opening' })).toBeVisible();
 
   const commitChanges = page.getByRole('region', { name: 'Changes in commit Polish the opening' });
+  await expect(commitChanges).toBeVisible();
+  await expect(polishCommit).toHaveAttribute('aria-expanded', 'true');
+  await polishCommit.click();
+  await expect(commitChanges).toHaveCount(0);
+  await expect(polishCommit).toHaveAttribute('aria-expanded', 'false');
+  await polishCommit.click();
   await expect(commitChanges).toBeVisible();
   const wholeCommit = commitChanges.getByRole('button', { name: 'View all changes in commit Polish the opening' });
   const trim = commitChanges.getByRole('button', { name: 'View diff Trimmed end of clip Opening by 6 frames' });

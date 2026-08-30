@@ -105,6 +105,7 @@ test('a title over part of the timeline shows up as a commit', async () => {
   await expect(page.getByLabel('Commit history')).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(2000);
 
+  await page.getByRole('button', { name: 'View commit Add the GOAT title over the middle' }).click();
   const commitChanges = page.getByRole('region', { name: 'Changes in commit Add the GOAT title over the middle' });
   await expect(commitChanges).toBeVisible();
   await expect(commitChanges.getByRole('button', { name: 'View diff Added track V2 with 3 timeline items' })).toBeVisible();
