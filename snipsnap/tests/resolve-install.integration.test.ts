@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   commonExportRoots,
   defaultResolveRoots,
+  generatedExportFolder,
   installResolveScript,
   resolveDatabaseRoots,
   resolveScriptFolders,
@@ -18,6 +19,7 @@ describe('installing the Resolve script', () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-install-'));
     script = path.join(root, 'SnipSnapSync.py');
     await writeFile(script, '# export script\n');
+    await writeFile(path.join(root, 'resolve_connection.py'), '# connection helper\n');
   });
 
   afterEach(async () => {
@@ -33,6 +35,7 @@ describe('installing the Resolve script', () => {
     const installed = await installResolveScript(script);
     expect(installed).toEqual([path.join(utility, 'SnipSnapSync.py')]);
     expect(await readFile(installed[0] as string, 'utf8')).toContain('export script');
+    expect(await readFile(path.join(utility, 'resolve_connection.py'), 'utf8')).toContain('connection helper');
   });
 
   it('leaves a machine with no Resolve alone', async () => {
@@ -58,5 +61,17 @@ describe('installing the Resolve script', () => {
 
     expect(resolveScriptFolders().some((folder) => folder.includes('com.blackmagic-design.DaVinciResolveLite')))
       .toBe(true);
+  });
+
+  it('keeps generated exports from same-named database projects separate', () => {
+    process.env.SNIPSNAP_RESOLVE_ROOT = path.join(root, 'exports');
+    try {
+      const first = generatedExportFolder(path.join(root, 'library-a', 'Project 1'));
+      const second = generatedExportFolder(path.join(root, 'library-b', 'Project 1'));
+      expect(first).not.toBe(second);
+      expect(path.basename(first)).toContain('Project-1-');
+    } finally {
+      delete process.env.SNIPSNAP_RESOLVE_ROOT;
+    }
   });
 });

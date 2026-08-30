@@ -1,4 +1,4 @@
-import { copyFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,6 +12,7 @@ import {
   type Project,
 } from '../domain';
 import { probeVideo, type VideoFormat } from './media-probe';
+import { atomicWriteText } from './storage';
 
 interface SqliteRow { [column: string]: unknown }
 interface SqliteDatabase {
@@ -278,7 +279,7 @@ export async function writeTimelineExports(databasePath: string, folder: string)
   const written: string[] = [];
   for (const timeline of timelines) {
     const target = path.join(folder, `${timeline.name.replace(/[/\\:]+/gu, '-')}.otio`);
-    await writeFile(target, exportOtio(timeline.project, { mediaLinks: timeline.mediaLinks }), 'utf8');
+    await atomicWriteText(target, exportOtio(timeline.project, { mediaLinks: timeline.mediaLinks }));
     written.push(target);
   }
   return written;

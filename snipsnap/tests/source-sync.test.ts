@@ -39,4 +39,24 @@ describe('Resolve source synchronization', () => {
     expect(hunks.some(({ operation }) => operation === 'modify')).toBe(true);
     expect(hunks.filter(({ entityType }) => entityType === 'clip').every(({ operation }) => operation !== 'add' && operation !== 'delete')).toBe(true);
   });
+
+  it('reconciles transition references when Resolve rewrites track identities', () => {
+    const base = importOtio(fixture).project;
+    const imported = structuredClone(base);
+    for (const [index, track] of imported.tracks.entries()) {
+      const oldId = track.id;
+      const rewrittenId = `${String(index + 1).padStart(8, '0')}-1111-5111-8111-111111111111`;
+      track.id = rewrittenId;
+      for (const sequence of imported.sequences) {
+        sequence.trackIds = sequence.trackIds.map((id) => id === oldId ? rewrittenId : id);
+      }
+      for (const item of [...imported.clips, ...imported.gaps, ...imported.transitions, ...imported.captions]) {
+        if (item.trackId === oldId) item.trackId = rewrittenId;
+      }
+    }
+
+    const reconciled = reconcileImportedProject(base, imported);
+    expect(reconciled.transitions).toEqual(base.transitions);
+    expect(reconciled.tracks.map(({ itemIds }) => itemIds)).toEqual(base.tracks.map(({ itemIds }) => itemIds));
+  });
 });

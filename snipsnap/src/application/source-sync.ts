@@ -123,11 +123,13 @@ export function reconcileImportedProject(base: Project, imported: Project): Proj
     const basePositions = new Map((baseTrack?.itemIds ?? []).map((id, index) => [id, index]));
     const baseClips = base.clips.filter(({ trackId }) => trackId === candidateTrack.id);
     const baseGaps = base.gaps.filter(({ trackId }) => trackId === candidateTrack.id);
+    const baseTransitions = base.transitions.filter(({ trackId }) => trackId === candidateTrack.id);
     const baseCaptions = base.captions.filter(({ trackId }) => trackId === candidateTrack.id);
 
     candidateTrack.itemIds.forEach((candidateItemId, position) => {
       const clip = candidate.clips.find(({ id }) => id === candidateItemId);
       const gap = candidate.gaps.find(({ id }) => id === candidateItemId);
+      const transition = candidate.transitions.find(({ id }) => id === candidateItemId);
       const caption = candidate.captions.find(({ id }) => id === candidateItemId);
       let matchedId: string | undefined;
 
@@ -150,6 +152,13 @@ export function reconcileImportedProject(base: Project, imported: Project): Proj
             : undefined);
         gap.trackId = candidateTrack.id;
         if (matchedId) gap.id = matchedId;
+      } else if (transition) {
+        matchedId = baseTransitions.find(({ id }) => id === transition.id && !usedItems.has(id))?.id
+          ?? (baseTrack?.itemIds[position]
+            ? baseTransitions.find(({ id }) => id === baseTrack.itemIds[position] && !usedItems.has(id))?.id
+            : undefined);
+        transition.trackId = candidateTrack.id;
+        if (matchedId) transition.id = matchedId;
       } else if (caption) {
         matchedId = baseCaptions.find(({ id }) => id === caption.id && !usedItems.has(id))?.id
           ?? baseCaptions.find((existing) => !usedItems.has(existing.id)
@@ -158,7 +167,7 @@ export function reconcileImportedProject(base: Project, imported: Project): Proj
         if (matchedId) caption.id = matchedId;
       }
 
-      const nextId = clip?.id ?? gap?.id ?? caption?.id ?? candidateItemId;
+      const nextId = clip?.id ?? gap?.id ?? transition?.id ?? caption?.id ?? candidateItemId;
       itemIdMap.set(candidateItemId, nextId);
       usedItems.add(nextId);
     });

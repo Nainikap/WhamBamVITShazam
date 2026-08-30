@@ -2,8 +2,10 @@
 
 `SnipSnapSync.py` exports what SnipSnap needs to version your edit:
 
-```
-~/Library/Application Support/SnipSnap/resolve/
+```text
+macOS:   ~/Library/Application Support/SnipSnap/resolve/
+Windows: %APPDATA%\SnipSnap\resolve\
+
   manifest.json
   <project>/<project>.drp        the Resolve project file
   <project>/<timeline>.otio      one export per timeline
@@ -18,7 +20,7 @@ Copy the script into Resolve's script menu:
 
 ```bash
 mkdir -p ~/Library/Application\ Support/Blackmagic\ Design/DaVinci\ Resolve/Fusion/Scripts/Utility
-cp resolve/SnipSnapSync.py ~/Library/Application\ Support/Blackmagic\ Design/DaVinci\ Resolve/Fusion/Scripts/Utility/
+cp resolve/SnipSnapSync.py resolve/resolve_connection.py ~/Library/Application\ Support/Blackmagic\ Design/DaVinci\ Resolve/Fusion/Scripts/Utility/
 ```
 
 It then appears under **Workspace › Scripts › SnipSnapSync**.

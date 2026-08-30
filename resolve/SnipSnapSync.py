@@ -36,7 +36,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import resolve_connection  # noqa: E402  Needs the line above to be importable.
 
-DEFAULT_OUTPUT = os.path.expanduser("~/Library/Application Support/SnipSnap/resolve")
+def default_output() -> str:
+    """Use the same platform-specific export root the Electron app scans."""
+    if sys.platform == "win32":
+        app_data = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roaming")
+        return os.path.join(app_data, "SnipSnap", "resolve")
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/SnipSnap/resolve")
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(data_home, "SnipSnap", "resolve")
+
+
+DEFAULT_OUTPUT = default_output()
 LIBRARY_CANDIDATES = [
     os.environ.get("RESOLVE_SCRIPT_LIB"),
     "/Applications/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",

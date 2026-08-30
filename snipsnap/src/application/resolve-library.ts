@@ -166,6 +166,7 @@ export function resolveScriptFolders(): string[] {
  */
 export async function installResolveScript(scriptPath: string): Promise<string[]> {
   const installed: string[] = [];
+  const helperPath = path.join(path.dirname(scriptPath), 'resolve_connection.py');
   for (const folder of resolveScriptFolders()) {
     try {
       await access(path.dirname(folder));
@@ -175,6 +176,9 @@ export async function installResolveScript(scriptPath: string): Promise<string[]
     try {
       await mkdir(folder, { recursive: true });
       const target = path.join(folder, path.basename(scriptPath));
+      // SnipSnapSync imports this sibling at startup. Copy it first so the
+      // menu never exposes a script that cannot load its Resolve connection.
+      await copyFile(helperPath, path.join(folder, path.basename(helperPath)));
       await copyFile(scriptPath, target);
       installed.push(target);
     } catch {
@@ -190,7 +194,12 @@ export function resolveDatabaseProjectId(folder: string): string {
 
 /** Where SnipSnap keeps timelines it rebuilt from a Resolve project database. */
 export function generatedExportFolder(projectFolder: string): string {
-  return path.join(defaultResolveRoots()[0] as string, 'generated', path.basename(projectFolder));
+  const name = path.basename(projectFolder).replace(/[^A-Za-z0-9._-]+/gu, '-') || 'project';
+  return path.join(
+    defaultResolveRoots()[0] as string,
+    'generated',
+    `${name}-${resolveDatabaseProjectId(projectFolder)}`,
+  );
 }
 
 /** One SnipSnap project per Resolve project file, stable across re-exports. */
