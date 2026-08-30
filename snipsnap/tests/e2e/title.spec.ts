@@ -105,7 +105,10 @@ test('a title over part of the timeline shows up as a commit', async () => {
   await expect(page.getByLabel('Commit history')).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(2000);
 
-  await page.getByRole('button', { name: 'See diff' }).click();
+  const commitChanges = page.getByRole('region', { name: 'Changes in commit Add the GOAT title over the middle' });
+  await expect(commitChanges).toBeVisible();
+  await expect(commitChanges.getByRole('button', { name: 'View diff Added track V2 with 3 timeline items' })).toBeVisible();
+  await commitChanges.getByRole('button', { name: 'View all changes in commit Add the GOAT title over the middle' }).click();
   const comparison = page.getByRole('region', { name: 'Commit comparison' });
   await expect(comparison).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(2500);
@@ -122,7 +125,7 @@ test('a title over part of the timeline shows up as a commit', async () => {
   console.log('TITLE SHARE OF LANE:', share.toFixed(3), 'expected', (TITLE_FRAMES / FRAMES).toFixed(3));
   expect(share).toBeGreaterThan(0.2);
   expect(share).toBeLessThan(0.45);
-  console.log('WHAT CHANGED:', (await comparison.getByRole('listitem').allInnerTexts()).join(' ~ ').replace(/\n/gu, ' ').slice(0, 260));
+  console.log('COMMIT SIDEBAR:', (await commitChanges.allInnerTexts()).join(' ~ ').replace(/\n/gu, ' ').slice(0, 260));
   await application.close();
   await rm(workspace, { recursive: true, force: true });
 });

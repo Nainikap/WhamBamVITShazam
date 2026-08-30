@@ -222,29 +222,37 @@ test('splits the window into two commits and shows the frames the trim removed',
   // Six frames left the cut, so the lane shows a red slice, not a whole yellow clip.
   await expect(comparison.locator('.diff-part.part-removed')).toHaveCount(1);
   await expect(comparison.getByText('−6f cut')).toBeVisible();
-  await expect(comparison.getByText(/6 frames .* cut/u)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Changes in commit Tighten the opening' })
+    .getByText('Trimmed end of clip Opening by 6 frames')).toBeVisible();
 
   await page.getByRole('button', { name: 'Close comparison' }).click();
   await expect(page.getByRole('region', { name: 'Timeline tracks' })).toBeVisible();
 });
 
-test('opens a whole commit and focuses each semantic diff independently', async () => {
+test('shows commit diffs in the left history and focuses each semantic change independently', async () => {
   await openProject();
   await exportResolveMultiFieldChange();
   await applyStageAllAndCommit('Polish the opening');
 
-  await page.getByRole('button', { name: 'See diff' }).click();
-  const comparison = page.getByRole('region', { name: 'Commit comparison' });
-  await expect(comparison.getByText('Whole commit: 3 changes together')).toBeVisible();
-  const wholeCommit = comparison.getByRole('button', { name: 'Show all changes in this commit' });
-  await expect(wholeCommit).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
+  await expect(page.getByRole('region', { name: 'Changes in commit Polish the opening' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'View commit Polish the opening' }).click();
 
-  const trim = comparison.getByRole('button', { name: 'View diff Trimmed end of clip Opening by 6 frames' });
-  const level = comparison.getByRole('button', { name: 'View diff Changed clip Opening: level' });
-  const look = comparison.getByRole('button', { name: 'View diff Changed clip Opening: look' });
+  const commitChanges = page.getByRole('region', { name: 'Changes in commit Polish the opening' });
+  await expect(commitChanges).toBeVisible();
+  const wholeCommit = commitChanges.getByRole('button', { name: 'View all changes in commit Polish the opening' });
+  const trim = commitChanges.getByRole('button', { name: 'View diff Trimmed end of clip Opening by 6 frames' });
+  const level = commitChanges.getByRole('button', { name: 'View diff Changed clip Opening: level' });
+  const look = commitChanges.getByRole('button', { name: 'View diff Changed clip Opening: look' });
+  await expect(wholeCommit).toContainText('3');
   await expect(trim).toBeVisible();
   await expect(level).toBeVisible();
   await expect(look).toBeVisible();
+
+  await wholeCommit.click();
+  const comparison = page.getByRole('region', { name: 'Commit comparison' });
+  await expect(comparison.getByText('Whole commit: 3 changes together')).toBeVisible();
+  await expect(wholeCommit).toHaveAttribute('aria-pressed', 'true');
 
   await level.click();
   await expect(comparison.getByText('Focused change: Changed clip Opening: level')).toBeVisible();

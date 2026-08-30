@@ -4,7 +4,6 @@ import type { TimelineComparison } from '../application';
 import type { SemanticHunk } from '../diff';
 import type { CommitInfo } from '../git';
 import type { TimelineChangeField, TimelineDiffSegment, TimelineDiffTrack } from '../preview';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -76,14 +75,6 @@ function tally(segments: TimelineDiffSegment[]): Record<Tone, number> {
   const counts: Record<Tone, number> = { added: 0, removed: 0, trimmed: 0, moved: 0, edited: 0, unchanged: 0 };
   for (const segment of segments) counts[toneOf(segment)] += 1;
   return counts;
-}
-
-function hunkTone(hunk: SemanticHunk): Exclude<Tone, 'unchanged'> {
-  if (hunk.operation === 'add') return 'added';
-  if (hunk.operation === 'delete') return 'removed';
-  if (hunk.operation === 'reorder') return 'moved';
-  if (['sourceRange', 'range', 'durationFrames', 'split'].includes(hunk.fieldGroup)) return 'trimmed';
-  return 'edited';
 }
 
 function hunkEntityIds(hunk: SemanticHunk): Set<string> {
@@ -208,15 +199,22 @@ function Lane({ track, laneFrames, fps }: { track: TimelineDiffTrack; laneFrames
 export interface DiffViewProps {
   comparison: TimelineComparison;
   history: CommitInfo[];
+  selectedHunkId: string | null;
   onSelectBase(id: string): void;
   onSelectHead(id: string): void;
   onClose(): void;
 }
 
-export function DiffView({ comparison, history, onSelectBase, onSelectHead, onClose }: DiffViewProps) {
+export function DiffView({
+  comparison,
+  history,
+  selectedHunkId,
+  onSelectBase,
+  onSelectHead,
+  onClose,
+}: DiffViewProps) {
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [selectedHunkId, setSelectedHunkId] = useState<string | null>(null);
   const { diff } = comparison;
   const changed = useMemo(
     () => diff.tracks.flatMap((track) => track.segments
@@ -242,27 +240,22 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
   const visibleSegments = useMemo(() => visibleTracks.flatMap(({ segments }) => segments), [visibleTracks]);
   const totals = useMemo(() => tally(visibleSegments), [visibleSegments]);
   const identicalTimeline = changed.length === 0;
-  const noChanges = comparison.hunks.length === 0;
 
   useEffect(() => {
-    setSelectedHunkId(null);
     setPlayhead(0);
     setPlaying(false);
   }, [comparison.base.commit.id, comparison.head.commit.id]);
 
-  const focusHunk = (hunk: SemanticHunk) => {
-    setSelectedHunkId(hunk.id);
+  useEffect(() => {
     setPlaying(false);
-    const ids = hunkEntityIds(hunk);
+    if (!selectedHunk) {
+      setPlayhead(0);
+      return;
+    }
+    const ids = hunkEntityIds(selectedHunk);
     const segment = changed.find((entry) => ids.has(entry.segment.id))?.segment;
     if (segment) setPlayhead(segment.after?.timelineStart ?? segment.before?.timelineStart ?? 0);
-  };
-
-  const showWholeCommit = () => {
-    setSelectedHunkId(null);
-    setPlaying(false);
-    setPlayhead(0);
-  };
+  }, [changed, selectedHunk]);
 
   return <section aria-label="Commit comparison" className="flex flex-col gap-3">
     <Card className="flex flex-wrap items-end gap-4 p-3">
@@ -334,60 +327,5 @@ export function DiffView({ comparison, history, onSelectBase, onSelectHead, onCl
         </div>}
     </Card>
 
-    {!noChanges && <Card className="p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold">What changed</h3>
-        <button
-          type="button"
-          aria-label="Show all changes in this commit"
-          aria-pressed={selectedHunk === null}
-          onClick={showWholeCommit}
-          className={cn(
-            'rounded-md border px-2.5 py-1.5 text-left text-[10px] transition-colors',
-            selectedHunk === null ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border hover:bg-accent',
-          )}
-        >
-          Whole commit · {comparison.hunks.length} change{comparison.hunks.length === 1 ? '' : 's'}
-        </button>
-      </div>
-      <ul className="flex flex-col gap-1.5">
-        {comparison.hunks.map((hunk) => {
-          const tone = hunkTone(hunk);
-          const active = selectedHunk?.id === hunk.id;
-          const entityIds = hunkEntityIds(hunk);
-          const relatedSegment = changed.find((entry) => entityIds.has(entry.segment.id))?.segment;
-          const focusedSegment = relatedSegment ? segmentForHunk(relatedSegment, hunk) : null;
-          return <li key={hunk.id}>
-            <button
-              type="button"
-              aria-label={`View diff ${hunk.message}`}
-              aria-pressed={active}
-              onClick={() => focusHunk(hunk)}
-              className={cn('flex w-full items-center gap-3 rounded-md border border-transparent border-l-2 bg-secondary/60 px-3 py-2 text-left transition-colors hover:bg-accent', {
-                'border-l-added': tone === 'added',
-                'border-l-removed': tone === 'removed',
-                'border-l-retimed': tone === 'trimmed' || tone === 'moved',
-                'border-l-edited': tone === 'edited',
-                'border-primary/50 bg-primary/10': active,
-              })}
-            >
-              <Badge variant={tone === 'trimmed' || tone === 'moved' ? 'retimed' : tone}>
-                {toneLabel[tone]}
-              </Badge>
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <strong className="truncate text-xs">{hunk.message}</strong>
-                <small className="font-mono text-[10px] text-muted-foreground">
-                  {hunk.entityType} · {hunk.fieldGroup}
-                  {hunk.parts && hunk.parts.length > 1 ? ` · ${hunk.parts.length} atomic parts` : ''}
-                </small>
-                {focusedSegment && frameSummary(focusedSegment, diff.fps) && <small className="font-mono text-[10px]">
-                  {frameSummary(focusedSegment, diff.fps)}
-                </small>}
-              </span>
-            </button>
-          </li>;
-        })}
-      </ul>
-    </Card>}
   </section>;
 }
