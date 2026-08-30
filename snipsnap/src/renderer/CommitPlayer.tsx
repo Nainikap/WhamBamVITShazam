@@ -196,8 +196,17 @@ export function CommitPlayer({
     aria-label={label ?? 'Commit video preview'}
   >
     <div
+      aria-label="Preview video surface"
+      tabIndex={0}
+      onClick={(event) => event.currentTarget.focus()}
+      onKeyDown={(event) => {
+        if (event.code !== 'Space' && event.key !== ' ') return;
+        event.preventDefault();
+        event.stopPropagation();
+        togglePlayback();
+      }}
       className={cn(
-        'relative shrink-0 overflow-hidden bg-black',
+        'relative shrink-0 cursor-pointer overflow-hidden bg-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-edited',
         // A fixed box with object-contain letterboxes any aspect ratio without
         // the stage growing past the transport underneath it.
         variant === 'full' ? 'h-[44vh]' : 'h-[26vh]',

@@ -421,4 +421,10 @@ test('scrubbing the sequence moves the video and playing moves the sequence', as
   )).toBeGreaterThan(scrubbed);
   const playhead = await page.locator('.playhead').getAttribute('style');
   expect(playhead).not.toContain('left: 0%');
+
+  await page.getByLabel('Preview video surface').click();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('button', { name: 'Play' })).toBeVisible();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
 });
