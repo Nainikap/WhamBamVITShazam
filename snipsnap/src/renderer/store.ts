@@ -40,6 +40,7 @@ interface AppStore {
   exportFromResolve(): Promise<void>;
   refreshLibrary(): Promise<void>;
   connectSource(): Promise<void>;
+  connectKdenliveSource(): Promise<void>;
   startResolveSync(): Promise<void>;
   stopResolveSync(): Promise<void>;
   scanSource(): Promise<void>;
@@ -273,6 +274,23 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({ status: result.status });
       if (result.error) set({ error: result.error });
       else set({ notice: result.changed ? 'Source connected. Review the detected changes.' : 'Source connected and up to date.' });
+    }),
+
+    connectKdenliveSource: () => run(async () => {
+      const { currentProjectId, status } = get();
+      if (!currentProjectId || !status) return;
+      const result = await window.snipsnap.connectKdenliveSource(currentProjectId, status.workspaceVersion);
+      if (!result) return;
+      set({
+        status: result.status,
+        ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
+      });
+      if (result.error) set({ error: result.error });
+      else set({
+        notice: result.changed
+          ? 'Kdenlive connected. Its current edits are ready to review.'
+          : 'Kdenlive connected. Future Ctrl+S saves will update this project.',
+      });
     }),
 
     startResolveSync: () => run(async () => {

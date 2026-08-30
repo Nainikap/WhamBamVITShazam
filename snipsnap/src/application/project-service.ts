@@ -795,6 +795,60 @@ export class ProjectService {
     });
   }
 
+  /** Attach a native Kdenlive document to an existing project without creating another repository. */
+  async connectKdenliveSource(
+    projectId: string,
+    sourcePath: string,
+    expectedVersion: number,
+  ): Promise<SourceScanResult> {
+    return this.mutex.run(projectId, async () => {
+      const workspace = await this.readWorkspace(projectId);
+      if (workspace.version !== expectedVersion) throw new StaleWorkspaceError();
+      const selectedPath = path.resolve(sourcePath);
+      if (path.extname(selectedPath).toLowerCase() !== '.kdenlive') {
+        throw new Error('Choose a native .kdenlive project');
+      }
+      const contents = await readFile(selectedPath, 'utf8');
+      // Validate before replacing any existing source connection.
+      importKdenliveProject(contents, {
+        sourceIdentity: selectedPath,
+        fallbackName: workspace.working.name,
+      });
+      const metadata = await this.readMetadata(projectId);
+      if (!metadata) throw new Error('Project metadata is missing');
+      const otioPath = path.join(
+        path.dirname(selectedPath),
+        `${path.basename(selectedPath, path.extname(selectedPath))}.otio`,
+      );
+      await Promise.all([
+        atomicWriteJson(this.metadataPath(projectId), {
+          ...metadata,
+          kdenlive: { projectPath: selectedPath, otioPath },
+        }),
+        atomicWriteJson(this.sourceBindingPath(projectId), {
+          format: 'kdenlive',
+          mode: 'kdenlive',
+          path: selectedPath,
+          otioPath,
+        }),
+        rm(this.pendingSyncPath(projectId), { force: true }),
+      ]);
+      try {
+        const changed = await this.scanOtioSourceUnlocked(projectId);
+        return { changed, status: await this.statusUnlocked(projectId) };
+      } catch (error) {
+        const binding = await this.sourceBinding(projectId);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (binding) await atomicWriteJson(this.sourceBindingPath(projectId), { ...binding, lastError: errorMessage });
+        return {
+          changed: false,
+          status: await this.statusUnlocked(projectId),
+          error: errorMessage,
+        };
+      }
+    });
+  }
+
   async scanOtioSource(projectId: string): Promise<SourceScanResult> {
     return this.mutex.run(projectId, async () => {
       try {

@@ -15,6 +15,11 @@ const api: SnipSnapApi = {
   resolveRoots: () => ipcRenderer.invoke(channels.resolveRoots),
   status: (projectId) => ipcRenderer.invoke(channels.status, projectId),
   connectOtioSource: (projectId, expectedVersion) => ipcRenderer.invoke(channels.connectOtioSource, projectId, expectedVersion),
+  connectKdenliveSource: (projectId, expectedVersion) => ipcRenderer.invoke(
+    channels.connectKdenliveSource,
+    projectId,
+    expectedVersion,
+  ),
   startResolveBridge: (projectId, expectedVersion) => ipcRenderer.invoke(channels.startResolveBridge, projectId, expectedVersion),
   stopResolveBridge: (projectId) => ipcRenderer.invoke(channels.stopResolveBridge, projectId),
   scanOtioSource: (projectId) => ipcRenderer.invoke(channels.scanOtioSource, projectId),

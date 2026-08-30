@@ -359,6 +359,9 @@ export function Editor() {
                 : status.source.filePath ?? 'Each editor save arrives as the new working timeline')}
           </span>
           <div className="flex flex-wrap gap-2">
+            {!status.source.connected && <Button size="sm" onClick={() => void store.connectKdenliveSource()}>
+              Connect Kdenlive
+            </Button>}
             {(status.source.mode === 'file' || status.source.mode === 'kdenlive')
               && <Button variant="secondary" size="sm" onClick={() => void store.scanSource()}>Check file</Button>}
             {status.resolve && (resolveSyncActive

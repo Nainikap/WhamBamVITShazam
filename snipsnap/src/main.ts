@@ -338,6 +338,20 @@ function registerIpc(): void {
     sourceWatcher.watch(projectId, sourcePath);
     return result;
   });
+  ipcMain.handle(channels.connectKdenliveSource, async (_event, projectId: string, expectedVersion: number) => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Connect Kdenlive to this project',
+      message: 'Choose the native .kdenlive project whose Ctrl+S saves should update this SnipSnap project.',
+      properties: ['openFile'],
+      filters: [{ name: 'Kdenlive project', extensions: ['kdenlive'] }],
+    });
+    const sourcePath = selection.filePaths[0];
+    if (selection.canceled || !sourcePath) return null;
+    await resolveBridge.stop(projectId);
+    const result = await projects.connectKdenliveSource(projectId, sourcePath, expectedVersion);
+    sourceWatcher.watch(projectId, sourcePath);
+    return result;
+  });
   ipcMain.handle(channels.startResolveBridge, async (_event, projectId: string, expectedVersion: number) => {
     sourceWatcher.unwatch(projectId);
     if (resolveBridge.isRunning(projectId)) await resolveBridge.stop(projectId);

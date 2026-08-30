@@ -119,6 +119,40 @@ describe('Kdenlive project workflow', () => {
     });
   });
 
+  it('connects a native Kdenlive file to an existing team project instead of creating another project', async () => {
+    const teamProject = createDemoProject('Team Cut');
+    await service.createProject(teamProject, 'Clone team project');
+    const before = await service.status(teamProject.id);
+    const nativePath = path.join(root, 'Team Cut.kdenlive');
+    const generatedOtioPath = path.join(root, 'Team Cut.otio');
+    await writeFile(nativePath, KDENLIVE_NATIVE_FIXTURE);
+
+    const connected = await service.connectKdenliveSource(
+      teamProject.id,
+      nativePath,
+      before.workspaceVersion,
+    );
+
+    expect(connected.changed).toBe(true);
+    expect(connected.status.project.id).toBe(teamProject.id);
+    expect(connected.status.history).toHaveLength(before.history.length);
+    expect(connected.status.source).toMatchObject({
+      connected: true,
+      mode: 'kdenlive',
+      filePath: nativePath,
+      state: 'watching',
+    });
+    expect(connected.status.unstaged.length).toBeGreaterThan(0);
+    expect(await service.listProjects()).toEqual([{ id: teamProject.id, name: 'Team Cut' }]);
+    expect(JSON.parse(await readFile(generatedOtioPath, 'utf8'))).toMatchObject({ OTIO_SCHEMA: 'Timeline.1' });
+
+    await writeFile(nativePath, KDENLIVE_NATIVE_FIXTURE.replace('in="10" out="59"', 'in="10" out="69"'));
+    const saved = await service.scanOtioSource(teamProject.id);
+    expect(saved.changed).toBe(true);
+    expect(saved.status.project.id).toBe(teamProject.id);
+    expect(saved.status.source.lastSavedAt).toBeTruthy();
+  });
+
   it('imports Kdenlive audio references whose available range has rate zero', async () => {
     const exported = kdenliveExport('Kdenlive Zero-Rate Audio');
     const tracks = (exported.tracks as {
