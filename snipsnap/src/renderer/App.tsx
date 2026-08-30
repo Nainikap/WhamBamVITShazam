@@ -61,7 +61,7 @@ export function App() {
   return <TooltipProvider delayDuration={300}>
     <GlassFilters />
     <div className="vg-shell" data-stage={stage}>
-      <PrismStage stage={stage} />
+      {stage !== 'project' && <PrismStage stage={stage} />}
 
       {introMounted && <Intro leaving={entered} onContinue={enter} />}
 
@@ -70,7 +70,7 @@ export function App() {
       <div className="vg-project">
         <GlassSurface />
         <div className="vg-glass-body vg-project-body">
-          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
+          <header className="vg-project-header flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

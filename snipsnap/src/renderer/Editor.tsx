@@ -155,7 +155,7 @@ export function Editor() {
   };
 
   return <main className="vg-editor-grid">
-    <aside aria-label="Source control" className="vg-glass flex min-h-0 flex-col">
+    <aside aria-label="Source control" className="vg-source-control vg-glass flex min-h-0 flex-col">
       <GlassSurface />
       <div className="vg-glass-body flex min-h-0 flex-col">
       <section aria-label="Working changes" className="flex min-h-0 flex-col">
@@ -316,7 +316,7 @@ export function Editor() {
       </div>
     </aside>
 
-    <section className="flex min-w-0 flex-col gap-3 overflow-y-auto p-4">
+    <section className="vg-editor-workspace flex min-w-0 flex-col gap-3 overflow-y-auto p-4">
       {store.diffOpen && store.comparison
         ? <DiffView
           comparison={store.comparison}
@@ -336,14 +336,14 @@ export function Editor() {
           }}
         />
         : <>
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="vg-revision-header flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <h2 className="line-clamp-2 break-words text-base font-semibold tracking-tight" title={revision.commit.message}>{revision.commit.message}</h2>
               <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
                 {shortId(revision.commit.id)} · {absoluteTime(revision.commit.authoredAt)}
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="vg-revision-actions flex shrink-0 items-center gap-2">
               {revision.commit.parents.length > 1 && <div className="flex items-center gap-1">
                 <span className="text-[10px] text-muted-foreground">Parent</span>
                 {revision.commit.parents.map((parent, index) => <Button
@@ -383,7 +383,7 @@ export function Editor() {
             onPlayheadChange={setPlayhead}
           />
 
-          <div className="flex shrink-0 items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+          <div className="vg-source-status flex shrink-0 items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
             <Badge variant={status.source.state === 'watching' ? 'added' : 'retimed'} className="shrink-0 uppercase">
               {status.source.state.replace(/-/gu, ' ')}
             </Badge>
@@ -409,7 +409,7 @@ export function Editor() {
             </div>
           </div>
 
-          {status.source.pending && <div className="flex shrink-0 items-center gap-3 rounded-lg border border-retimed/40 bg-retimed-soft px-3 py-2.5">
+          {status.source.pending && <div className="vg-source-pending flex shrink-0 items-center gap-3 rounded-lg border border-retimed/40 bg-retimed-soft px-3 py-2.5">
             <span className="flex-1 text-xs">
               <strong>{status.source.pending.changeCount} change{status.source.pending.changeCount === 1 ? '' : 's'} detected in Resolve</strong>
               {status.source.pending.unsupportedCount > 0 && ` · ${status.source.pending.unsupportedCount} unsupported`}
@@ -422,7 +422,7 @@ export function Editor() {
         </>}
     </section>
 
-    <aside aria-label="Inspector" className="vg-glass flex min-h-0 flex-col overflow-y-auto">
+    <aside aria-label="Inspector" className="vg-inspector vg-glass flex min-h-0 flex-col overflow-y-auto">
       <GlassSurface />
       <div className="vg-glass-body flex min-h-0 flex-col overflow-y-auto">
       <PanelHeading
