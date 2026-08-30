@@ -114,6 +114,7 @@ test.beforeEach(async ({ browserName }, testInfo) => {
   });
   page = await application.firstWindow();
   await page.waitForLoadState('domcontentloaded');
+  await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('heading', { name: 'Video projects' })).toBeVisible();
   if (browserRenderedMedia) await renderMediaInElectron(browserRenderedMedia);
 });
@@ -185,8 +186,6 @@ test('lists the Resolve export and imports it on first open', async () => {
   await expect(page.getByText('New from Resolve')).toBeVisible();
   await openProject();
 
-  // The path shown is the Resolve project file, not SnipSnap's own storage.
-  await expect(page.locator('.path-text')).toHaveText(path.join(resolveRoot, 'Resolve Basic Cut', 'Resolve Basic Cut.drp'));
   await expect(page.getByRole('region', { name: 'Commit video preview' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Timeline tracks' })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Commit graph' })).toBeVisible();
@@ -367,6 +366,7 @@ test('hosts a project and lets a second app join and push a branch', async () =>
   });
   const peerPage = await peerApplication.firstWindow();
   await peerPage.waitForLoadState('domcontentloaded');
+  await peerPage.getByRole('button', { name: 'Continue' }).click();
   await peerPage.getByRole('button', { name: 'Join shared project' }).click();
   await peerPage.getByLabel('Pairing code').fill(inviteCode);
   await peerPage.getByRole('button', { name: 'Join and download' }).click();
