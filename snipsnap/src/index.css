@@ -4,11 +4,7 @@
 
 @layer base {
   :root {
-    /*
-     * Black, grey and white only. The prism scene behind the interface is the one
-     * place colour is allowed, so every surface here is a step of lightness and the
-     * diff roles are told apart by how bright they are, not by hue.
-     */
+    /* Keep application chrome neutral; reserve colour for semantic editor state. */
     --background: 0 0% 0%;
     --foreground: 0 0% 96%;
     --card: 0 0% 8%;
@@ -30,15 +26,15 @@
     --ring: 0 0% 88%;
     --radius: 0.6rem;
 
-    /* What a difference between two commits means, as four steps of grey. */
-    --added: 0 0% 100%;
-    --added-soft: 0 0% 17%;
-    --removed: 0 0% 46%;
-    --removed-soft: 0 0% 10%;
-    --retimed: 0 0% 78%;
-    --retimed-soft: 0 0% 14%;
-    --edited: 0 0% 62%;
-    --edited-soft: 0 0% 12%;
+    /* Solid Git-style semantic colours with dark tints for larger surfaces. */
+    --added: 142 71% 45%;
+    --added-soft: 142 38% 14%;
+    --removed: 0 76% 62%;
+    --removed-soft: 0 39% 15%;
+    --retimed: 39 92% 56%;
+    --retimed-soft: 39 43% 15%;
+    --edited: 217 91% 65%;
+    --edited-soft: 217 42% 16%;
   }
 
   * {

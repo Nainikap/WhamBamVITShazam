@@ -30,10 +30,10 @@ function TrackHead({ track }: { track: PreviewTrack }) {
 }
 
 const chipTone: Record<PreviewSegment['kind'], string> = {
-  clip: 'bg-gradient-to-b from-[#3a3a3a] to-[#242424]',
-  gap: 'bg-[repeating-linear-gradient(45deg,#1a1a1a_0_6px,#141414_6px_12px)] border-dashed',
-  caption: 'bg-gradient-to-b from-[#4a4a4a] to-[#2e2e2e]',
-  transition: 'bg-[repeating-linear-gradient(45deg,#5a5a5a_0_4px,#3a3a3a_4px_8px)] border-[#8a8a8a]',
+  clip: 'bg-[#303036]',
+  gap: 'border-dashed bg-[#151518]',
+  caption: 'border-edited/60 bg-edited-soft',
+  transition: 'border-retimed/60 bg-retimed-soft',
 };
 
 function tickStep(totalFrames: number, fps: number): number {

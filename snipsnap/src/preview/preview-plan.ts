@@ -156,6 +156,76 @@ function buildTrack(
   return { id: track.id, name: track.name, kind: track.kind, totalFrames, segments };
 }
 
+/**
+ * Resolve composites higher-numbered video tracks over lower ones. The player
+ * needs one non-overlapping stream, so slice the visible clip at every layer
+ * boundary and select the highest enabled clip for that interval. Gaps reveal
+ * the track below instead of hiding it.
+ */
+function compositeVideoTracks(tracks: PreviewTrack[], totalFrames: number): PreviewSegment[] {
+  const boundaries = new Set([0, totalFrames]);
+  for (const track of tracks) {
+    for (const segment of track.segments) {
+      if (segment.kind !== 'clip' || segment.enabled === false) continue;
+      boundaries.add(Math.max(0, Math.min(totalFrames, segment.timelineStart)));
+      boundaries.add(Math.max(0, Math.min(totalFrames, segment.timelineStart + segment.duration)));
+    }
+  }
+
+  const frames = [...boundaries].sort((left, right) => left - right);
+  const composite: PreviewSegment[] = [];
+  for (let index = 0; index < frames.length - 1; index += 1) {
+    const start = frames[index] as number;
+    const end = frames[index + 1] as number;
+    if (end <= start) continue;
+
+    let visible: PreviewSegment | undefined;
+    for (let trackIndex = tracks.length - 1; trackIndex >= 0 && !visible; trackIndex -= 1) {
+      visible = tracks[trackIndex]?.segments.find((segment) => segment.kind === 'clip'
+        && segment.enabled !== false
+        && segment.timelineStart <= start
+        && segment.timelineStart + segment.duration >= end);
+    }
+
+    const previous = composite.at(-1);
+    if (!visible) {
+      if (previous?.kind === 'gap' && previous.timelineStart + previous.duration === start) {
+        previous.duration += end - start;
+      } else {
+        composite.push({
+          id: `preview-gap-${start}`,
+          kind: 'gap',
+          name: 'Gap',
+          timelineStart: start,
+          duration: end - start,
+          sourceStart: 0,
+          available: false,
+          gainDb: 0,
+          enabled: true,
+          markerCount: 0,
+          effectCount: 0,
+        });
+      }
+      continue;
+    }
+
+    const sourceStart = visible.sourceStart + start - visible.timelineStart;
+    if (previous?.id === visible.id
+      && previous.timelineStart + previous.duration === start
+      && previous.sourceStart + previous.duration === sourceStart) {
+      previous.duration += end - start;
+      continue;
+    }
+    composite.push({
+      ...visible,
+      timelineStart: start,
+      duration: end - start,
+      sourceStart,
+    });
+  }
+  return composite;
+}
+
 export function buildPreviewPlan(
   input: Project,
   revision: string,
@@ -171,7 +241,9 @@ export function buildPreviewPlan(
     .map((id) => project.tracks.find((candidate) => candidate.id === id))
     .filter((candidate): candidate is Track => candidate !== undefined)
     .map((track) => buildTrack(project, track, availability, missing));
-  const video = tracks.find((track) => track.kind === 'video');
+  const videoTracks = tracks.filter((track) => track.kind === 'video');
+  const video = videoTracks[0];
+  const totalFrames = Math.max(0, ...tracks.map((track) => track.totalFrames));
 
   return {
     revision,
@@ -180,9 +252,11 @@ export function buildPreviewPlan(
     fps: rationalToRate(sequence.fps),
     width: sequence.width,
     height: sequence.height,
-    totalFrames: Math.max(0, ...tracks.map(({ totalFrames }) => totalFrames)),
+    totalFrames,
     videoTrackName: video?.name ?? null,
-    segments: video?.segments ?? [],
+    segments: videoTracks.length > 1
+      ? compositeVideoTracks(videoTracks, totalFrames)
+      : video?.segments ?? [],
     tracks,
     missingAssets: [...missing].map(([fingerprint, name]) => ({ fingerprint, name })),
   };

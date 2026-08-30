@@ -126,6 +126,11 @@ function Facts({ project }: { project: ProjectOverview }) {
 export function Dashboard() {
   const store = useAppStore();
   const [joinOpen, setJoinOpen] = useState(false);
+
+  useEffect(() => {
+    if (store.route.name === 'editor') setJoinOpen(false);
+  }, [store.route.name]);
+
   const filter = store.filter.trim().toLowerCase();
   const matching = filter
     ? store.overviews.filter((project) => project.name.toLowerCase().includes(filter)

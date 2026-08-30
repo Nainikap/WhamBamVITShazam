@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDemoProject, projectDigest } from '../src/domain';
+import { createDemoProject, decorations, deterministicUuid, projectDigest } from '../src/domain';
 import { buildPreviewPlan } from '../src/preview';
 
 function planFor(project = createDemoProject(), availability: Record<string, { available: boolean; mediaUrl?: string }> = {}) {
@@ -48,5 +48,56 @@ describe('preview plan', () => {
   it('positions captions at their absolute sequence range rather than a running offset', () => {
     const captions = planFor().tracks.find(({ kind }) => kind === 'caption');
     expect(captions?.segments).toEqual([expect.objectContaining({ timelineStart: 72, duration: 96, kind: 'caption' })]);
+  });
+
+  it('continues through the highest visible clip when an upper video track outlasts V1', () => {
+    const project = createDemoProject();
+    const sequence = project.sequences[0];
+    const overlayAsset = project.assets.find(({ name }) => name === 'interview.mov');
+    if (!sequence || !overlayAsset) throw new Error('Fixture video is missing');
+    const trackId = deterministicUuid(`${sequence.id}:video:2`);
+    const gapId = deterministicUuid(`${trackId}:gap`);
+    const clipId = deterministicUuid(`${trackId}:overlay`);
+    sequence.trackIds.splice(1, 0, trackId);
+    project.tracks.push({
+      id: trackId,
+      sequenceId: sequence.id,
+      name: 'V2',
+      kind: 'video',
+      itemIds: [gapId, clipId],
+      ...decorations(),
+    });
+    project.gaps.push({
+      id: gapId,
+      type: 'gap',
+      trackId,
+      durationFrames: 124,
+      ...decorations(),
+    });
+    project.clips.push({
+      id: clipId,
+      type: 'clip',
+      trackId,
+      name: 'Video 2',
+      assetId: overlayAsset.id,
+      sourceRange: { start: 10, duration: 380 },
+      gainDb: 0,
+      preset: 'none',
+      color: null,
+      ...decorations(),
+    });
+
+    const plan = planFor(project, {
+      [project.assets[0]?.fingerprint ?? '']: { available: true, mediaUrl: 'snipsnap-media://asset/project/video-1' },
+      [overlayAsset.fingerprint]: { available: true, mediaUrl: 'snipsnap-media://asset/project/video-2' },
+    });
+
+    expect(plan.totalFrames).toBe(504);
+    expect(plan.segments.map(({ name, timelineStart, duration, sourceStart }) => ({
+      name, timelineStart, duration, sourceStart,
+    }))).toEqual([
+      { name: 'Intro', timelineStart: 0, duration: 124, sourceStart: 0 },
+      { name: 'Video 2', timelineStart: 124, duration: 380, sourceStart: 10 },
+    ]);
   });
 });

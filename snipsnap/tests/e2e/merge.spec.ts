@@ -150,6 +150,7 @@ async function launchFixture(fixture: MergeFixture): Promise<{ application: Elec
   const page = await application.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Open Launch Promo' }).click();
   await expect(page.getByLabel('Commit history')).toBeVisible({ timeout: 30_000 });
   return { application, page };
@@ -321,6 +322,12 @@ test('divergent branch commits stay visible and independent fields merge cleanly
     await expect(history.getByRole('button', { name: 'View commit Lower the interview gain' })).toBeVisible();
     await expect(graph.getByText('look-fix', { exact: true })).toBeVisible();
     await expect(graph.getByText('main', { exact: true })).toBeVisible();
+    await expect(graph.locator('.vg-cube')).toHaveCount(0);
+
+    await graph.getByRole('button', { name: 'Graph commit Warm the interview look' }).click();
+    await expect(page.getByRole('heading', { name: 'Warm the interview look' })).toBeVisible();
+    await graph.getByRole('button', { name: 'Graph commit Lower the interview gain' }).click();
+    await expect(page.getByRole('heading', { name: 'Lower the interview gain' })).toBeVisible();
 
     await expect(page.getByText(/change detected in Resolve/u)).toBeVisible();
     await page.getByLabel('Switch branch').click();

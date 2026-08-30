@@ -101,6 +101,7 @@ test('a title over part of the timeline shows up as a commit', async () => {
   const page = await application.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Open Launch Promo' }).click();
   await expect(page.getByLabel('Commit history')).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(2000);

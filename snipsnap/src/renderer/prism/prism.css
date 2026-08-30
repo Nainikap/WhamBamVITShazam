@@ -260,9 +260,9 @@
   opacity: 0;
   transform: scale(1.06);
   transition:
-    opacity 520ms ease,
-    transform 900ms cubic-bezier(0.16, 1, 0.3, 1),
-    visibility 0s 520ms;
+    opacity 160ms ease,
+    transform 160ms ease,
+    visibility 0s 160ms;
 }
 
 .vg-shell[data-stage='library'] .vg-library {
@@ -270,8 +270,8 @@
   opacity: 1;
   transform: none;
   transition:
-    opacity 640ms 480ms ease,
-    transform 1000ms 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 160ms ease,
+    transform 160ms ease,
     visibility 0s;
 }
 
@@ -514,13 +514,13 @@
   border-radius: 0;
   background: #0c0c0e;
   opacity: 0;
-  transition: opacity 380ms ease, visibility 0s 380ms;
+  transition: opacity 160ms ease, visibility 0s 160ms;
 }
 
 .vg-shell[data-stage='project'] .vg-project {
   visibility: visible;
   opacity: 1;
-  transition: opacity 280ms ease, visibility 0s;
+  transition: opacity 160ms ease, visibility 0s;
 }
 
 .vg-project .vg-glass {
@@ -906,112 +906,10 @@
   }
 }
 
-.vg-graph-open {
-  width: calc(100% - 16px);
-  margin: 8px;
-  padding: 10px 12px;
-  border: 1px solid rgb(255 255 255 / 0.16);
-  border-radius: 12px;
-  background: rgb(255 255 255 / 0.06);
-  color: #fff;
-}
-
-.vg-graph-modal {
-  position: fixed;
-  z-index: 40;
-  inset: 0;
-  display: grid;
-  filter: blur(42px);
-  opacity: 0.35;
-  background: rgb(0 0 0 / 0.62);
-  transition:
-    filter 1.45s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 1.45s ease;
-}
-
-.vg-graph-modal[data-clear='true'] {
-  filter: blur(0);
-  opacity: 1;
-}
-
-.vg-graph-dismiss {
-  position: absolute;
-  z-index: 2;
-  top: 18px;
-  right: 22px;
-  padding: 8px 14px;
-  border: 1px solid rgb(255 255 255 / 0.2);
-  border-radius: 999px;
-  background: rgb(8 8 10 / 0.7);
-  color: #fff;
-}
-
-.vg-graph-flow {
-  width: 100%;
-  height: 100%;
-}
-
-.vg-graph-flow .react-flow__edge-path,
-.vg-ray-edge .react-flow__edge-path {
-  stroke: rgb(255 255 255 / 0.72);
-  stroke-width: 1.6;
-  filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.55));
-  animation: vg-ray 2.4s ease-in-out infinite;
-}
-
-@keyframes vg-ray {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
-}
-
-.vg-cube-node {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  width: 160px;
-  color: #fff;
-}
-
-.vg-cube-node strong {
-  overflow: hidden;
-  max-width: 100%;
-  font-size: 11px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.vg-cube {
+.vg-history-graph {
   position: relative;
-  width: 36px;
-  height: 36px;
-  transform-style: preserve-3d;
-  animation: vg-cube-spin 7s linear infinite;
-}
-
-.vg-cube i {
-  position: absolute;
-  inset: 0;
-  border: 1px solid rgb(255 255 255 / 0.45);
-  background: rgb(255 255 255 / 0.08);
-  backface-visibility: hidden;
-}
-
-.vg-cube i:nth-child(1) { transform: translateZ(18px); }
-.vg-cube i:nth-child(2) { transform: rotateY(180deg) translateZ(18px); }
-.vg-cube i:nth-child(3) { transform: rotateY(90deg) translateZ(18px); }
-.vg-cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(18px); }
-.vg-cube i:nth-child(5) { transform: rotateX(90deg) translateZ(18px); }
-.vg-cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(18px); }
-
-.vg-cube-node.is-selected .vg-cube i,
-.vg-cube-node.is-head .vg-cube i {
-  border-color: #fff;
-  background: rgb(255 255 255 / 0.18);
-}
-
-@keyframes vg-cube-spin {
-  to { transform: rotateX(360deg) rotateY(360deg); }
+  min-width: 0;
+  overflow: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {
