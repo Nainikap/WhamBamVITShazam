@@ -850,12 +850,14 @@ export class ProjectService {
 
   async linkSharedMedia(projectId: string, links: Record<string, string>): Promise<void> {
     const validated = z.record(z.string().regex(/^[a-f0-9]{64}$/u), z.string().min(1)).parse(links);
-    const current = await this.readMediaLinks(projectId);
-    for (const [fingerprint, filePath] of Object.entries(validated)) {
-      await access(filePath);
-      current[fingerprint] = pathToFileURL(path.resolve(filePath)).href;
-    }
-    await this.writeMediaLinks(projectId, current);
+    await this.mutex.run(projectId, async () => {
+      const current = await this.readMediaLinks(projectId);
+      for (const [fingerprint, filePath] of Object.entries(validated)) {
+        await access(filePath);
+        current[fingerprint] = pathToFileURL(path.resolve(filePath)).href;
+      }
+      await this.writeMediaLinks(projectId, current);
+    });
   }
 
   /** Resolve database backing for a project that has no standalone .drp file. */
@@ -1164,11 +1166,13 @@ export class ProjectService {
 
   async linkMedia(projectId: string, fingerprint: string, filePath: string, revision = 'HEAD'): Promise<RevisionDetails> {
     if (!/^[a-f0-9]{64}$/u.test(fingerprint)) throw new Error('Invalid media fingerprint');
-    await access(filePath);
-    const links = await this.readMediaLinks(projectId);
-    links[fingerprint] = pathToFileURL(path.resolve(filePath)).href;
-    await this.writeMediaLinks(projectId, links);
-    return this.revisionDetails(projectId, revision);
+    return this.mutex.run(projectId, async () => {
+      await access(filePath);
+      const links = await this.readMediaLinks(projectId);
+      links[fingerprint] = pathToFileURL(path.resolve(filePath)).href;
+      await this.writeMediaLinks(projectId, links);
+      return this.revisionDetails(projectId, revision);
+    });
   }
 
   async resolveMediaFile(projectId: string, fingerprint: string): Promise<string> {

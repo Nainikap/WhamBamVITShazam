@@ -270,7 +270,7 @@ export class GitRepository {
     await runGit(this.path, [
       'fetch', '--no-write-fetch-head', '--no-tags', bundlePath,
       `+refs/heads/*:refs/remotes/${peer}/*`,
-      '+refs/tags/*:refs/tags/*',
+      `+refs/tags/*:refs/snipsnap/peers/${peer}/tags/*`,
     ]);
     return this.remoteBranches(peer);
   }

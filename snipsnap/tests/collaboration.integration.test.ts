@@ -70,6 +70,16 @@ describe('LAN collaboration', () => {
     expect(await readFile(linkedPath)).toEqual(mediaBytes);
     expect((await peer.revisionDetails(project.id, joined.status.headCommit)).preview.missingAssets).not.toContain(firstAsset.fingerprint);
 
+    const secondAsset = project.assets[1];
+    if (!secondAsset) throw new Error('Second fixture asset missing');
+    const secondMedia = path.join(root, 'late-linked.mp4');
+    const secondBytes = Buffer.from('media-linked-after-hosting-started');
+    await writeFile(secondMedia, secondBytes);
+    await expect(peer.resolveMediaFile(project.id, secondAsset.fingerprint)).rejects.toThrow(/not linked/u);
+    await host.linkMedia(project.id, secondAsset.fingerprint, secondMedia);
+    await peerLan.pull(project.id);
+    expect(await readFile(await peer.resolveMediaFile(project.id, secondAsset.fingerprint))).toEqual(secondBytes);
+
     let peerStatus = await peer.status(project.id);
     peerStatus = await peer.edit(project.id, {
       type: 'setClipGain', clipId: clip.id, gainDb: -4,

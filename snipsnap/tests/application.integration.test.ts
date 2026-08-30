@@ -482,4 +482,21 @@ describe('V1 project workflow', () => {
     const repoPath = path.join(root, 'projects', project.id, 'repo');
     expect((await runGit(repoPath, ['show', 'HEAD:timeline.json'])).stdout).not.toContain(mediaPath);
   });
+
+  it('serializes concurrent media relinks without losing either asset', async () => {
+    const project = createDemoProject('Concurrent links');
+    await service.createProject(project);
+    const [first, second] = project.assets;
+    if (!first || !second) throw new Error('Fixture assets missing');
+    const firstPath = path.join(root, 'first.mov');
+    const secondPath = path.join(root, 'second.mov');
+    await Promise.all([writeFile(firstPath, 'first'), writeFile(secondPath, 'second')]);
+
+    await Promise.all([
+      service.linkMedia(project.id, first.fingerprint, firstPath),
+      service.linkMedia(project.id, second.fingerprint, secondPath),
+    ]);
+    await expect(service.resolveMediaFile(project.id, first.fingerprint)).resolves.toBe(firstPath);
+    await expect(service.resolveMediaFile(project.id, second.fingerprint)).resolves.toBe(secondPath);
+  });
 });

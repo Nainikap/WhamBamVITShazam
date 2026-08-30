@@ -256,8 +256,8 @@ export class LanCollaborationService {
     response.end(encrypted.body);
   }
 
-  private async hostManifest(session: HostSession): Promise<SharedMediaManifest> {
-    if (session.manifest) return session.manifest;
+  private async hostManifest(session: HostSession, refresh = false): Promise<SharedMediaManifest> {
+    if (session.manifest && !refresh) return session.manifest;
     const sources = await this.projects.sharedMediaSources(session.projectId);
     const manifest = await new MediaCatalog(this.catalogPath(session.projectId)).manifest(sources);
     session.mediaPaths.clear();
@@ -293,7 +293,10 @@ export class LanCollaborationService {
         return;
       }
       if (request.method === 'GET' && url.pathname === '/v1/media-manifest') {
-        this.send(session, response, route, json(await this.hostManifest(session)));
+        // Every synchronization starts here. Rebuild so media linked since the
+        // previous peer pull is immediately advertised; chunks then stay on
+        // this immutable manifest for the duration of that transfer.
+        this.send(session, response, route, json(await this.hostManifest(session, true)));
         return;
       }
       const mediaMatch = /^\/v1\/media\/([a-f0-9]{64})\/(\d+)$/u.exec(url.pathname);

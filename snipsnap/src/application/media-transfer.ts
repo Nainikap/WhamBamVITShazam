@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { access, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { access, mkdir, open, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { atomicWriteJson, readJson } from './storage';
@@ -46,6 +47,12 @@ type Catalog = z.infer<typeof CatalogSchema>;
 
 function hash(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+async function hashFile(filePath: string): Promise<string> {
+  const digest = createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) digest.update(chunk as Buffer);
+  return digest.digest('hex');
 }
 
 async function describeFile(
@@ -246,8 +253,8 @@ export class MediaStore {
 
   private async finalize(asset: SharedMediaAsset): Promise<void> {
     const partial = this.partialPath(asset.contentHash);
-    const bytes = await readFile(partial);
-    if (bytes.byteLength !== asset.bytes || hash(bytes) !== asset.contentHash) {
+    const details = await stat(partial);
+    if (!details.isFile() || details.size !== asset.bytes || await hashFile(partial) !== asset.contentHash) {
       await this.reset(asset.contentHash);
       throw new Error(`Completed media ${asset.fileName} failed full-file verification`);
     }

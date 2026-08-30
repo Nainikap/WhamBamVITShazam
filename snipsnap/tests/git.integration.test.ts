@@ -278,10 +278,14 @@ describe('native Git repository', () => {
     if (!clip) throw new Error('Fixture clip missing');
     await repository.writeIndex(reduceCommand(project, { type: 'trimClip', clipId: clip.id, start: 12, duration: 96 }));
     const main = await repository.commitIndex('Trim main', initial);
+    await repository.createTag('release', main, 'Source release');
 
     const bundle = path.join(directory, 'transfer', 'project.bundle');
     await repository.createBundle(bundle);
-    const peer = await GitRepository.create(path.join(directory, 'peer'));
+    const peerPath = path.join(directory, 'peer');
+    const peer = await GitRepository.create(peerPath);
+    const peerInitial = await peer.createInitialCommit(createDemoProject('Peer timeline'), 'Peer import');
+    await peer.createTag('release', peerInitial, 'Local release');
     expect(await peer.fetchBundle(bundle, 'origin')).toEqual(expect.arrayContaining([
       { name: 'main', commitId: main },
       { name: 'alternate', commitId: initial },
@@ -289,6 +293,10 @@ describe('native Git repository', () => {
     expect(await peer.readSnapshot('refs/remotes/origin/main')).toEqual(
       reduceCommand(project, { type: 'trimClip', clipId: clip.id, start: 12, duration: 96 }),
     );
+    expect(await peer.resolve('refs/tags/release')).toBe(peerInitial);
+    expect((await runGit(peerPath, [
+      'rev-parse', '--verify', 'refs/snipsnap/peers/origin/tags/release^{commit}',
+    ])).stdout.trim()).toBe(main);
     await peer.fsck();
   });
 
