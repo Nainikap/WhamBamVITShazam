@@ -11,9 +11,12 @@ describe('LAN collaboration', () => {
   let peer: ProjectService;
   let hostLan: LanCollaborationService;
   let peerLan: LanCollaborationService;
+  let previousResolveDatabase: string | undefined;
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-collaboration-'));
+    previousResolveDatabase = process.env.SNIPSNAP_RESOLVE_DATABASE;
+    process.env.SNIPSNAP_RESOLVE_DATABASE = path.join(root, 'no-resolve-database');
     host = new ProjectService(path.join(root, 'host'));
     peer = new ProjectService(path.join(root, 'peer'));
     hostLan = new LanCollaborationService(path.join(root, 'host'), host);
@@ -24,6 +27,8 @@ describe('LAN collaboration', () => {
     await hostLan.stopHosting();
     await peerLan.stopHosting();
     await rm(root, { recursive: true, force: true });
+    if (previousResolveDatabase === undefined) delete process.env.SNIPSNAP_RESOLVE_DATABASE;
+    else process.env.SNIPSNAP_RESOLVE_DATABASE = previousResolveDatabase;
   });
 
   it('clones all Git history, downloads verified media, then pushes and pulls commits', async () => {
@@ -54,6 +59,13 @@ describe('LAN collaboration', () => {
       'Host trims opening',
     ]));
     expect(joined.status.branches.map(({ name }) => name)).toEqual(expect.arrayContaining(['main', 'review']));
+    expect(await peer.listProjectOverviews()).toEqual([
+      expect.objectContaining({ id: project.id, kind: 'remote', openable: true }),
+    ]);
+    const restartedPeer = new ProjectService(path.join(root, 'peer'));
+    await expect(restartedPeer.openResolveProjectById(project.id)).resolves.toMatchObject({
+      project: { id: project.id },
+    });
     const linkedPath = await peer.resolveMediaFile(project.id, firstAsset.fingerprint);
     expect(await readFile(linkedPath)).toEqual(mediaBytes);
     expect((await peer.revisionDetails(project.id, joined.status.headCommit)).preview.missingAssets).not.toContain(firstAsset.fingerprint);

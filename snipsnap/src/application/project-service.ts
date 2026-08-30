@@ -1323,7 +1323,8 @@ export class ProjectService {
       reference = (await this.library.discover()).find(({ id }) => id === projectId);
     }
     if (!reference) {
-      if (await this.readMetadata(projectId)) return this.status(projectId);
+      const metadata = await this.readMetadata(projectId);
+      if (metadata?.sharedFrom) return this.status(projectId);
       throw new Error('That Resolve project is no longer on disk. Export it again from Resolve.');
     }
     return this.openResolveProject(reference);
@@ -1536,10 +1537,15 @@ export class ProjectService {
         overviews.push(this.unlinkedOverview(reference));
       }
     }
+    // Only peer-imported projects survive without a Resolve library entry.
+    // Ordinary local repositories and exports removed from disk keep their
+    // data, but must not reappear on the Resolve-backed dashboard.
     const discoveredIds = new Set(references.map(({ id }) => id));
     for (const project of await this.listProjects()) {
       if (discoveredIds.has(project.id)) continue;
       try {
+        const metadata = await this.readMetadata(project.id);
+        if (!metadata?.sharedFrom) continue;
         overviews.push(await this.overview(project.id));
       } catch {
         // Invalid local projects stay hidden rather than breaking the dashboard.
