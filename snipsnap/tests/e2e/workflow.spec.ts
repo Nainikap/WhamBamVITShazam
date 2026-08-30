@@ -382,7 +382,10 @@ test('creates a branch from an old commit, switches branches, and restores histo
 
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
   await page.getByLabel('Branch from selected commit').fill('alternate-cut');
-  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  // Hidden Electron windows on macOS ARM can report Retina pointer coordinates
+  // from the adjacent workspace for far-right inspector controls. Keyboard
+  // activation still verifies that the real accessible button and handler work.
+  await page.getByRole('button', { name: 'Create', exact: true }).press('Enter');
   await expect(page.getByText(/Created and switched to alternate-cut/u)).toBeVisible();
   await expect(page.getByLabel('Switch branch')).toContainText('alternate-cut');
 
@@ -408,7 +411,7 @@ test('returns to the dashboard with the project listed as most recently worked o
 
 test('hosts a project and lets a second app join and push a branch', async () => {
   await openProject();
-  await page.getByRole('button', { name: 'Host this project' }).click();
+  await page.getByRole('button', { name: 'Host this project' }).press('Enter');
   await expect(page.getByText('Hosting', { exact: true })).toBeVisible();
   const inviteCode = await page.getByLabel('Pairing code').inputValue();
   expect(inviteCode.length).toBeGreaterThan(40);
