@@ -70,7 +70,7 @@ test('two branches trimming the same clip stop for a decision', async () => {
     if (!pending) throw new Error(`No change detected for ${message}`);
     let status = await service.applyPendingSync(projectId, pending.digest, scanned.status.workspaceVersion);
     status = await service.stage(projectId, status.unstaged.map(({ id }) => id), status.indexDigest);
-    return service.commit(projectId, message, status.headCommit);
+    return service.commit(projectId, message, status.headCommit, status.indexDigest);
   };
 
   await service.createBranch(projectId, 'tighter-cut');

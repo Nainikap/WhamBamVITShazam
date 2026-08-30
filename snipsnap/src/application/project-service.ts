@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { exportOtio, importOtio, type UnsupportedContent } from '../adapters/otio';
 import { reduceCommand, type EditCommand } from '../commands';
 import { applySemanticHunks, semanticDiff, type SemanticHunk } from '../diff';
-import { digestText, projectDigest, ProjectSchema, type Project } from '../domain';
+import { digestText, projectDigest, ProjectSchema, ProjectStructureSchema, type Project } from '../domain';
 import { GitRepository, KeyedMutex, StaleRefError, type CommitInfo } from '../git';
 import {
   completeMerge,
@@ -67,7 +67,9 @@ const MergeConflictSchema = z.object({
   }).strict().optional(),
 }).strict();
 const MergeResultSchema = z.object({
-  provisional: ProjectSchema,
+  // A validation conflict deliberately carries an invalid intermediate graph.
+  // Structural validation still rejects malformed or non-canonical field data.
+  provisional: ProjectStructureSchema,
   conflicts: z.array(MergeConflictSchema),
   alternatives: z.object({
     base: ProjectSchema,
@@ -83,6 +85,8 @@ const MergeSessionSchema = z.object({
   baseCommit: CommitIdSchema,
   targetCommit: CommitIdSchema,
   sourceCommit: CommitIdSchema,
+  targetIndexDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+  targetWorkingDigest: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   result: MergeResultSchema,
 }).strict();
 
@@ -99,6 +103,8 @@ export interface MergeSession {
   baseCommit: string;
   targetCommit: string;
   sourceCommit: string;
+  targetIndexDigest?: string;
+  targetWorkingDigest?: string;
   result: MergeResult;
 }
 
@@ -261,8 +267,8 @@ export class DirtyWorkspaceError extends Error {
 }
 
 export class StaleWorkspaceError extends Error {
-  constructor() {
-    super('Workspace changed; reload and retry');
+  constructor(message = 'Workspace changed; reload and retry') {
+    super(message);
     this.name = 'StaleWorkspaceError';
   }
 }
@@ -1008,7 +1014,12 @@ export class ProjectService {
     });
   }
 
-  async commit(projectId: string, message: string, expectedHead: string): Promise<ProjectStatus> {
+  async commit(
+    projectId: string,
+    message: string,
+    expectedHead: string,
+    expectedIndexDigest: string,
+  ): Promise<ProjectStatus> {
     return this.mutex.run(projectId, async () => {
       if (!message.trim()) throw new Error('Commit message is required');
       const repository = this.repository(projectId);
@@ -1018,6 +1029,7 @@ export class ProjectService {
         repository.readIndex(),
       ]);
       if (actualHead !== expectedHead) throw new StaleWorkspaceError();
+      if (projectDigest(index) !== expectedIndexDigest) throw new StaleWorkspaceError();
       if (semanticDiff(head, index).length === 0) throw new Error('Nothing is staged');
       await repository.commitIndex(message, expectedHead);
       return this.statusUnlocked(projectId);
@@ -1180,6 +1192,7 @@ export class ProjectService {
     return this.mutex.run(projectId, async () => {
       const repository = this.repository(projectId);
       const current = await this.statusUnlocked(projectId);
+      if (current.branch !== targetBranch) throw new Error('Check out the target branch before merging into it');
       if (current.staged.length || current.unstaged.length || current.source.pending) throw new DirtyWorkspaceError();
       const [targetCommit, sourceCommit] = await Promise.all([
         repository.resolve(`refs/heads/${targetBranch}`),
@@ -1211,7 +1224,16 @@ export class ProjectService {
         return { status: 'merged', commitId };
       }
       const session: MergeSession = {
-        id: randomUUID(), projectId, targetBranch, sourceBranch, baseCommit, targetCommit, sourceCommit, result,
+        id: randomUUID(),
+        projectId,
+        targetBranch,
+        sourceBranch,
+        baseCommit,
+        targetCommit,
+        sourceCommit,
+        targetIndexDigest: current.indexDigest,
+        targetWorkingDigest: projectDigest(current.project),
+        result,
       };
       await atomicWriteJson(this.sessionPath(projectId, session.id), session);
       return { status: 'conflicts', session };
@@ -1238,6 +1260,19 @@ export class ProjectService {
     return this.mutex.run(projectId, async () => {
       const session = await this.readSession(projectId, sessionId);
       const repository = this.repository(projectId);
+      const current = await this.statusUnlocked(projectId);
+      if (!session.targetIndexDigest || !session.targetWorkingDigest) {
+        throw new StaleWorkspaceError('This legacy merge session must be aborted and started again');
+      }
+      if (current.branch !== session.targetBranch
+        || current.headCommit !== session.targetCommit
+        || current.indexDigest !== session.targetIndexDigest
+        || projectDigest(current.project) !== session.targetWorkingDigest
+        || current.staged.length > 0
+        || current.unstaged.length > 0
+        || current.source.pending) {
+        throw new StaleWorkspaceError('The target workspace changed after this merge started');
+      }
       const merged = completeMerge(session.result);
       await repository.commitSnapshot(
         merged,

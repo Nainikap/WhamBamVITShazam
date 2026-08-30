@@ -1,4 +1,4 @@
-import { digestText, ProjectSchema, validateProject, type Project } from '../domain';
+import { compareCanonicalKeys, digestText, ProjectSchema, validateProject, type Project } from '../domain';
 import type { EntityType } from '../diff';
 import { combinePlan, duplicateId, projectRate } from './combine';
 
@@ -65,7 +65,7 @@ function stable(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
   return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareCanonicalKeys(left, right))
     .map(([key, item]) => `${key}:${stable(item)}`)
     .join(',')}}`;
 }
@@ -196,15 +196,25 @@ export function mergeThreeWay(baseInput: Project, oursInput: Project, theirsInpu
 
   const provisional = clone(base);
   const conflicts: MergeConflict[] = [];
-  if (ours.name === theirs.name) provisional.name = ours.name;
-  else if (ours.name === base.name) provisional.name = theirs.name;
-  else if (theirs.name === base.name) provisional.name = ours.name;
-  else {
-    conflicts.push(conflict({
-      type: 'same-field', entityType: 'project', entityId: base.id, fieldGroup: 'name',
-      base: base.name, ours: ours.name, theirs: theirs.name, message: 'Project was renamed differently',
-    }));
-    provisional.name = ours.name;
+  for (const field of ['name', 'extras'] as const) {
+    const baseValue = base[field];
+    const oursValue = ours[field];
+    const theirsValue = theirs[field];
+    const oursChanged = changed(baseValue, oursValue);
+    const theirsChanged = changed(baseValue, theirsValue);
+    if (!oursChanged && theirsChanged) provisional[field] = clone(theirsValue) as never;
+    else if (oursChanged && !theirsChanged) provisional[field] = clone(oursValue) as never;
+    else if (oursChanged && theirsChanged) {
+      if (same(oursValue, theirsValue)) provisional[field] = clone(oursValue) as never;
+      else {
+        conflicts.push(conflict({
+          type: 'same-field', entityType: 'project', entityId: base.id, fieldGroup: field,
+          base: baseValue, ours: oursValue, theirs: theirsValue,
+          message: field === 'name' ? 'Project was renamed differently' : 'Project metadata changed differently',
+        }));
+        provisional[field] = clone(oursValue) as never;
+      }
+    }
   }
 
   (Object.keys(collectionKeys) as CollectionType[]).forEach((type) => {
@@ -227,7 +237,7 @@ export function mergeThreeWay(baseInput: Project, oursInput: Project, theirsInpu
       const parent = project.sequences.find(({ trackIds }) => trackIds.includes(id));
       return parent ? { parentId: parent.id, index: parent.trackIds.indexOf(id) } : undefined;
     }
-    if (type === 'clip' || type === 'gap' || type === 'caption') {
+    if (type === 'clip' || type === 'gap' || type === 'transition' || type === 'caption') {
       const parent = project.tracks.find(({ itemIds }) => itemIds.includes(id));
       return parent ? { parentId: parent.id, index: parent.itemIds.indexOf(id) } : undefined;
     }
@@ -262,7 +272,9 @@ function applyResolution(project: Project, conflictItem: MergeConflict, value: u
     return;
   }
   if (conflictItem.entityType === 'project') {
-    project.name = String(value);
+    if (conflictItem.fieldGroup === 'name') project.name = String(value);
+    else if (conflictItem.fieldGroup === 'extras') project.extras = clone(value as Project['extras']);
+    else throw new Error(`Cannot resolve project field ${conflictItem.fieldGroup}`);
     return;
   }
   const items = entityCollection(project, conflictItem.entityType);

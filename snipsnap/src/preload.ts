@@ -23,7 +23,9 @@ const api: SnipSnapApi = {
   },
   stage: (projectId, hunkIds, expectedIndexDigest) => ipcRenderer.invoke(channels.stage, projectId, hunkIds, expectedIndexDigest),
   unstage: (projectId, hunkIds, expectedIndexDigest) => ipcRenderer.invoke(channels.unstage, projectId, hunkIds, expectedIndexDigest),
-  commit: (projectId, message, expectedHead) => ipcRenderer.invoke(channels.commit, projectId, message, expectedHead),
+  commit: (projectId, message, expectedHead, expectedIndexDigest) => ipcRenderer.invoke(
+    channels.commit, projectId, message, expectedHead, expectedIndexDigest,
+  ),
   createBranch: (projectId, name) => ipcRenderer.invoke(channels.createBranch, projectId, name),
   createBranchFromRevision: (projectId, name, revision) => ipcRenderer.invoke(channels.createBranchFromRevision, projectId, name, revision),
   checkout: (projectId, branch, discardChanges) => ipcRenderer.invoke(channels.checkout, projectId, branch, discardChanges),

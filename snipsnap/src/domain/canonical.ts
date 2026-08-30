@@ -4,6 +4,11 @@ import { validateProject, type Project } from './model';
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
+/** Locale-independent UTF-16 ordering, matching JavaScript's relational string comparison. */
+export function compareCanonicalKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function normalize(value: unknown): JsonValue {
   if (value === null || typeof value === 'boolean' || typeof value === 'number') return value;
   if (typeof value === 'string') return value.normalize('NFC');
@@ -12,7 +17,7 @@ function normalize(value: unknown): JsonValue {
     return Object.fromEntries(
       Object.entries(value)
         .filter(([, item]) => item !== undefined)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareCanonicalKeys(left, right))
         .map(([key, item]) => [key, normalize(item)]),
     );
   }

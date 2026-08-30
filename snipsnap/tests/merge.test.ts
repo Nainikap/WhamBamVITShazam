@@ -20,6 +20,16 @@ describe('conservative three-way merge', () => {
     expect(merged.captions[0]?.text).toBe('A better line');
   });
 
+  it('preserves project metadata changed only by the incoming branch', () => {
+    const base = createDemoProject();
+    const ours = structuredClone(base);
+    const theirs = structuredClone(base);
+    theirs.extras = { resolve: { colorScience: 'DaVinci YRGB Color Managed' } };
+
+    const merged = completeMerge(mergeThreeWay(base, ours, theirs));
+    expect(merged.extras).toEqual(theirs.extras);
+  });
+
   it('makes same-field edits explicit and accepts a deliberate choice', () => {
     const base = createDemoProject();
     const clip = base.clips[0];
@@ -54,6 +64,28 @@ describe('conservative three-way merge', () => {
     const restored = completeMerge(resolveMerge(result, [{ conflictId: deleteConflict.id, choice: 'theirs' }]));
     expect(restored.clips.find(({ id }) => id === clip.id)?.preset).toBe('mono');
     expect(restored.tracks[0]?.itemIds).toEqual(base.tracks[0]?.itemIds);
+  });
+
+  it('restores a surviving transition between its original neighbours', () => {
+    const base = createDemoProject();
+    const transition = base.transitions[0];
+    const track = base.tracks.find(({ id }) => id === transition?.trackId);
+    if (!transition || !track) throw new Error('Fixture transition missing');
+    const ours = structuredClone(base);
+    ours.transitions = ours.transitions.filter(({ id }) => id !== transition.id);
+    const oursTrack = ours.tracks.find(({ id }) => id === track.id);
+    if (!oursTrack) throw new Error('Fixture track missing');
+    oursTrack.itemIds = oursTrack.itemIds.filter((id) => id !== transition.id);
+    const theirs = structuredClone(base);
+    const changed = theirs.transitions.find(({ id }) => id === transition.id);
+    if (!changed) throw new Error('Fixture transition missing');
+    changed.name = 'Long dissolve';
+
+    const result = mergeThreeWay(base, ours, theirs);
+    const conflict = result.conflicts.find(({ entityId, type }) => entityId === transition.id && type === 'delete-modify');
+    if (!conflict) throw new Error('Expected transition conflict');
+    const merged = completeMerge(resolveMerge(result, [{ conflictId: conflict.id, choice: 'theirs' }]));
+    expect(merged.tracks.find(({ id }) => id === track.id)?.itemIds).toEqual(track.itemIds);
   });
 
   it('turns invalid combined timing into a validation conflict', () => {

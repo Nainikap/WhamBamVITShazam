@@ -307,7 +307,12 @@ export const useAppStore = create<AppStore>((set, get) => {
       const { currentProjectId, status } = get();
       if (!currentProjectId || !status) return;
       if (status.staged.length === 0) throw new Error('Nothing is staged, so this commit would repeat the latest version');
-      const next = await window.snipsnap.commit(currentProjectId, commitMessage, status.headCommit);
+      const next = await window.snipsnap.commit(
+        currentProjectId,
+        commitMessage,
+        status.headCommit,
+        status.indexDigest,
+      );
       const selectedRevision = await window.snipsnap.revisionDetails(currentProjectId, next.headCommit);
       set({ status: next, selectedRevision, notice: `Committed ${next.headCommit.slice(0, 8)}.` });
       await refreshComparison(currentProjectId);

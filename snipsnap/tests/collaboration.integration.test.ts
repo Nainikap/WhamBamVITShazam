@@ -47,7 +47,7 @@ describe('LAN collaboration', () => {
       type: 'trimClip', clipId: clip.id, start: 8, duration: 120,
     }, hostStatus.workspaceVersion);
     hostStatus = await host.stage(project.id, hostStatus.unstaged.map(({ id }) => id), hostStatus.indexDigest);
-    hostStatus = await host.commit(project.id, 'Host trims opening', hostStatus.headCommit);
+    hostStatus = await host.commit(project.id, 'Host trims opening', hostStatus.headCommit, hostStatus.indexDigest);
     await host.createBranch(project.id, 'review', hostStatus.headCommit);
 
     const hosting = await hostLan.startHosting(project.id);
@@ -75,7 +75,7 @@ describe('LAN collaboration', () => {
       type: 'setClipGain', clipId: clip.id, gainDb: -4,
     }, peerStatus.workspaceVersion);
     peerStatus = await peer.stage(project.id, peerStatus.unstaged.map(({ id }) => id), peerStatus.indexDigest);
-    await peer.commit(project.id, 'Peer balances clip', peerStatus.headCommit);
+    await peer.commit(project.id, 'Peer balances clip', peerStatus.headCommit, peerStatus.indexDigest);
     const pushed = await peerLan.push(project.id);
     expect((await host.status(project.id)).headCommit).toBe(pushed.status.headCommit);
 
@@ -84,7 +84,7 @@ describe('LAN collaboration', () => {
       type: 'setClipPreset', clipId: clip.id, preset: 'cool',
     }, hostStatus.workspaceVersion);
     hostStatus = await host.stage(project.id, hostStatus.unstaged.map(({ id }) => id), hostStatus.indexDigest);
-    hostStatus = await host.commit(project.id, 'Host cools clip', hostStatus.headCommit);
+    hostStatus = await host.commit(project.id, 'Host cools clip', hostStatus.headCommit, hostStatus.indexDigest);
     const pulled = await peerLan.pull(project.id);
 
     expect(pulled.pull?.fastForwarded).toContain('main');

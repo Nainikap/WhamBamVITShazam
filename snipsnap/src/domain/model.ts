@@ -155,7 +155,7 @@ export const SequenceSchema = z
   })
   .strict();
 
-const ProjectShape = z
+export const ProjectStructureSchema = z
   .object({
     schemaVersion: z.literal(1),
     id: UUIDSchema,
@@ -171,7 +171,7 @@ const ProjectShape = z
   })
   .strict();
 
-export const ProjectSchema = ProjectShape.superRefine((project, context) => {
+export const ProjectSchema = ProjectStructureSchema.superRefine((project, context) => {
   const unique = (label: string, ids: string[]) => {
     if (new Set(ids).size !== ids.length) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `${label} IDs must be unique` });
@@ -292,7 +292,7 @@ export type Extras = z.infer<typeof ExtrasSchema>;
 export type TimelineItem = Clip | Gap | Transition | Caption;
 export type Track = z.infer<typeof TrackSchema>;
 export type Sequence = z.infer<typeof SequenceSchema>;
-export type Project = z.infer<typeof ProjectShape>;
+export type Project = z.infer<typeof ProjectStructureSchema>;
 
 /** Default decorations for a freshly constructed timeline item. */
 export function decorations(): { enabled: boolean; markers: Marker[]; effects: Effect[]; extras: Extras } {

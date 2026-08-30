@@ -1,5 +1,5 @@
 import fc from 'fast-check';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   canonicalJson,
   createDemoProject,
@@ -16,6 +16,19 @@ describe('canonical timeline model', () => {
 
     expect(canonicalJson(validateProject(reversed))).toBe(canonicalJson(project));
     expect(projectDigest(validateProject(reversed))).toBe(projectDigest(project));
+  });
+
+  it('orders non-ASCII keys without consulting the machine locale', () => {
+    const project = createDemoProject();
+    project.extras = { 'ä-key': 2, 'Z-key': 1 };
+    const localeCompare = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(() => {
+      throw new Error('Canonical serialization must not use localeCompare');
+    });
+    try {
+      expect(canonicalJson(project)).toContain('"Z-key":1,"ä-key":2');
+    } finally {
+      localeCompare.mockRestore();
+    }
   });
 
   it('normalizes strings to NFC', () => {

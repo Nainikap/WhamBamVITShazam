@@ -284,7 +284,9 @@ function registerIpc(): void {
   ipcMain.handle(channels.dismissPendingSync, (_event, projectId, digest) => projects.dismissPendingSync(projectId, digest));
   ipcMain.handle(channels.stage, (_event, projectId, hunkIds, digest) => projects.stage(projectId, hunkIds, digest));
   ipcMain.handle(channels.unstage, (_event, projectId, hunkIds, digest) => projects.unstage(projectId, hunkIds, digest));
-  ipcMain.handle(channels.commit, (_event, projectId, message, head) => projects.commit(projectId, message, head));
+  ipcMain.handle(channels.commit, (_event, projectId, message, head, indexDigest) => (
+    projects.commit(projectId, message, head, indexDigest)
+  ));
   ipcMain.handle(channels.createBranch, (_event, projectId, name) => projects.createBranch(projectId, name));
   ipcMain.handle(channels.createBranchFromRevision, (_event, projectId, name, revision) => projects.createBranchFromRevision(projectId, name, revision));
   ipcMain.handle(channels.checkout, (_event, projectId, branch, discard) => projects.checkout(projectId, branch, discard));

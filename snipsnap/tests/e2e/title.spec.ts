@@ -87,7 +87,7 @@ test('a title over part of the timeline shows up as a commit', async () => {
 
   let status = await service.applyPendingSync(projectId, pending.digest, scanned.status.workspaceVersion);
   status = await service.stage(projectId, status.unstaged.map(({ id }) => id), status.indexDigest);
-  await service.commit(projectId, 'Add the GOAT title over the middle', status.headCommit);
+  await service.commit(projectId, 'Add the GOAT title over the middle', status.headCommit, status.indexDigest);
 
   const application = await electron.launch({
     args: [path.resolve('out', 'SnipSnap-darwin-arm64', 'SnipSnap.app', 'Contents', 'Resources', 'app.asar')],

@@ -2,9 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DirtyWorkspaceError, ProjectService } from '../src/application';
+import { DirtyWorkspaceError, ProjectService, StaleWorkspaceError } from '../src/application';
 import { createDemoProject } from '../src/domain';
-import { GitRepository, StaleRefError, runGit } from '../src/git';
+import { GitRepository, runGit } from '../src/git';
 
 describe('V1 project workflow', () => {
   let root: string;
@@ -44,7 +44,7 @@ describe('V1 project workflow', () => {
     let status = await service.edit(project.id, { type: 'trimClip', clipId: clip.id, start: 0, duration: 96 }, first.workspaceVersion);
     status = await service.edit(project.id, { type: 'setClipGain', clipId: voice.id, gainDb: -9 }, status.workspaceVersion);
     status = await stageAll(project.id);
-    status = await service.commit(project.id, 'Tighten the intro', status.headCommit);
+    status = await service.commit(project.id, 'Tighten the intro', status.headCommit, status.indexDigest);
 
     const comparison = await service.compareTimelines(project.id, first.headCommit, status.headCommit);
     expect(comparison.base.commit.id).toBe(first.headCommit);
@@ -70,7 +70,7 @@ describe('V1 project workflow', () => {
     const status = await service.status(project.id);
 
     expect(status.staged).toHaveLength(0);
-    await expect(service.commit(project.id, 'Nothing changed', status.headCommit)).rejects.toThrow(/Nothing is staged/u);
+    await expect(service.commit(project.id, 'Nothing changed', status.headCommit, status.indexDigest)).rejects.toThrow(/Nothing is staged/u);
     expect((await service.status(project.id)).history).toHaveLength(1);
   });
 
@@ -91,12 +91,37 @@ describe('V1 project workflow', () => {
     expect(status.staged).toHaveLength(1);
     expect(status.unstaged).toHaveLength(1);
 
-    status = await service.commit(project.id, 'Stage one editorial decision', status.headCommit);
+    status = await service.commit(project.id, 'Stage one editorial decision', status.headCommit, status.indexDigest);
     expect(status.staged).toEqual([]);
     expect(status.unstaged).toHaveLength(1);
     const committed = await new GitRepository(path.join(root, 'projects', project.id, 'repo')).readSnapshot('HEAD');
     const changedClips = committed.clips.filter((clip, index) => JSON.stringify(clip) !== JSON.stringify(project.clips[index]));
     expect(changedClips).toHaveLength(1);
+  });
+
+  it('rejects a commit when INDEX changed after the commit view was loaded', async () => {
+    const project = createDemoProject('Stale commit view');
+    await service.createProject(project);
+    const [first, second] = project.clips;
+    if (!first || !second) throw new Error('Fixture clips missing');
+    let status = await service.status(project.id);
+    status = await service.edit(project.id, { type: 'setClipPreset', clipId: first.id, preset: 'warm' }, status.workspaceVersion);
+    status = await service.edit(project.id, { type: 'setClipGain', clipId: second.id, gainDb: -8 }, status.workspaceVersion);
+    const firstHunk = status.unstaged[0];
+    if (!firstHunk) throw new Error('Expected the first hunk');
+    const reviewed = await service.stage(project.id, [firstHunk.id], status.indexDigest);
+    const remaining = reviewed.unstaged[0];
+    if (!remaining) throw new Error('Expected the second hunk');
+    const changed = await service.stage(project.id, [remaining.id], reviewed.indexDigest);
+
+    await expect(service.commit(
+      project.id,
+      'Commit stale selection',
+      reviewed.headCommit,
+      reviewed.indexDigest,
+    )).rejects.toBeInstanceOf(StaleWorkspaceError);
+    expect((await service.status(project.id)).staged).toHaveLength(changed.staged.length);
+    expect((await service.status(project.id)).history).toHaveLength(1);
   });
 
   it('guards dirty checkout and preserves branch history across restart', async () => {
@@ -128,13 +153,13 @@ describe('V1 project workflow', () => {
     let status = await service.status(project.id);
     status = await service.edit(project.id, { type: 'setClipPreset', clipId: first.id, preset: 'warm' }, status.workspaceVersion);
     status = await stageAll(project.id);
-    await service.commit(project.id, 'Warm the opening', status.headCommit);
+    await service.commit(project.id, 'Warm the opening', status.headCommit, status.indexDigest);
 
     await service.checkout(project.id, 'caption-copy');
     status = await service.status(project.id);
     status = await service.edit(project.id, { type: 'updateCaption', captionId: caption.id, text: 'Independent copy' }, status.workspaceVersion);
     status = await stageAll(project.id);
-    await service.commit(project.id, 'Rewrite caption', status.headCommit);
+    await service.commit(project.id, 'Rewrite caption', status.headCommit, status.indexDigest);
     await service.checkout(project.id, 'main');
 
     const outcome = await service.merge(project.id, 'main', 'caption-copy');
@@ -158,12 +183,12 @@ describe('V1 project workflow', () => {
     let status = await service.status(project.id);
     status = await service.edit(project.id, { type: 'setClipGain', clipId: clip.id, gainDb: -3 }, status.workspaceVersion);
     status = await stageAll(project.id);
-    const main = await service.commit(project.id, 'Main gain', status.headCommit);
+    const main = await service.commit(project.id, 'Main gain', status.headCommit, status.indexDigest);
     await service.checkout(project.id, 'louder');
     status = await service.status(project.id);
     status = await service.edit(project.id, { type: 'setClipGain', clipId: clip.id, gainDb: -9 }, status.workspaceVersion);
     status = await stageAll(project.id);
-    await service.commit(project.id, 'Feature gain', status.headCommit);
+    await service.commit(project.id, 'Feature gain', status.headCommit, status.indexDigest);
     await service.checkout(project.id, 'main');
 
     const outcome = await service.merge(project.id, 'main', 'louder');
@@ -172,6 +197,63 @@ describe('V1 project workflow', () => {
     await expect(service.completeMerge(project.id, outcome.session.id)).rejects.toThrow(/unresolved conflicts/u);
     await service.abortMerge(project.id, outcome.session.id);
     expect((await service.status(project.id)).headCommit).toBe(main.headCommit);
+  });
+
+  it('reloads and aborts a persisted merge whose provisional graph is invalid', async () => {
+    const project = createDemoProject('Validation conflict');
+    await service.createProject(project);
+    await service.createBranch(project.id, 'later-cut');
+    const repository = new GitRepository(path.join(root, 'projects', project.id, 'repo'));
+    const baseCommit = await repository.resolve('HEAD');
+    const ours = structuredClone(project);
+    const oursAsset = ours.assets[0];
+    if (!oursAsset) throw new Error('Fixture asset missing');
+    oursAsset.durationFrames = 150;
+    const oursCommit = await repository.commitSnapshot(ours, 'Shorter source', [baseCommit], 'main', baseCommit);
+    const theirs = structuredClone(project);
+    const theirsClip = theirs.clips[0];
+    if (!theirsClip) throw new Error('Fixture clip missing');
+    theirsClip.sourceRange = { start: 120, duration: 100 };
+    await repository.commitSnapshot(theirs, 'Later source range', [baseCommit], 'later-cut', baseCommit);
+    await service.checkout(project.id, 'main', true);
+
+    const outcome = await service.merge(project.id, 'main', 'later-cut');
+    if (!outcome.session) throw new Error('Expected validation conflict session');
+    expect(outcome.session.result.conflicts.some(({ type }) => type === 'validation')).toBe(true);
+    const restarted = new ProjectService(root);
+    await expect(restarted.abortMerge(project.id, outcome.session.id)).resolves.toBeUndefined();
+    expect((await restarted.status(project.id)).headCommit).toBe(oursCommit);
+  });
+
+  it('does not overwrite edits made after a merge conflict session opened', async () => {
+    const project = createDemoProject('Guard merge workspace');
+    await service.createProject(project);
+    await service.createBranch(project.id, 'alternate');
+    const clip = project.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    let status = await service.status(project.id);
+    status = await service.edit(project.id, { type: 'setClipGain', clipId: clip.id, gainDb: -2 }, status.workspaceVersion);
+    status = await stageAll(project.id);
+    await service.commit(project.id, 'Target level', status.headCommit, status.indexDigest);
+    await service.checkout(project.id, 'alternate');
+    status = await service.status(project.id);
+    status = await service.edit(project.id, { type: 'setClipGain', clipId: clip.id, gainDb: -8 }, status.workspaceVersion);
+    status = await stageAll(project.id);
+    await service.commit(project.id, 'Incoming level', status.headCommit, status.indexDigest);
+    await service.checkout(project.id, 'main');
+    const outcome = await service.merge(project.id, 'main', 'alternate');
+    if (!outcome.session) throw new Error('Expected conflict session');
+    const conflict = outcome.session.result.conflicts.find(({ type }) => type === 'same-field');
+    if (!conflict) throw new Error('Expected level conflict');
+    await service.resolveConflict(project.id, outcome.session.id, { conflictId: conflict.id, choice: 'ours' });
+    const current = await service.status(project.id);
+    const changed = await service.edit(project.id, {
+      type: 'setClipPreset', clipId: clip.id, preset: 'mono',
+    }, current.workspaceVersion);
+
+    await expect(service.completeMerge(project.id, outcome.session.id)).rejects.toBeInstanceOf(StaleWorkspaceError);
+    expect((await service.status(project.id)).project.clips.find(({ id }) => id === clip.id)?.preset).toBe('mono');
+    expect((await service.status(project.id)).workspaceVersion).toBe(changed.workspaceVersion);
   });
 
   it('rejects completion if the target branch moved during conflict resolution', async () => {
@@ -184,12 +266,12 @@ describe('V1 project workflow', () => {
     let status = await service.status(project.id);
     status = await service.edit(project.id, { type: 'setClipGain', clipId: clip.id, gainDb: -2 }, status.workspaceVersion);
     status = await stageAll(project.id);
-    await service.commit(project.id, 'Target edit', status.headCommit);
+    await service.commit(project.id, 'Target edit', status.headCommit, status.indexDigest);
     await service.checkout(project.id, 'alternate');
     status = await service.status(project.id);
     status = await service.edit(project.id, { type: 'setClipGain', clipId: clip.id, gainDb: -8 }, status.workspaceVersion);
     status = await stageAll(project.id);
-    await service.commit(project.id, 'Source edit', status.headCommit);
+    await service.commit(project.id, 'Source edit', status.headCommit, status.indexDigest);
     await service.checkout(project.id, 'main');
     const outcome = await service.merge(project.id, 'main', 'alternate');
     if (!outcome.session) throw new Error('Expected conflict session');
@@ -202,7 +284,7 @@ describe('V1 project workflow', () => {
     const targetState = await repository.readSnapshot(target);
     const moved = await repository.commitSnapshot(targetState, 'Concurrent target move', [target], 'main', target);
     expect(moved).not.toBe(target);
-    await expect(service.completeMerge(project.id, outcome.session.id)).rejects.toBeInstanceOf(StaleRefError);
+    await expect(service.completeMerge(project.id, outcome.session.id)).rejects.toBeInstanceOf(StaleWorkspaceError);
   });
 
   it('exports an immutable commit OTIO and never places footage in Git', async () => {
@@ -373,7 +455,7 @@ describe('V1 project workflow', () => {
     if (!clip) throw new Error('Fixture clip missing');
     let status = await service.edit(project.id, { type: 'setClipGain', clipId: clip.id, gainDb: -4 }, initial.workspaceVersion);
     status = await stageAll(project.id);
-    status = await service.commit(project.id, 'Lower opening audio', status.headCommit);
+    status = await service.commit(project.id, 'Lower opening audio', status.headCommit, status.indexDigest);
 
     const details = await service.revisionDetails(project.id, status.headCommit);
     expect(details.diff.some(({ entityType, operation }) => entityType === 'clip' && operation === 'modify')).toBe(true);

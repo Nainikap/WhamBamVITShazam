@@ -73,7 +73,7 @@ export interface SnipSnapApi {
   onSourceChanged(listener: (projectId: string) => void): () => void;
   stage(projectId: string, hunkIds: string[], expectedIndexDigest: string): Promise<ProjectStatus>;
   unstage(projectId: string, hunkIds: string[], expectedIndexDigest: string): Promise<ProjectStatus>;
-  commit(projectId: string, message: string, expectedHead: string): Promise<ProjectStatus>;
+  commit(projectId: string, message: string, expectedHead: string, expectedIndexDigest: string): Promise<ProjectStatus>;
   createBranch(projectId: string, name: string): Promise<ProjectStatus>;
   createBranchFromRevision(projectId: string, name: string, revision: string): Promise<ProjectStatus>;
   checkout(projectId: string, branch: string, discardChanges: boolean): Promise<ProjectStatus>;
