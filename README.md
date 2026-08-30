@@ -1,18 +1,18 @@
 # SnipSnap / VideoGit
 
 SnipSnap is a local-first Electron application that brings Git-style version control to
-DaVinci Resolve timelines. Resolve remains the video editor. SnipSnap observes saved timeline
-state, converts the supported OTIO data into a deterministic canonical model, and provides
+DaVinci Resolve and Kdenlive timelines. The NLE remains the video editor. SnipSnap observes saved
+timeline state, converts the supported OTIO data into a deterministic canonical model, and provides
 semantic changes, staging, commits, branches, history, comparisons, conservative merges, and
 historical preview.
 
 The important boundary is:
 
 ```text
-DaVinci Resolve edit + save
+Resolve save or Kdenlive OTIO export
         |
         v
-Resolve OTIO/save adapter
+Editor OTIO/save adapter
         |
         v
 Canonical timeline JSON ---- semantic diff / stage / merge
@@ -29,9 +29,10 @@ Footage is never committed to Git.
 
 ## Current status
 
-The Resolve-only V1/V1.5 workflow is implemented with real application services and real Git
-objects; it is not a mock UI. The current tree also includes a bounded LAN collaboration demo
-that transfers Git history and missing media between two SnipSnap computers on the same network.
+The Resolve V1/V1.5 workflow and a bounded Kdenlive OTIO V2 slice are implemented with real
+application services and real Git objects; this is not a mock UI. The current tree also includes a
+bounded LAN collaboration demo that transfers Git history and missing media between two SnipSnap
+computers on the same network.
 
 Implemented:
 
@@ -50,13 +51,15 @@ Implemented:
 - preview from locally linked browser-compatible media, including multi-track video compositing,
   captions, audio level, and the small portable preset allowlist;
 - save-driven Resolve synchronization plus manual OTIO watching as a fallback;
+- Kdenlive OTIO import/watch, stable-ID reconciliation, immutable commit handoff, native app launch,
+  and a machine-readable fidelity report beside every handoff;
 - same-LAN host/join/pull/push using Git bundles and encrypted, resumable, SHA-256-verified media
   chunks.
 
 Not implemented:
 
 - in-app timeline or video editing;
-- a Kdenlive/MLT adapter or any other cross-NLE editing workflow;
+- native `.kdenlive`/MLT parsing, automatic Kdenlive save capture, or proprietary effect conversion;
 - portable Resolve Color-page nodes, Fusion graphs, third-party plugins, or arbitrary effects;
 - FFmpeg proxy generation, verified per-commit renders, or a production media cloud;
 - internet discovery, NAT traversal, relay servers, hosted accounts, permissions, or pull requests.
@@ -98,6 +101,7 @@ resolve/                   Resolve export/save bridge scripts and fake-Resolve h
 snipsnap/                  Electron Forge application
   src/domain/              Canonical model, validation, frame math, serialization
   src/adapters/otio/       Pure OTIO import/export adapter
+  src/adapters/kdenlive/   Kdenlive capability and fidelity-report adapter
   src/diff/                Semantic diff and atomic hunk application
   src/merge/               Conservative three-way merge and conflict descriptions
   src/git/                 Native Git process and repository primitives
@@ -118,6 +122,8 @@ The WebGPU prism used on the intro/library screen is vendored under its own MIT 
 - Python 3 for Resolve companion scripts;
 - DaVinci Resolve for the real editor workflow. Most automated tests use fixtures and do not
   require Resolve or real footage.
+- Kdenlive 26.04 or newer for the Kdenlive workflow; SnipSnap also searches standard Windows and
+  Linux install locations and accepts `SNIPSNAP_KDENLIVE_BINARY` as an override.
 
 Electron Forge 7 is known to exit early under Node 26. Use the pinned Node version for packaging
 and release verification.
@@ -163,6 +169,26 @@ folder containing a `.drp` beside its `.otio`, or connect directly to a manually
 file.
 
 Detailed script commands and install locations are in [resolve/README.md](resolve/README.md).
+
+## Connect Kdenlive
+
+Kdenlive 26.04 supports OpenTimelineIO import/export for multiple tracks, clips, and markers.
+SnipSnap uses that supported boundary rather than writing Kdenlive's versioned MLT project format.
+
+1. In Kdenlive choose **File > OpenTimelineIO Export** and save an `.otio` file.
+2. In SnipSnap choose **Import Kdenlive OTIO** (or **Kdenlive** from a populated dashboard).
+3. Continue editing in Kdenlive. Export back to the same `.otio` path when you want SnipSnap to
+   detect the next saved timeline state.
+4. Review, apply, stage, and commit the semantic changes in SnipSnap.
+5. Select any immutable commit and choose **Open in Kdenlive**. SnipSnap atomically writes the OTIO
+   handoff plus `<commit>.report.json`, then launches Kdenlive with the handoff as one literal
+   argument.
+
+Portable cuts, tracks, gaps, source ranges, media references, and markers are supported. Marker
+instance semantics, transitions, audio gain, disabled state, and colour labels are best-effort.
+Captions, arbitrary effects, generators, SnipSnap preview looks, Resolve Color/Fusion graphs, and
+editor-specific metadata are reported rather than falsely presented as editable cross-NLE state.
+See [the Kdenlive integration guide](docs/KDENLIVE_INTEGRATION.md) for the complete fidelity table.
 
 ### What changes are detected?
 
@@ -230,17 +256,16 @@ media back to the host.
 
 ## Platform notes
 
-The current implementation and packaged E2E coverage are Windows-focused. Electron Forge is
-configured to create Windows, Debian, and RPM packages, and the Python connector contains Linux
-Resolve module paths. However, Electron's default Resolve export/database/script discovery paths
-currently handle Windows and macOS only. On Linux they require explicit `SNIPSNAP_RESOLVE_ROOT`,
-`SNIPSNAP_RESOLVE_DATABASE`, and/or `SNIPSNAP_RESOLVE_SCRIPTS` overrides until Linux defaults are
-implemented and tested.
+Electron Forge creates native Windows, Debian, and RPM packages. Linux Resolve discovery follows
+`$XDG_DATA_HOME` (falling back to `~/.local/share`) for SnipSnap exports, Resolve project libraries,
+and user scripts, with `/opt/resolve` as the system script location. Environment overrides remain
+available through `SNIPSNAP_RESOLVE_ROOT`, `SNIPSNAP_RESOLVE_DATABASE`,
+`SNIPSNAP_RESOLVE_SCRIPTS`, and `SNIPSNAP_RESOLVE_SCAN`.
 
-Kdenlive is not integrated. The future architecture should keep canonical JSON as the Git source
-of truth, use OTIO for portable interchange, and add an MLT/Kdenlive adapter only for fidelity that
-OTIO cannot carry. Arbitrary Resolve colour grades will still require a baked render/overlay or an
-explicit portable effect subset.
+Kdenlive launch discovery covers `/usr/bin`, `/usr/local/bin`, the macOS application bundle, and
+standard Windows Program Files/local-app installs. Set `SNIPSNAP_KDENLIVE_BINARY` for portable or
+custom installations. Native MLT support may be added later for Kdenlive-only fidelity, but MLT
+must not replace canonical JSON as Git source of truth.
 
 ## Verification
 
@@ -272,5 +297,6 @@ contract harness. They do not replace the manual real-Resolve/real-codec gate do
 2. [System Architecture](docs/VideoGit_System_Architecture_V1_V2.md) - V1-to-V2 roadmap.
 3. [Cross-NLE Universal Hub](docs/VideoGit_CrossNLE_Universal_Hub_Brainstorm.md) - future research.
 4. [Implementation Status](docs/V1_IMPLEMENTATION_STATUS.md) - current evidence and manual gates.
-5. [Studio Graphite Design System](docs/SnipSnap_Studio_Graphite_Design_System.md) - UI guardrails.
-6. [Project handoff](docs/HANDOFF.md) - context for continuing in a fresh agent/Linux session.
+5. [Kdenlive Integration](docs/KDENLIVE_INTEGRATION.md) - OTIO workflow and fidelity contract.
+6. [Studio Graphite Design System](docs/SnipSnap_Studio_Graphite_Design_System.md) - UI guardrails.
+7. [Project handoff](docs/HANDOFF.md) - context for continuing in a fresh agent/Linux session.

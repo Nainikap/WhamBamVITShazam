@@ -19,8 +19,8 @@ Git stores canonical timeline snapshots and ancestry; semantic diff/staging/merg
 TypeScript and Git must not text-merge timeline.json. Keep renderer -> typed preload IPC -> main
 process boundaries intact.
 
-Treat cross-NLE/Kdenlive support as a new V2 scope that needs an explicit plan and honest fidelity
-rules. Do not claim Resolve Color/Fusion/plugin portability through OTIO. Run the relevant tests,
+Treat additional cross-NLE work beyond the approved Kdenlive OTIO slice as new V2 scope that needs
+an explicit plan and honest fidelity rules. Do not claim Resolve Color/Fusion/plugin portability through OTIO. Run the relevant tests,
 inspect the diff, and use conventional commits without sweeping unrelated changes.
 ```
 
@@ -40,7 +40,7 @@ Do not hard-reset to the baseline hash. It is an orientation marker, not a resto
 
 ## Product decision
 
-SnipSnap is currently a Resolve-only version-control companion:
+SnipSnap has a Resolve-first workflow plus an approved Kdenlive OTIO interchange slice:
 
 ```text
 Resolve save
@@ -168,24 +168,25 @@ metadata, so the hub must reconcile into stable canonical identities before diff
 - `SnipSnapSync.py` writes Linux exports to `$XDG_DATA_HOME/SnipSnap/resolve` or
   `~/.local/share/SnipSnap/resolve`.
 - The Electron `defaultResolveRoots`, `resolveDatabaseRoots`, and `resolveScriptFolders` functions
-  currently branch only between Windows and macOS; Linux falls into macOS defaults. This is the
-  main blocker to claiming Linux Resolve integration.
+  now have explicit Linux/XDG defaults plus `/opt/resolve` script discovery, with integration tests.
 - Environment overrides exist: `SNIPSNAP_RESOLVE_ROOT`, `SNIPSNAP_RESOLVE_DATABASE`,
-  `SNIPSNAP_RESOLVE_SCRIPTS`, and `SNIPSNAP_RESOLVE_SCAN`. Use explicit, verified Linux paths until
-  platform defaults and tests are added.
-- Native desktop computer control was unavailable in the previous Windows session. Packaged
-  Playwright controlled Electron instead. On Linux, browser control is available but general
-  desktop-app control may still be unavailable depending on the Codex surface.
+  `SNIPSNAP_RESOLVE_SCRIPTS`, and `SNIPSNAP_RESOLVE_SCAN` for nonstandard installations.
+- The Electron app and Kdenlive handoff have been exercised in an Omarchy Hyprland/Wayland session;
+  packaged Playwright remains the repeatable UI acceptance path.
 
 ### Cross-NLE / Kdenlive
 
-- No Kdenlive or MLT parser/writer exists in the repository.
-- Current source modes are only `resolve` and watched `file` OTIO.
+- `src/adapters/kdenlive/` assesses OTIO capability and emits typed fidelity reports.
+- A Kdenlive-exported OTIO can be imported, watched, reconciled after UUID rewrites, and committed
+  through the normal HEAD/INDEX/WORKING workflow.
+- Any immutable commit can be atomically exported with a sibling JSON loss report and opened in
+  Kdenlive through a literal no-shell process argument.
 - OTIO is the correct portable interchange for cuts/tracks/markers, but it cannot carry arbitrary
   proprietary Resolve colour/effect graphs into Kdenlive.
 - For exact visible appearance across NLEs, use a baked render or portable overlay. For editable
   cross-NLE effects, define a small explicit canonical effect IR and implement it in each adapter.
-- A direct MLT adapter is useful later for Kdenlive-specific fidelity, but MLT should not replace
+- Native `.kdenlive`/MLT parsing and automatic export-on-save remain unimplemented. A direct MLT
+  adapter may be useful later for Kdenlive-specific fidelity, but MLT should not replace
   canonical JSON as Git source of truth.
 
 ### LAN/media
@@ -259,21 +260,15 @@ If the next goal is simply to move development to Linux:
 
 1. clone/pull `main` and install the pinned Node version;
 2. use this file to start a new agent conversation rather than copying the enormous local session;
-3. add explicit Linux branches and tests for Resolve export roots, database roots, and script
-   installation before testing with Resolve;
+3. validate the tested Linux/XDG Resolve paths against an installed Resolve build and real project;
 4. package Debian/RPM and run the same unit/integration/E2E gates;
 5. copy footage separately because it is intentionally not in Git.
 
-If the next goal is Kdenlive/Resolve collaboration, treat it as a planned V2 vertical slice:
-
-1. update the authoritative plan or record an approved scope extension;
-2. add editor/source identity plus capability and loss-report schemas;
-3. implement a Kdenlive OTIO connector first for portable L0/L1 edits;
-4. add stable sidecar ID reconciliation and canonical-to-Kdenlive export/open flow;
-5. add Resolve -> canonical -> Kdenlive and Kdenlive -> canonical -> Resolve golden fixtures;
-6. add direct MLT support later for Kdenlive-only data;
-7. add per-commit baked preview/render artifacts for nonportable visual effects rather than
-   pretending those effects are editable everywhere.
+The approved Kdenlive OTIO vertical slice now covers editor identity, capability/loss schemas,
+portable L0/L1 import/watch, stable reconciliation, and canonical-to-Kdenlive export/open. Next
+cross-NLE work should validate more real Resolve/Kdenlive golden projects, consider direct MLT only
+for explicitly selected Kdenlive-only fidelity, and add baked artifacts for nonportable visuals
+rather than pretending those effects are editable everywhere.
 
 ## Secrets and local data
 

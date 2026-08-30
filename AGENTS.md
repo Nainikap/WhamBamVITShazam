@@ -67,6 +67,7 @@ Keep V1 code inside `snipsnap/src/` with these boundaries:
 - `merge/`: pure conservative three-way merge and conflict resolution helpers.
 - `commands/`: typed edit commands and validated reducer.
 - `adapters/otio/`: minimal pure OTIO import/export and unsupported-content reports.
+- `adapters/kdenlive/`: approved V2 OTIO capability assessment and explicit fidelity reports.
 - `git/`: native Git process wrapper and object/ref/index primitives.
 - `application/`: project workspace orchestration, persistence, and use cases.
 - `ipc/`: shared serializable contracts and channel names.
