@@ -56,6 +56,15 @@ export class ResolveBridgeService {
     return this.processes.has(projectId) || this.databasePollers.has(projectId);
   }
 
+  /** Resolve exposes one active project, so only the project being viewed may consume its saves. */
+  async startExclusive(projectId: string, expectedVersion?: number): Promise<void> {
+    const running = new Set([...this.processes.keys(), ...this.databasePollers.keys()]);
+    for (const otherProjectId of running) {
+      if (otherProjectId !== projectId) await this.stop(otherProjectId);
+    }
+    await this.start(projectId, expectedVersion);
+  }
+
   async start(projectId: string, expectedVersion?: number): Promise<void> {
     if (this.isRunning(projectId)) return;
     const status = await this.projects.status(projectId);
@@ -123,13 +132,6 @@ export class ResolveBridgeService {
     this.stopDatabaseFallback(projectId);
     await this.projects.updateResolveBridgeState(projectId, 'stopped');
     await this.onChange(projectId);
-  }
-
-  async restore(): Promise<void> {
-    for (const project of await this.projects.listProjects()) {
-      const binding = await this.projects.sourceBinding(project.id);
-      if (binding?.mode === 'resolve') await this.start(project.id);
-    }
   }
 
   close(): void {

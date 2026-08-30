@@ -53,7 +53,6 @@ async function restoreSourceConnections(): Promise<void> {
     const binding = await projects.sourceBinding(project.id);
     if (binding?.mode === 'file') sourceWatcher.watch(project.id, binding.path);
   }
-  await resolveBridge.restore();
 }
 
 const mediaTypes: Record<string, string> = {
@@ -187,9 +186,13 @@ function registerIpc(): void {
   ipcMain.handle(channels.listProjects, () => projects.listProjects());
   ipcMain.handle(channels.listOverviews, () => projects.listProjectOverviews());
   ipcMain.handle(channels.openProject, async (_event, projectId: string) => {
-    const status = await projects.openResolveProjectById(projectId);
+    let status = await projects.openResolveProjectById(projectId);
     const binding = await projects.sourceBinding(projectId);
     if (binding?.mode === 'file') sourceWatcher.watch(projectId, binding.path);
+    if (binding?.mode === 'resolve') {
+      await resolveBridge.startExclusive(projectId, status.workspaceVersion);
+      status = await projects.status(projectId);
+    }
     return status;
   });
   ipcMain.handle(channels.resolveRoots, () => projects.resolveRoots());
@@ -280,7 +283,7 @@ function registerIpc(): void {
   ipcMain.handle(channels.startResolveBridge, async (_event, projectId: string, expectedVersion: number) => {
     sourceWatcher.unwatch(projectId);
     if (resolveBridge.isRunning(projectId)) await resolveBridge.stop(projectId);
-    await resolveBridge.start(projectId, expectedVersion);
+    await resolveBridge.startExclusive(projectId, expectedVersion);
     return projects.status(projectId);
   });
   ipcMain.handle(channels.stopResolveBridge, async (_event, projectId: string) => {
