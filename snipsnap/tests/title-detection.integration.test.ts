@@ -140,22 +140,24 @@ describe('a title added over part of a timeline', () => {
     expect(imported.mediaLinks[imported.project.assets.find(({ id }) => id === title?.assetId)?.fingerprint ?? '']).toBeUndefined();
   });
 
-  it('reports the new track and the title as additions', () => {
+  it('reports a new title track as one atomic, accurately named addition', () => {
     const base = before().project;
     const head = reconcileImportedProject(base, after().project);
     const hunks = semanticDiff(base, head);
 
     expect(hunks.filter(({ operation }) => operation === 'delete')).toEqual([]);
-    expect(hunks.map(({ message }) => message)).toEqual(expect.arrayContaining([
-      expect.stringContaining('Added track V2'),
-      expect.stringContaining('Added clip RAVI KISHAN GOAT'),
-    ]));
-    // The generator arrives as its own asset as well as a clip; the clip is
-    // the one that carries a place on the timeline.
-    expect(hunks.filter(({ message }) => message.includes('RAVI KISHAN GOAT')).map(({ entityType }) => entityType))
-      .toEqual(expect.arrayContaining(['asset', 'clip']));
-    const title = hunks.find(({ entityType, message }) => entityType === 'clip' && message.includes('RAVI KISHAN GOAT'));
-    expect(title?.affectedFrameRange).toEqual({ start: 0, duration: TITLE_FRAMES });
+    expect(hunks).toEqual([
+      expect.objectContaining({
+        entityType: 'track',
+        fieldGroup: 'structure',
+        message: 'Added track V2 with 3 timeline items',
+        parts: expect.arrayContaining([
+          expect.objectContaining({ entityType: 'asset', operation: 'add' }),
+          expect.objectContaining({ entityType: 'clip', operation: 'add' }),
+          expect.objectContaining({ entityType: 'track', operation: 'add' }),
+        ]),
+      }),
+    ]);
   });
 
   it('marks only the frames the title covers, not the whole timeline', () => {

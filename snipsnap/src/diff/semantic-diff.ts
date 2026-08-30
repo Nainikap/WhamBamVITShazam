@@ -1,4 +1,12 @@
-import { cloneProject, digestText, projectDigest, validateProject, type FrameRange, type Project } from '../domain';
+import {
+  cloneProject,
+  compareCanonicalKeys,
+  digestText,
+  projectDigest,
+  validateProject,
+  type FrameRange,
+  type Project,
+} from '../domain';
 
 export type EntityType = 'project' | 'sequence' | 'track' | 'asset' | 'clip' | 'gap' | 'transition' | 'caption';
 export type HunkOperation = 'add' | 'delete' | 'modify' | 'reorder';
@@ -16,6 +24,8 @@ export interface SemanticHunk {
   orderIndex?: number;
   message: string;
   affectedFrameRange?: FrameRange;
+  /** Primitive edits that must stage together to keep the timeline valid. */
+  parts?: SemanticHunk[];
 }
 
 type Entity = Record<string, unknown> & { id: string };
@@ -74,7 +84,7 @@ function stableValue(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableValue).join(',')}]`;
   return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareCanonicalKeys(left, right))
     .map(([key, item]) => `${JSON.stringify(key)}:${stableValue(item)}`)
     .join(',')}}`;
 }
@@ -120,12 +130,39 @@ function describe(
   if (operation === 'add') return `Added ${type} ${label}`;
   if (operation === 'delete') return `Deleted ${type} ${label}`;
   if (operation === 'reorder') return `Reordered ${type} ${label}`;
-  if (type === 'clip' && fields.includes('sourceRange')) return `Trimmed clip ${label}`;
+  if (type === 'clip' && fields.includes('sourceRange')) {
+    const previous = before as FrameRange;
+    const next = after as FrameRange;
+    const previousEnd = previous.start + previous.duration;
+    const nextEnd = next.start + next.duration;
+    if (previous.duration === next.duration && previous.start !== next.start) {
+      const frames = Math.abs(next.start - previous.start);
+      return `Slipped clip ${label} ${next.start > previous.start ? 'forward' : 'back'} by ${frames} frame${frames === 1 ? '' : 's'}`;
+    }
+    const startDelta = next.start - previous.start;
+    const endDelta = previousEnd - nextEnd;
+    if (startDelta >= 0 && endDelta >= 0 && (startDelta > 0 || endDelta > 0)) {
+      if (startDelta > 0 && endDelta > 0) return `Trimmed both ends of clip ${label}`;
+      const frames = startDelta || endDelta;
+      return `Trimmed ${startDelta > 0 ? 'start' : 'end'} of clip ${label} by ${frames} frame${frames === 1 ? '' : 's'}`;
+    }
+    if (startDelta <= 0 && endDelta <= 0 && (startDelta < 0 || endDelta < 0)) {
+      if (startDelta < 0 && endDelta < 0) return `Extended both ends of clip ${label}`;
+      const frames = Math.abs(startDelta || endDelta);
+      return `Extended ${startDelta < 0 ? 'start' : 'end'} of clip ${label} by ${frames} frame${frames === 1 ? '' : 's'}`;
+    }
+    return `Changed source range of clip ${label}`;
+  }
   if (type === 'caption' && fields.includes('range')) return `Retimed caption ${label}`;
   if (type === 'caption' && fields.includes('text')) return `Changed caption text ${label}`;
   if (fields.includes('markers')) return `${countChange(before, after)} markers on ${type} ${label}`;
   if (fields.includes('effects')) return `${countChange(before, after)} effects on ${type} ${label}`;
   if (fields.includes('enabled')) return `${after === true ? 'Enabled' : 'Disabled'} ${type} ${label}`;
+  if (type === 'gap' && fields.includes('durationFrames')) {
+    const delta = Number(after) - Number(before);
+    const frames = Math.abs(delta);
+    return `${delta < 0 ? 'Shortened' : 'Extended'} gap by ${frames} frame${frames === 1 ? '' : 's'}`;
+  }
   if (fields.includes('extras')) return `Changed editor settings on ${type} ${label}`;
   const readable = fields.map((field) => fieldLabels[field] ?? field).join(' + ');
   return `Changed ${type} ${label}: ${readable}`;
@@ -146,8 +183,193 @@ function createHunk(input: Omit<SemanticHunk, 'id'>): SemanticHunk {
     input.fieldGroup,
     input.before,
     input.after,
+    input.parts?.map(({ id }) => id),
   ]);
   return { ...input, id: digestText(identity) };
+}
+
+function entitySide(hunk: SemanticHunk): Entity | undefined {
+  const value = hunk.operation === 'delete' ? hunk.before : hunk.after;
+  return value && typeof value === 'object' && 'id' in value ? value as Entity : undefined;
+}
+
+function rangeEnd(range: FrameRange): number {
+  return range.start + range.duration;
+}
+
+function partitionsRange(whole: FrameRange, pieces: FrameRange[]): boolean {
+  const ordered = [...pieces].sort((left, right) => left.start - right.start);
+  let cursor = whole.start;
+  for (const piece of ordered) {
+    if (piece.start !== cursor || piece.duration <= 0) return false;
+    cursor = rangeEnd(piece);
+  }
+  return cursor === rangeEnd(whole);
+}
+
+function connectedOnTrack(project: Project, trackId: string, ids: string[]): boolean {
+  const track = project.tracks.find(({ id }) => id === trackId);
+  if (!track) return false;
+  const indexes = ids.map((id) => track.itemIds.indexOf(id)).sort((left, right) => left - right);
+  return indexes.every((index, position) => index >= 0 && (position === 0 || index === (indexes[position - 1] as number) + 1));
+}
+
+function compoundHunk(input: {
+  baseDigest: string;
+  parts: SemanticHunk[];
+  entityType: EntityType;
+  entityId: string;
+  operation: HunkOperation;
+  fieldGroup: string;
+  message: string;
+  affectedFrameRange?: FrameRange;
+}): SemanticHunk {
+  return createHunk({
+    baseDigest: input.baseDigest,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    operation: input.operation,
+    fieldGroup: input.fieldGroup,
+    before: input.parts.map(({ entityType, entityId, fieldGroup, before }) => ({ entityType, entityId, fieldGroup, value: before })),
+    after: input.parts.map(({ entityType, entityId, fieldGroup, after }) => ({ entityType, entityId, fieldGroup, value: after })),
+    message: input.message,
+    parts: input.parts,
+    ...(input.affectedFrameRange ? { affectedFrameRange: input.affectedFrameRange } : {}),
+  });
+}
+
+function groupClipSplits(
+  base: Project,
+  candidate: Project,
+  hunks: SemanticHunk[],
+): { grouped: SemanticHunk[]; remaining: SemanticHunk[] } {
+  const consumed = new Set<string>();
+  const grouped: SemanticHunk[] = [];
+  const additions = hunks.filter(({ entityType, operation }) => entityType === 'clip' && operation === 'add');
+  const deletions = hunks.filter(({ entityType, operation }) => entityType === 'clip' && operation === 'delete');
+
+  for (const modified of hunks.filter(({ entityType, operation, fieldGroup }) => (
+    entityType === 'clip' && operation === 'modify' && fieldGroup === 'sourceRange'
+  ))) {
+    if (consumed.has(modified.id)) continue;
+    const beforeClip = base.clips.find(({ id }) => id === modified.entityId);
+    const afterClip = candidate.clips.find(({ id }) => id === modified.entityId);
+    if (!beforeClip || !afterClip) continue;
+    const compatible = (hunk: SemanticHunk, side: 'before' | 'after') => {
+      const clip = (side === 'before' ? hunk.before : hunk.after) as Project['clips'][number];
+      return clip.trackId === beforeClip.trackId
+        && clip.assetId === beforeClip.assetId
+        && clip.name === beforeClip.name;
+    };
+
+    const added = additions.filter((hunk) => !consumed.has(hunk.id) && compatible(hunk, 'after'));
+    const splitPieces = [afterClip, ...added.map(({ after }) => after as Project['clips'][number])];
+    if (added.length > 0
+      && partitionsRange(beforeClip.sourceRange, splitPieces.map(({ sourceRange }) => sourceRange))
+      && connectedOnTrack(candidate, afterClip.trackId, splitPieces.map(({ id }) => id))) {
+      const parts = [modified, ...added];
+      parts.forEach(({ id }) => consumed.add(id));
+      grouped.push(compoundHunk({
+        baseDigest: modified.baseDigest,
+        parts,
+        entityType: 'clip',
+        entityId: modified.entityId,
+        operation: 'modify',
+        fieldGroup: 'split',
+        message: `Split clip ${beforeClip.name} into ${splitPieces.length} clips`,
+        affectedFrameRange: beforeClip.sourceRange,
+      }));
+      continue;
+    }
+
+    const deleted = deletions.filter((hunk) => !consumed.has(hunk.id) && compatible(hunk, 'before'));
+    const joinedPieces = [beforeClip, ...deleted.map(({ before }) => before as Project['clips'][number])];
+    if (deleted.length > 0
+      && partitionsRange(afterClip.sourceRange, joinedPieces.map(({ sourceRange }) => sourceRange))
+      && connectedOnTrack(base, beforeClip.trackId, joinedPieces.map(({ id }) => id))) {
+      const parts = [modified, ...deleted];
+      parts.forEach(({ id }) => consumed.add(id));
+      grouped.push(compoundHunk({
+        baseDigest: modified.baseDigest,
+        parts,
+        entityType: 'clip',
+        entityId: modified.entityId,
+        operation: 'modify',
+        fieldGroup: 'split',
+        message: `Joined ${joinedPieces.length} clips into ${afterClip.name}`,
+        affectedFrameRange: afterClip.sourceRange,
+      }));
+    }
+  }
+  return { grouped, remaining: hunks.filter(({ id }) => !consumed.has(id)) };
+}
+
+function groupStructuralDependencies(baseDigest: string, hunks: SemanticHunk[]): SemanticHunk[] {
+  const candidates = hunks.filter(({ operation }) => operation === 'add' || operation === 'delete');
+  const parent = new Map(candidates.map(({ id }) => [id, id]));
+  const find = (id: string): string => {
+    const next = parent.get(id) as string;
+    if (next === id) return id;
+    const root = find(next);
+    parent.set(id, root);
+    return root;
+  };
+  const unite = (left: SemanticHunk, right: SemanticHunk) => {
+    const leftRoot = find(left.id);
+    const rightRoot = find(right.id);
+    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
+  };
+
+  for (const hunk of candidates) {
+    const entity = entitySide(hunk);
+    if (!entity) continue;
+    if (hunk.entityType === 'sequence') {
+      const trackIds = entity.trackIds as string[];
+      candidates.filter((item) => item.operation === hunk.operation && item.entityType === 'track'
+        && trackIds.includes(item.entityId)).forEach((item) => unite(hunk, item));
+    }
+    if (hunk.entityType === 'track') {
+      const itemIds = entity.itemIds as string[];
+      candidates.filter((item) => item.operation === hunk.operation
+        && ['clip', 'gap', 'transition', 'caption'].includes(item.entityType)
+        && itemIds.includes(item.entityId)).forEach((item) => unite(hunk, item));
+    }
+    if (hunk.entityType === 'asset') {
+      candidates.filter((item) => item.operation === hunk.operation && item.entityType === 'clip'
+        && String(entitySide(item)?.assetId) === hunk.entityId).forEach((item) => unite(hunk, item));
+    }
+  }
+
+  const components = new Map<string, SemanticHunk[]>();
+  for (const hunk of candidates) components.set(find(hunk.id), [...components.get(find(hunk.id)) ?? [], hunk]);
+  const groupedIds = new Set<string>();
+  const groups: SemanticHunk[] = [];
+  const priority: EntityType[] = ['sequence', 'track', 'clip', 'caption', 'gap', 'transition', 'asset', 'project'];
+  for (const parts of components.values()) {
+    if (parts.length < 2) continue;
+    parts.forEach(({ id }) => groupedIds.add(id));
+    const primary = [...parts].sort((left, right) => priority.indexOf(left.entityType) - priority.indexOf(right.entityType))[0] as SemanticHunk;
+    const entity = entitySide(primary) as Entity;
+    const label = typeof entity.name === 'string' ? entity.name : primary.entityId.slice(0, 8);
+    const verb = primary.operation === 'add' ? 'Added' : 'Deleted';
+    const itemCount = parts.filter(({ entityType }) => ['clip', 'gap', 'transition', 'caption'].includes(entityType)).length;
+    const message = primary.entityType === 'track'
+      ? `${verb} track ${label} with ${itemCount} timeline item${itemCount === 1 ? '' : 's'}`
+      : primary.entityType === 'clip'
+        ? `${verb} clip ${label} with its media`
+        : `${verb} related ${primary.entityType} data for ${label}`;
+    groups.push(compoundHunk({
+      baseDigest,
+      parts,
+      entityType: primary.entityType,
+      entityId: primary.entityId,
+      operation: primary.operation,
+      fieldGroup: 'structure',
+      message,
+      ...(primary.affectedFrameRange ? { affectedFrameRange: primary.affectedFrameRange } : {}),
+    }));
+  }
+  return [...hunks.filter(({ id }) => !groupedIds.has(id)), ...groups];
 }
 
 export function semanticDiff(baseInput: Project, candidateInput: Project): SemanticHunk[] {
@@ -270,7 +492,9 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
     }
   });
 
-  return hunks.sort((left, right) => left.message.localeCompare(right.message) || left.id.localeCompare(right.id));
+  const splitGroups = groupClipSplits(base, candidate, hunks);
+  return [...splitGroups.grouped, ...groupStructuralDependencies(baseDigest, splitGroups.remaining)]
+    .sort((left, right) => compareCanonicalKeys(left.message, right.message) || compareCanonicalKeys(left.id, right.id));
 }
 
 function collection(project: Project, type: CollectionKey): Entity[] {
@@ -278,6 +502,10 @@ function collection(project: Project, type: CollectionKey): Entity[] {
 }
 
 function applyHunk(project: Project, hunk: SemanticHunk): void {
+  if (hunk.parts) {
+    for (const part of hunk.parts) applyHunk(project, part);
+    return;
+  }
   if (hunk.entityType === 'project') {
     if (hunk.fieldGroup === 'extras') project.extras = hunk.after as Project['extras'];
     else project.name = String(hunk.after);
@@ -289,11 +517,15 @@ function applyHunk(project: Project, hunk: SemanticHunk): void {
     values.push(hunk.after as Entity);
     if (hunk.entityType === 'track' && hunk.parentId) {
       const sequence = project.sequences.find(({ id }) => id === hunk.parentId);
-      sequence?.trackIds.splice(hunk.orderIndex ?? sequence.trackIds.length, 0, hunk.entityId);
+      if (sequence && !sequence.trackIds.includes(hunk.entityId)) {
+        sequence.trackIds.splice(hunk.orderIndex ?? sequence.trackIds.length, 0, hunk.entityId);
+      }
     } else if ((hunk.entityType === 'clip' || hunk.entityType === 'gap'
       || hunk.entityType === 'transition' || hunk.entityType === 'caption') && hunk.parentId) {
       const track = project.tracks.find(({ id }) => id === hunk.parentId);
-      track?.itemIds.splice(hunk.orderIndex ?? track.itemIds.length, 0, hunk.entityId);
+      if (track && !track.itemIds.includes(hunk.entityId)) {
+        track.itemIds.splice(hunk.orderIndex ?? track.itemIds.length, 0, hunk.entityId);
+      }
     }
     return;
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { reduceCommand } from '../src/commands';
 import { applySemanticHunks, semanticDiff, StaleHunkError } from '../src/diff';
-import { createDemoProject, projectDigest, type Project } from '../src/domain';
+import { createDemoProject, decorations, deterministicUuid, projectDigest, validateProject, type Project } from '../src/domain';
 
 describe('commands and semantic staging', () => {
   it('emits human semantic hunks with atomic trim ranges', () => {
@@ -15,10 +15,114 @@ describe('commands and semantic staging', () => {
     expect(hunks[0]).toEqual(expect.objectContaining({
       entityId: clip.id,
       fieldGroup: 'sourceRange',
-      message: 'Trimmed clip Intro',
+      message: 'Trimmed both ends of clip Intro',
       before: { start: 0, duration: 144 },
       after: { start: 12, duration: 120 },
     }));
+  });
+
+  it('represents a blade cut as one atomic, accurately named change', () => {
+    const base = createDemoProject();
+    const clip = base.clips[0];
+    const track = base.tracks.find(({ id }) => id === clip?.trackId);
+    if (!clip || !track) throw new Error('Fixture clip missing');
+    const working = structuredClone(base);
+    const firstHalf = working.clips.find(({ id }) => id === clip.id);
+    if (!firstHalf) throw new Error('Fixture clip missing');
+    firstHalf.sourceRange.duration = 72;
+    const secondId = deterministicUuid(`${clip.id}:split:72`);
+    working.clips.push({
+      ...structuredClone(firstHalf),
+      id: secondId,
+      sourceRange: { start: 72, duration: 72 },
+    });
+    const workingTrack = working.tracks.find(({ id }) => id === track.id);
+    if (!workingTrack) throw new Error('Fixture track missing');
+    workingTrack.itemIds.splice(workingTrack.itemIds.indexOf(clip.id) + 1, 0, secondId);
+    validateProject(working);
+
+    const hunks = semanticDiff(base, working);
+    expect(hunks).toHaveLength(1);
+    expect(hunks[0]).toMatchObject({
+      entityType: 'clip',
+      entityId: clip.id,
+      fieldGroup: 'split',
+      message: 'Split clip Intro into 2 clips',
+      parts: expect.arrayContaining([
+        expect.objectContaining({ operation: 'modify', fieldGroup: 'sourceRange' }),
+        expect.objectContaining({ operation: 'add', fieldGroup: 'entity' }),
+      ]),
+    });
+    expect(applySemanticHunks(base, working, [hunks[0]?.id as string], projectDigest(base))).toEqual(working);
+
+    const reverse = semanticDiff(working, base);
+    expect(reverse).toHaveLength(1);
+    expect(reverse[0]).toMatchObject({ fieldGroup: 'split', message: 'Joined 2 clips into Intro' });
+    expect(applySemanticHunks(working, base, [reverse[0]?.id as string], projectDigest(working))).toEqual(base);
+  });
+
+  it('groups a new track, clip, and media asset into one valid staged change', () => {
+    const base = createDemoProject();
+    const working = structuredClone(base);
+    const sequence = working.sequences[0];
+    if (!sequence) throw new Error('Fixture sequence missing');
+    const trackId = deterministicUuid(`${sequence.id}:overlay-track`);
+    const assetId = deterministicUuid(`${base.id}:title-asset`);
+    const clipId = deterministicUuid(`${trackId}:title`);
+    working.assets.push({
+      id: assetId,
+      name: 'Title generator',
+      fingerprint: 'a'.repeat(64),
+      durationFrames: 48,
+      extras: { generator: true },
+    });
+    working.clips.push({
+      id: clipId,
+      type: 'clip',
+      trackId,
+      name: 'Opening title',
+      assetId,
+      sourceRange: { start: 0, duration: 48 },
+      gainDb: 0,
+      preset: 'none',
+      color: null,
+      ...decorations(),
+    });
+    working.tracks.push({
+      id: trackId,
+      sequenceId: sequence.id,
+      name: 'V2',
+      kind: 'video',
+      itemIds: [clipId],
+      ...decorations(),
+    });
+    sequence.trackIds.push(trackId);
+    validateProject(working);
+
+    const hunks = semanticDiff(base, working);
+    expect(hunks).toHaveLength(1);
+    expect(hunks[0]).toMatchObject({
+      entityType: 'track',
+      fieldGroup: 'structure',
+      message: 'Added track V2 with 1 timeline item',
+    });
+    expect(applySemanticHunks(base, working, [hunks[0]?.id as string], projectDigest(base))).toEqual(working);
+    const reverse = semanticDiff(working, base);
+    expect(reverse).toHaveLength(1);
+    expect(reverse[0]).toMatchObject({
+      entityType: 'track',
+      fieldGroup: 'structure',
+      message: 'Deleted track V2 with 1 timeline item',
+    });
+    expect(applySemanticHunks(working, base, [reverse[0]?.id as string], projectDigest(working))).toEqual(base);
+  });
+
+  it('names end trims with their exact frame delta', () => {
+    const base = createDemoProject();
+    const clip = base.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    const working = reduceCommand(base, { type: 'trimClip', clipId: clip.id, start: 0, duration: 120 });
+    expect(semanticDiff(base, working)[0]?.message).toBe('Trimmed end of clip Intro by 24 frames');
   });
 
   it('stages only selected semantic edits into a complete validated snapshot', () => {
