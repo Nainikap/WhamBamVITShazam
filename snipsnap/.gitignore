@@ -88,6 +88,9 @@ typings/
 # Vite
 .vite/
 
+# Sparse clone used only to vendor the vgpu.sh hero.
+.vendor-vgpu/
+
 # Electron-Forge
 out/
 

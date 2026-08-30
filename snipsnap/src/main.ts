@@ -18,6 +18,8 @@ import { channels } from './ipc';
 
 if (started) app.quit();
 
+app.commandLine.appendSwitch('enable-unsafe-webgpu');
+
 protocol.registerSchemesAsPrivileged([{
   scheme: 'snipsnap-media',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
@@ -134,6 +136,7 @@ function rendererContentType(filePath: string): string {
   if (extension === '.svg') return 'image/svg+xml';
   if (extension === '.png') return 'image/png';
   if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  if (extension === '.woff2') return 'font/woff2';
   return 'application/octet-stream';
 }
 

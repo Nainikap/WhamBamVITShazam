@@ -1,5 +1,5 @@
-import { Clapperboard, FolderGit2, Home, X } from 'lucide-react';
-import { useEffect } from 'react';
+import { ArrowLeft, FolderGit2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -8,32 +8,20 @@ import { cn } from '@/lib/utils';
 import { Dashboard } from './Dashboard';
 import { Editor } from './Editor';
 import { MergeDialog } from './MergeDialog';
+import { Intro } from './prism/Intro';
+import { GlassFilters, GlassSurface } from './prism/LiquidGlass';
+import { PrismStage, type Stage } from './prism/PrismStage';
+import './prism/prism.css';
 import { useAppStore } from './store';
 
-function RailButton({ label, active, disabled, onClick, children }: {
-  label: string;
-  active: boolean;
-  disabled?: boolean;
-  onClick?(): void;
-  children: React.ReactNode;
-}) {
-  return <Tooltip>
-    <TooltipTrigger asChild>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label={label}
-        disabled={disabled}
-        onClick={onClick}
-        className={cn('text-muted-foreground', active && 'bg-primary/15 text-primary')}
-      >{children}</Button>
-    </TooltipTrigger>
-    <TooltipContent side="right">{label}</TooltipContent>
-  </Tooltip>;
-}
+/** How long the wordmark takes to clear the frame once the camera starts moving. */
+const INTRO_EXIT = 720;
 
 export function App() {
   const store = useAppStore();
+  const [entered, setEntered] = useState(false);
+  const [introMounted, setIntroMounted] = useState(true);
+  const libraryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const stopSourceListening = store.listenForSourceChanges();
@@ -52,72 +40,99 @@ export function App() {
   }, [store.notice]);
 
   const editing = store.route.name === 'editor';
+  const stage: Stage = !entered ? 'intro' : editing ? 'project' : 'library';
+
+  // The library stays mounted so the camera move is the only transition, but a
+  // screen the camera has left must not answer the keyboard.
+  useEffect(() => {
+    const node = libraryRef.current;
+    if (!node) return;
+    if (stage === 'library') node.removeAttribute('inert');
+    else node.setAttribute('inert', '');
+  }, [stage]);
+
+  const enter = () => {
+    setEntered(true);
+    window.setTimeout(() => setIntroMounted(false), INTRO_EXIT);
+  };
+
   const status = store.status;
   // A database project has no project file, so its folder is the location.
   const projectPath = status?.resolve?.drpPath || status?.resolve?.folder || status?.path;
 
   return <TooltipProvider delayDuration={300}>
-    <div className="flex h-screen overflow-hidden bg-background">
-      <nav aria-label="Primary" className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border py-3">
-        <RailButton label="Dashboard" active={!editing} onClick={() => void store.goToDashboard()}>
-          <Home />
-        </RailButton>
-        <RailButton label="Editor" active={editing} disabled={!editing}>
-          <Clapperboard />
-        </RailButton>
-      </nav>
+    <GlassFilters />
+    <div className="vg-shell" data-stage={stage}>
+      <PrismStage stage={stage} />
 
-      <div className="relative flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-          <span className="grid h-6 w-6 place-items-center rounded bg-primary text-[13px] font-black text-primary-foreground">S</span>
-          <span className="text-sm font-semibold tracking-tight">SnipSnap</span>
+      {introMounted && <Intro leaving={entered} onContinue={enter} />}
 
-          {editing && status && <>
-            <Separator orientation="vertical" className="h-5" />
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="shrink-0 text-xs font-medium">{status.project.name}</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="path-text min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+      <div className="vg-library" ref={libraryRef}><Dashboard /></div>
+
+      <div className="vg-project">
+        <GlassSurface />
+        <div className="vg-glass-body vg-project-body">
+          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Dashboard"
+                  onClick={() => void store.goToDashboard()}
+                ><ArrowLeft /></Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Back to projects</TooltipContent>
+            </Tooltip>
+            <span className="vg-mark">VideoGit</span>
+
+            {status && <>
+              <Separator orientation="vertical" className="h-5" />
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="shrink-0 text-xs font-medium">{status.project.name}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="path-text min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+                      {projectPath}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="font-mono">
                     {projectPath}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent className="font-mono">
-                  {projectPath}
-                  {status.resolve?.otioPath ? <><br />{status.resolve.otioPath}</> : null}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => void store.exportRevision(store.selectedRevision?.commit.id ?? status.headCommit)}
-            >Export OTIO</Button>
-          </>}
-        </header>
+                    {status.resolve?.otioPath ? <><br />{status.resolve.otioPath}</> : null}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => void store.exportRevision(store.selectedRevision?.commit.id ?? status.headCommit)}
+              >Export OTIO</Button>
+            </>}
+          </header>
 
-        {store.busy && <div className="absolute left-0 top-12 z-40 h-0.5 w-1/3 animate-pulse bg-primary" aria-label="Working" />}
-
-        {(store.error || store.notice) && <Alert
-          role={store.error ? 'alert' : 'status'}
-          variant={store.error ? 'destructive' : 'default'}
-          className={cn(
-            'alert mx-4 mt-3 flex w-auto items-start justify-between gap-3 py-2',
-            store.error ? 'error' : 'notice border-added/40 bg-added-soft text-added',
-          )}
-        >
-          <AlertDescription className="text-xs">{store.error ?? store.notice}</AlertDescription>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={store.error ? 'Dismiss error' : 'Dismiss notice'}
-            onClick={store.error ? store.clearError : store.clearNotice}
-            className="h-5 w-5 shrink-0"
-          ><X className="h-3.5 w-3.5" /></Button>
-        </Alert>}
-
-        {editing ? <Editor /> : <Dashboard />}
+          {editing && <Editor />}
+        </div>
       </div>
+
+      {store.busy && <div className="vg-busy" aria-label="Working" />}
+
+      {(store.error || store.notice) && <Alert
+        role={store.error ? 'alert' : 'status'}
+        variant={store.error ? 'destructive' : 'default'}
+        className={cn(
+          'alert vg-toast flex items-start justify-between gap-3 py-2',
+          store.error ? 'error' : 'notice',
+        )}
+      >
+        <AlertDescription className="text-xs">{store.error ?? store.notice}</AlertDescription>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={store.error ? 'Dismiss error' : 'Dismiss notice'}
+          onClick={store.error ? store.clearError : store.clearNotice}
+          className="h-5 w-5 shrink-0"
+        ><X className="h-3.5 w-3.5" /></Button>
+      </Alert>}
 
       {store.mergeSession && <MergeDialog
         session={store.mergeSession}

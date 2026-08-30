@@ -1,5 +1,5 @@
 import { Minus, Plus } from 'lucide-react';
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useMemo, useState, type MouseEvent, type WheelEvent } from 'react';
 import type { PreviewPlan, PreviewSegment, PreviewTrack } from '../preview';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -8,10 +8,10 @@ import { framesToTimecode } from './format';
 const kindLabel: Record<PreviewTrack['kind'], string> = { video: 'VIDEO', audio: 'AUDIO', caption: 'TEXT' };
 
 const chipTone: Record<PreviewSegment['kind'], string> = {
-  clip: 'bg-gradient-to-b from-[#3a6ea8] to-[#2d5482]',
-  gap: 'bg-[repeating-linear-gradient(45deg,#1a2029_0_6px,#151a22_6px_12px)] border-dashed',
-  caption: 'bg-gradient-to-b from-[#5a4a86] to-[#453a68]',
-  transition: 'bg-[repeating-linear-gradient(45deg,#7c6a3a_0_4px,#5f5130_4px_8px)] border-[#b79a52]',
+  clip: 'bg-gradient-to-b from-[#3a3a3a] to-[#242424]',
+  gap: 'bg-[repeating-linear-gradient(45deg,#1a1a1a_0_6px,#141414_6px_12px)] border-dashed',
+  caption: 'bg-gradient-to-b from-[#4a4a4a] to-[#2e2e2e]',
+  transition: 'bg-[repeating-linear-gradient(45deg,#5a5a5a_0_4px,#3a3a3a_4px_8px)] border-[#8a8a8a]',
 };
 
 function tickStep(totalFrames: number, fps: number): number {
@@ -54,6 +54,14 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
     onSeek(Math.round(((event.clientX - bounds.left) / bounds.width) * total));
   }
 
+  function scrubFromWheel(event: WheelEvent<HTMLDivElement>): void {
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+    event.preventDefault();
+    const next = playhead + Math.round(delta * (plan.fps / 80));
+    onSeek(Math.min(total - 1, Math.max(0, next)));
+  }
+
   return <section aria-label="Timeline tracks" className="shrink-0 overflow-hidden rounded-lg border border-border bg-card">
     <header className="flex items-center gap-3 border-b border-border px-3 py-2">
       <span className="text-xs font-semibold">Sequence</span>
@@ -76,7 +84,7 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
       </div>
     </header>
 
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" onWheel={scrubFromWheel}>
       <div className="relative grid min-w-full grid-cols-[7rem_minmax(0,1fr)]" style={{ width: `${zoom * 100}%` }}>
         <div className="sticky left-0 z-10 border-b border-r border-border bg-card" />
         <div className="relative h-6 cursor-pointer border-b border-border bg-card" onClick={seekFromEvent} role="presentation">

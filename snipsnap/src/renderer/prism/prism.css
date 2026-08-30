@@ -1,0 +1,996 @@
+/*
+ * The VideoGit shell: one WebGPU canvas behind every screen, and glass panes over it.
+ * Screens are not swapped, they are flown to, so almost everything here is a
+ * transition keyed off `data-stage` on the shell.
+ */
+
+@font-face {
+  font-family: 'Mondwest';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./Mondwest-Regular.woff2') format('woff2');
+}
+
+.vg-shell {
+  --vg-display: 'Mondwest', 'Iowan Old Style', Palatino, 'Palatino Linotype', serif;
+  position: relative;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  color: #f2f2f2;
+}
+
+/* ---------------------------------------------------------------- the scene */
+
+.vg-stage,
+.vg-canvas,
+.vg-fallback {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.vg-stage {
+  z-index: 0;
+  background: #000;
+}
+
+.vg-canvas[data-painted='false'] {
+  opacity: 0;
+}
+
+/* No WebGPU: the same picture, flattened. Black first, colour only in the beam. */
+.vg-fallback {
+  background: #000;
+}
+
+.vg-fallback span {
+  position: absolute;
+  top: 18%;
+  right: -8%;
+  bottom: 18%;
+  left: -4%;
+  clip-path: polygon(0 8%, 92% 42%, 100% 46%, 100% 54%, 92% 58%, 0 92%);
+  background: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0) 0%,
+    #6d0f16 14%,
+    #d5121f 26%,
+    #f0690f 38%,
+    #f3d223 50%,
+    #4fd35f 62%,
+    #24cfe2 74%,
+    #1a4cff 86%,
+    rgb(0 0 0 / 0) 100%
+  );
+  filter: blur(28px);
+  opacity: 0.88;
+  transform: rotate(-4deg);
+  transform-origin: 100% 50%;
+  transition: opacity 900ms ease;
+}
+
+.vg-shell[data-stage='project'] .vg-fallback span {
+  opacity: 0.3;
+}
+
+/* ---------------------------------------------------------------- the glass */
+
+.vg-glass-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.vg-glass {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 22px;
+  background: rgb(12 12 14 / 0.72);
+  color: #f2f2f2;
+}
+
+.vg-glass-blur,
+.vg-glass-warp,
+.vg-glass-edge,
+.vg-glass-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.vg-glass-blur {
+  backdrop-filter: blur(22px) saturate(160%) brightness(1.02);
+  -webkit-backdrop-filter: blur(22px) saturate(160%) brightness(1.02);
+}
+
+/*
+ * Only the rim is displaced: a slab of glass bends light hardest where it is
+ * thickest to the eye. The mask keeps the middle of the pane readable.
+ */
+.vg-glass-warp {
+  padding: 16px;
+  opacity: 0.92;
+  backdrop-filter: url('#vg-liquid');
+  -webkit-backdrop-filter: url('#vg-liquid');
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+}
+
+/* Warm on one side, cool on the other: the edge splits what passes through it. */
+.vg-glass-edge {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    inset 0 0 0 1px rgb(255 255 255 / 0.09),
+    inset 1.5px 0 0 rgb(255 176 150 / 0.22),
+    inset -1.5px 0 0 rgb(150 190 255 / 0.24),
+    inset 0 -1px 0 rgb(255 255 255 / 0.12),
+    0 26px 70px rgb(0 0 0 / 0.55);
+}
+
+.vg-glass-sheen {
+  background: linear-gradient(
+    148deg,
+    rgb(255 255 255 / 0.13) 0%,
+    rgb(255 255 255 / 0.02) 34%,
+    rgb(255 255 255 / 0) 62%,
+    rgb(255 255 255 / 0.05) 100%
+  );
+  mix-blend-mode: screen;
+}
+
+.vg-glass-body {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------------------------------------------------------------- the intro */
+
+.vg-intro {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: clamp(40px, 7vw, 110px);
+  display: grid;
+  justify-items: start;
+  gap: 28px;
+  width: min(46vw, 620px);
+  transform: translateY(-50%);
+  transition:
+    opacity 520ms cubic-bezier(0.4, 0, 1, 1),
+    transform 900ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.vg-intro[data-leaving='true'] {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(22vw, -50%);
+}
+
+.vg-intro-title {
+  margin: 0;
+  color: #fff;
+  font-family: var(--vg-display);
+  font-size: clamp(4.5rem, 11vw, 10rem);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 0.84;
+  text-shadow: 0 0 60px rgb(0 0 0 / 0.85);
+}
+
+.vg-continue {
+  min-height: 56px;
+  margin-top: 8px;
+  padding: 0 38px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 640ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 640ms ease;
+}
+
+.vg-continue .vg-glass-body {
+  font-family: var(--vg-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.vg-continue .vg-glass-warp {
+  padding: 12px;
+}
+
+.vg-continue:hover {
+  transform: scale(1.045) translateY(-1px);
+  filter: saturate(1.15);
+}
+
+.vg-continue:hover .vg-glass-sheen {
+  background: linear-gradient(
+    118deg,
+    rgb(255 255 255 / 0.38) 0%,
+    rgb(255 255 255 / 0.04) 38%,
+    rgb(255 255 255 / 0) 62%,
+    rgb(255 255 255 / 0.16) 100%
+  );
+  animation: vg-liquid-sheen 1.4s ease;
+}
+
+@keyframes vg-liquid-sheen {
+  0% { transform: translateX(-18%); }
+  55% { transform: translateX(10%); }
+  100% { transform: none; }
+}
+
+.vg-continue:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+}
+
+/* -------------------------------------------------------------- the library */
+
+.vg-library {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(1.06);
+  transition:
+    opacity 520ms ease,
+    transform 900ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s 520ms;
+}
+
+.vg-shell[data-stage='library'] .vg-library {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 640ms 480ms ease,
+    transform 1000ms 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s;
+}
+
+.vg-library-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 22px;
+  overflow: auto;
+  padding: clamp(28px, 4vw, 56px) clamp(28px, 5vw, 72px);
+}
+
+.vg-library-empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.vg-library-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.vg-eyebrow {
+  display: none;
+}
+
+.vg-library-title {
+  margin: 0;
+  color: #fff;
+  font-family: var(--vg-display);
+  font-size: clamp(2.4rem, 4.4vw, 3.6rem);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.vg-library-sub {
+  margin: 8px 0 0;
+  color: rgb(255 255 255 / 0.52);
+  font-size: 0.78rem;
+}
+
+.vg-list {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 1180px);
+}
+
+.vg-item {
+  transition:
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 320ms ease;
+}
+
+.vg-item:hover {
+  transform: translateY(-2px);
+}
+
+.vg-item:hover .vg-glass-edge {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.6),
+    inset 0 0 0 1px rgb(255 255 255 / 0.16),
+    inset 2px 0 0 rgb(255 176 150 / 0.4),
+    inset -2px 0 0 rgb(150 190 255 / 0.42),
+    inset 0 -1px 0 rgb(255 255 255 / 0.2),
+    0 30px 80px rgb(0 0 0 / 0.6);
+}
+
+.vg-item-body {
+  display: grid;
+  width: 100%;
+  align-items: center;
+  gap: 20px;
+  grid-template-columns: 40px 172px minmax(0, 1fr) auto;
+  padding: 18px 22px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.vg-item-body:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -4px;
+}
+
+.vg-item-index {
+  color: rgb(255 255 255 / 0.38);
+  font-family: var(--vg-display);
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+}
+
+.vg-poster {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 10px;
+  background: rgb(0 0 0 / 0.55);
+  place-items: center;
+}
+
+.vg-poster video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vg-poster svg {
+  width: 22px;
+  height: 22px;
+  color: rgb(255 255 255 / 0.22);
+}
+
+.vg-item-copy {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.vg-item-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.vg-item-name {
+  overflow: hidden;
+  color: #fff;
+  font-family: var(--vg-display);
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vg-item-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.vg-item-commit {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  color: rgb(255 255 255 / 0.7);
+  font-size: 0.82rem;
+}
+
+.vg-item-commit code {
+  color: rgb(255 255 255 / 0.5);
+  font-size: 0.68rem;
+}
+
+.vg-item-path {
+  overflow: hidden;
+  color: rgb(255 255 255 / 0.35);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vg-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: rgb(255 255 255 / 0.45);
+  font-size: 0.7rem;
+}
+
+.vg-item-go {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.vg-item-go svg {
+  width: 14px;
+  height: 14px;
+}
+
+.vg-empty {
+  width: min(100%, 640px);
+  text-align: center;
+}
+
+.vg-empty .vg-glass-body {
+  display: grid;
+  gap: 18px;
+  padding: 44px 40px;
+  justify-items: center;
+}
+
+.vg-empty h2 {
+  margin: 0;
+  color: #fff;
+  font-family: var(--vg-display);
+  font-size: 2rem;
+  font-weight: 400;
+}
+
+.vg-empty p {
+  margin: 0;
+  color: rgb(255 255 255 / 0.6);
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+/* -------------------------------------------------------------- the project */
+
+.vg-project {
+  position: absolute;
+  z-index: 4;
+  inset: 14px;
+  display: flex;
+  visibility: hidden;
+  border-radius: 26px;
+  opacity: 0;
+  transform: scale(0.9);
+  transition:
+    opacity 380ms ease,
+    transform 640ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s 380ms;
+}
+
+.vg-shell[data-stage='project'] .vg-project {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 420ms 120ms ease,
+    transform 720ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s;
+}
+
+.vg-project .vg-glass-warp {
+  padding: 26px;
+  opacity: 0.9;
+}
+
+.vg-project-body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/*
+ * Inside the shell a surface is a film over the beam, not a solid fill. Utilities
+ * that already carry their own alpha keep it; these are the flat ones.
+ */
+.vg-project-body :is(.bg-card, .bg-popover) {
+  background-color: rgb(8 8 10 / 0.72);
+}
+
+.vg-project-body .bg-secondary {
+  background-color: rgb(255 255 255 / 0.08);
+}
+
+.vg-project-body .bg-muted {
+  background-color: rgb(255 255 255 / 0.06);
+}
+
+.vg-project-body .bg-background {
+  background-color: rgb(0 0 0 / 0.42);
+}
+
+.vg-project-body .border-border {
+  border-color: rgb(255 255 255 / 0.12);
+}
+
+.vg-mark {
+  font-family: var(--vg-display);
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+/* Full editor chrome, black / grey / white only. */
+.vg-editor {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(16rem, 19rem) minmax(0, 1fr) minmax(16rem, 19rem);
+  overflow: hidden;
+  color: #f2f2f2;
+}
+
+.vg-editor-col,
+.vg-editor-center,
+.vg-editor-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.vg-editor-col {
+  overflow: auto;
+  border-color: rgb(255 255 255 / 0.12);
+}
+
+.vg-editor-col:first-child { border-right: 1px solid rgb(255 255 255 / 0.12); }
+.vg-editor-col:last-child { border-left: 1px solid rgb(255 255 255 / 0.12); }
+
+.vg-editor-center {
+  gap: 12px;
+  overflow: auto;
+  padding: 16px;
+}
+
+.vg-editor-panel {
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+
+.vg-editor-grow { flex: 1; }
+
+.vg-editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+
+.vg-editor-heading h2,
+.vg-editor-toolbar h2 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.vg-editor-count {
+  color: rgb(255 255 255 / 0.5);
+  font-size: 0.68rem;
+}
+
+.vg-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vg-editor button {
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.06);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+}
+
+.vg-editor input,
+.vg-editor-select {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.35);
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 7px 10px;
+}
+
+.vg-editor-empty,
+.vg-editor-meta,
+.vg-editor-toolbar p,
+.vg-editor-sync span:nth-child(2) {
+  margin: 0;
+  color: rgb(255 255 255 / 0.52);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.vg-editor-empty,
+.vg-editor-meta { padding: 12px; }
+
+.vg-editor-commit {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+}
+
+.vg-editor-commit-row {
+  display: flex;
+  gap: 10px;
+  margin: 8px;
+  padding: 10px;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  background: rgb(255 255 255 / 0.04);
+  text-align: left;
+}
+
+.vg-editor-commit-row strong,
+.vg-editor-commit-row small,
+.vg-editor-commit-row code {
+  display: block;
+}
+
+.vg-editor-commit-row strong { font-size: 0.75rem; }
+.vg-editor-commit-row small,
+.vg-editor-commit-row code {
+  color: rgb(255 255 255 / 0.45);
+  font-size: 0.64rem;
+}
+
+.vg-editor-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 99px;
+  background: #fff;
+}
+
+.vg-editor-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vg-editor-toolbar h2 { font-size: 0.95rem; }
+
+.vg-editor-player {
+  position: relative;
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.55);
+}
+
+.vg-editor-player-file,
+.vg-editor-player-time {
+  position: absolute;
+  top: 10px;
+  color: rgb(255 255 255 / 0.7);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.64rem;
+}
+
+.vg-editor-player-file { left: 12px; }
+.vg-editor-player-time { right: 12px; }
+
+.vg-editor-sync {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.04);
+}
+
+.vg-editor-sync span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.vg-editor-sync strong {
+  color: #fff;
+  font-size: 0.74rem;
+}
+
+.vg-editor-badge {
+  padding: 3px 7px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 99px;
+  color: #fff;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.vg-editor-timeline {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 10px;
+  background: rgb(0 0 0 / 0.28);
+}
+
+.vg-editor-ruler {
+  color: rgb(255 255 255 / 0.5);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.64rem;
+}
+
+.vg-editor-track {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  grid-template-columns: 28px 1fr;
+}
+
+.vg-editor-track span {
+  color: rgb(255 255 255 / 0.45);
+  font-size: 0.64rem;
+}
+
+.vg-editor-clip {
+  display: block;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.16);
+  color: #fff;
+  font-size: 0.64rem;
+  font-style: normal;
+  line-height: 22px;
+}
+
+.vg-editor-audio { background: rgb(255 255 255 / 0.1); }
+
+.vg-editor-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  margin: 0;
+  padding: 12px;
+}
+
+.vg-editor-facts dt {
+  color: rgb(255 255 255 / 0.4);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.vg-editor-facts dd {
+  margin: 2px 0 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+.vg-editor-select { width: calc(100% - 24px); margin: 12px 12px 0; text-align: left; }
+.vg-editor-col > .vg-editor-panel:last-child button { margin: 0 12px 12px; }
+
+.vg-busy {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  left: 0;
+  width: 34%;
+  height: 2px;
+  animation: vg-busy 1.4s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+}
+
+@keyframes vg-busy {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.vg-toast {
+  position: absolute;
+  z-index: 30;
+  bottom: 26px;
+  left: 50%;
+  width: min(680px, calc(100% - 64px));
+  border-color: rgb(255 255 255 / 0.16);
+  backdrop-filter: blur(24px) saturate(150%);
+  background: rgb(8 8 10 / 0.72);
+  transform: translateX(-50%);
+}
+
+.vg-editor-grid {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr) minmax(15rem, 19rem);
+  overflow: hidden;
+}
+
+.vg-editor-grid > aside,
+.vg-editor-grid > section {
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 1180px) {
+  .vg-editor-grid {
+    grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr) minmax(14rem, 17rem);
+  }
+}
+
+@media (max-width: 980px) {
+  .vg-editor-grid {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+}
+
+.vg-graph-open {
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.06);
+  color: #fff;
+}
+
+.vg-graph-modal {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  filter: blur(28px);
+  background: rgb(0 0 0 / 0.55);
+  transition: filter 900ms ease;
+}
+
+.vg-graph-modal[data-clear='true'] {
+  filter: blur(0);
+}
+
+.vg-graph-dismiss {
+  position: absolute;
+  z-index: 2;
+  top: 18px;
+  right: 22px;
+  padding: 8px 14px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 999px;
+  background: rgb(8 8 10 / 0.7);
+  color: #fff;
+}
+
+.vg-graph-flow {
+  width: 100%;
+  height: 100%;
+}
+
+.vg-graph-flow .react-flow__edge-path,
+.vg-ray-edge .react-flow__edge-path {
+  stroke: rgb(255 255 255 / 0.72);
+  stroke-width: 1.6;
+  filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.55));
+  animation: vg-ray 2.4s ease-in-out infinite;
+}
+
+@keyframes vg-ray {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.vg-cube-node {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: 160px;
+  color: #fff;
+}
+
+.vg-cube-node strong {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vg-cube {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  transform-style: preserve-3d;
+  animation: vg-cube-spin 7s linear infinite;
+}
+
+.vg-cube i {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgb(255 255 255 / 0.45);
+  background: rgb(255 255 255 / 0.08);
+  backface-visibility: hidden;
+}
+
+.vg-cube i:nth-child(1) { transform: translateZ(18px); }
+.vg-cube i:nth-child(2) { transform: rotateY(180deg) translateZ(18px); }
+.vg-cube i:nth-child(3) { transform: rotateY(90deg) translateZ(18px); }
+.vg-cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(18px); }
+.vg-cube i:nth-child(5) { transform: rotateX(90deg) translateZ(18px); }
+.vg-cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(18px); }
+
+.vg-cube-node.is-selected .vg-cube i,
+.vg-cube-node.is-head .vg-cube i {
+  border-color: #fff;
+  background: rgb(255 255 255 / 0.18);
+}
+
+@keyframes vg-cube-spin {
+  to { transform: rotateX(360deg) rotateY(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vg-intro,
+  .vg-library,
+  .vg-project,
+  .vg-fallback span {
+    transition-duration: 1ms;
+  }
+}

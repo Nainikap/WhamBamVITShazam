@@ -1,0 +1,7 @@
+Vendored from the vgpu.sh homepage hero:
+
+https://github.com/vercel-labs/vgpu/tree/main/apps/docs/app/[lang]/(home)/components/prism-background
+
+Copyright (c) 2025 Vercel, Inc. Licensed under MIT (see LICENSE).
+The Next.js renderer, debug graph, light-theme pipeline, and tests were left out.
+VideoGit drives the retained dark scene through scene.ts.

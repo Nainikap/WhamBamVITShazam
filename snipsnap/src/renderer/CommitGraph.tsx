@@ -1,13 +1,19 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Background,
+  Controls,
+  Handle,
+  Position,
+  ReactFlow,
+  type Edge,
+  type Node,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import type { CommitInfo } from '../git';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { relativeTime } from './format';
 
-const ROW = 34;
-const COLUMN = 14;
-const LEFT = 14;
-const LANE_COLORS = ['#5b8cff', '#3ddc84', '#f0c05a', '#c78bff', '#ff8f6b', '#5fd7d0'];
+const COLUMN = 220;
+const ROW = 140;
 
 interface PlacedCommit {
   commit: CommitInfo;
@@ -15,18 +21,10 @@ interface PlacedCommit {
   lane: number;
 }
 
-interface GraphEdge {
-  id: string;
-  from: PlacedCommit;
-  to: PlacedCommit;
-  lane: number;
-}
-
 /** Assign each commit a lane the way `git log --graph` does, newest first. */
-export function layoutGraph(history: CommitInfo[]): { placed: PlacedCommit[]; edges: GraphEdge[]; lanes: number } {
+export function layoutGraph(history: CommitInfo[]): { placed: PlacedCommit[]; lanes: number } {
   const lanes: Array<string | null> = [];
   const placed: PlacedCommit[] = [];
-  const byId = new Map<string, PlacedCommit>();
 
   const claim = (commitId: string): number => {
     const existing = lanes.indexOf(commitId);
@@ -42,36 +40,32 @@ export function layoutGraph(history: CommitInfo[]): { placed: PlacedCommit[]; ed
 
   history.forEach((commit, row) => {
     const lane = claim(commit.id);
-    const entry = { commit, row, lane };
-    placed.push(entry);
-    byId.set(commit.id, entry);
-    const [first, ...rest] = commit.parents;
+    placed.push({ commit, row, lane });
+    const [first] = commit.parents;
     lanes[lane] = first ?? null;
-    for (const parent of rest) {
+    for (const parent of commit.parents.slice(1)) {
       if (!lanes.includes(parent)) claim(parent);
     }
-    // Two lanes tracking the same parent collapse into the leftmost one.
     lanes.forEach((value, index) => {
       if (value !== null && lanes.indexOf(value) !== index) lanes[index] = null;
     });
   });
 
-  const edges: GraphEdge[] = [];
-  for (const entry of placed) {
-    entry.commit.parents.forEach((parentId, index) => {
-      const parent = byId.get(parentId);
-      if (!parent) return;
-      edges.push({
-        id: `${entry.commit.id}-${parentId}`,
-        from: entry,
-        to: parent,
-        lane: index === 0 ? entry.lane : parent.lane,
-      });
-    });
-  }
-
-  return { placed, edges, lanes: Math.max(1, ...placed.map(({ lane }) => lane + 1)) };
+  return { placed, lanes: Math.max(1, ...placed.map(({ lane }) => lane + 1)) };
 }
+
+function CubeNode({ data }: { data: { message: string; selected: boolean; head: boolean } }) {
+  return <div className={cn('vg-cube-node', data.selected && 'is-selected', data.head && 'is-head')}>
+    <Handle position={Position.Top} type="target" />
+    <span className="vg-cube" aria-hidden="true">
+      <i /><i /><i /><i /><i /><i />
+    </span>
+    <strong>{data.message}</strong>
+    <Handle position={Position.Bottom} type="source" />
+  </div>;
+}
+
+const nodeTypes = { cube: CubeNode };
 
 export interface CommitGraphProps {
   history: CommitInfo[];
@@ -81,57 +75,90 @@ export interface CommitGraphProps {
   onSelect(commitId: string): void;
 }
 
-/** Compact branch topology for the inspector; the readable history stays in source control. */
-export function CommitGraph({ history, headCommit, selectedCommit, branches, onSelect }: CommitGraphProps) {
-  const { placed, edges, lanes } = useMemo(() => layoutGraph(history), [history]);
-  const width = LEFT + Math.max(0, lanes - 1) * COLUMN + 14;
-  const height = Math.max(ROW, placed.length * ROW);
-  const tips = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const branch of branches) map.set(branch.commitId, [...map.get(branch.commitId) ?? [], branch.name]);
-    return map;
-  }, [branches]);
+export function CommitGraphModal({
+  open,
+  onClose,
+  history,
+  headCommit,
+  selectedCommit,
+  onSelect,
+}: CommitGraphProps & { open: boolean; onClose(): void }) {
+  const [clear, setClear] = useState(0);
+  useEffect(() => {
+    if (!open) {
+      setClear(0);
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => setClear(1));
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
 
-  return <div className="relative" role="list" aria-label="Commit graph">
-    <svg className="pointer-events-none absolute left-0 top-0" width={width} height={height} aria-hidden="true">
-      {edges.map((edge) => {
-        const x1 = LEFT + edge.from.lane * COLUMN;
-        const x2 = LEFT + edge.to.lane * COLUMN;
-        const y1 = edge.from.row * ROW + ROW / 2;
-        const y2 = edge.to.row * ROW + ROW / 2;
-        const path = x1 === x2
-          ? `M ${x1} ${y1} L ${x2} ${y2}`
-          : `M ${x1} ${y1} C ${x1} ${y1 + ROW * 0.5}, ${x2} ${y2 - ROW * 0.5}, ${x2} ${y2}`;
-        return <path key={edge.id} d={path} stroke={LANE_COLORS[edge.lane % LANE_COLORS.length]} fill="none" strokeWidth="1.5" opacity="0.75" />;
-      })}
-      {placed.map((entry) => {
-        const cx = LEFT + entry.lane * COLUMN;
-        const cy = entry.row * ROW + ROW / 2;
-        const color = LANE_COLORS[entry.lane % LANE_COLORS.length];
-        const isMerge = entry.commit.parents.length > 1;
-        return <g key={entry.commit.id}>
-          <circle cx={cx} cy={cy} r={isMerge ? 5.5 : 4.5} fill={entry.commit.id === headCommit ? color : 'hsl(220 22% 9%)'} stroke={color} strokeWidth="2" />
-          {isMerge && <circle cx={cx} cy={cy} r="1.6" fill={color} />}
-        </g>;
-      })}
-    </svg>
+  const { placed } = useMemo(() => layoutGraph(history), [history]);
+  const byId = useMemo(() => new Map(placed.map((entry) => [entry.commit.id, entry])), [placed]);
 
-    <div className="flex flex-col" style={{ marginLeft: width }}>
-      {placed.map((entry) => <button
-        key={entry.commit.id}
-        role="listitem"
-        style={{ height: ROW }}
-        onClick={() => onSelect(entry.commit.id)}
-        title={`${entry.commit.message} · ${entry.commit.id.slice(0, 8)} · ${relativeTime(entry.commit.authoredAt)}`}
-        className={cn(
-          'flex w-full items-center gap-1.5 rounded-md border border-transparent px-2 text-left transition-colors',
-          entry.commit.id === selectedCommit ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
-        )}
+  const nodes = useMemo<Node[]>(() => placed.map((entry) => ({
+    id: entry.commit.id,
+    type: 'cube',
+    position: { x: entry.lane * COLUMN, y: entry.row * ROW },
+    data: {
+      message: entry.commit.message,
+      selected: entry.commit.id === selectedCommit,
+      head: entry.commit.id === headCommit,
+    },
+  })), [placed, selectedCommit, headCommit]);
+
+  const edges = useMemo<Edge[]>(() => {
+    const next: Edge[] = [];
+    for (const entry of placed) {
+      for (const parentId of entry.commit.parents) {
+        if (!byId.has(parentId)) continue;
+        next.push({
+          id: `${entry.commit.id}-${parentId}`,
+          source: entry.commit.id,
+          target: parentId,
+          className: 'vg-ray-edge',
+          animated: true,
+        });
+      }
+    }
+    return next;
+  }, [placed, byId]);
+
+  if (!open) return null;
+
+  return <div className="vg-graph-modal" data-clear={clear ? 'true' : 'false'} role="dialog" aria-label="Commit graph">
+    <button className="vg-graph-dismiss" onClick={onClose} type="button">Close</button>
+    <div className="vg-graph-flow">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        fitView
+        proOptions={{ hideAttribution: true }}
+        onNodeClick={(_event, node) => onSelect(node.id)}
       >
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{entry.commit.message}</span>
-        {(tips.get(entry.commit.id) ?? []).map((name) => <Badge key={name} variant="info">{name}</Badge>)}
-        {entry.commit.parents.length > 1 && <Badge variant="edited">merge</Badge>}
-      </button>)}
+        <Background color="#2a2a2a" gap={28} />
+        <Controls showInteractive={false} />
+      </ReactFlow>
     </div>
   </div>;
+}
+
+/** Compact opener; the readable graph lives in the progressive-deblur modal. */
+export function CommitGraph({ history, headCommit, selectedCommit, branches, onSelect }: CommitGraphProps) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button className="vg-graph-open" onClick={() => setOpen(true)} type="button">
+      Open commit graph
+    </button>
+    <CommitGraphModal
+      open={open}
+      onClose={() => setOpen(false)}
+      history={history}
+      headCommit={headCommit}
+      selectedCommit={selectedCommit}
+      branches={branches}
+      onSelect={onSelect}
+    />
+  </>;
 }

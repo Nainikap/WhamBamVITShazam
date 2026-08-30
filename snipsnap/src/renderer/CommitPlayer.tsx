@@ -205,10 +205,6 @@ export function CommitPlayer({
         }}
         onEnded={advance}
       />
-      <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-2 rounded bg-black/70 px-2 py-1 font-mono text-[10px]">
-        <span className="text-primary">{plan.commitId.slice(0, 8)}</span>
-        <span className="max-w-[22rem] truncate text-foreground/80">{displayLabel}</span>
-      </div>
       <div className="pointer-events-none absolute right-2.5 top-2.5 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-foreground/80">
         {framesToTimecode(playhead, plan.fps)}
       </div>

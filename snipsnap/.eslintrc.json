@@ -23,7 +23,8 @@
     "out",
     "node_modules",
     "playwright-report",
-    "test-results"
+    "test-results",
+    "src/renderer/prism/hero"
   ],
   "settings": {
     "import/resolver": {

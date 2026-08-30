@@ -112,7 +112,7 @@ export function Editor() {
     void store.createBranchFromSelected(branchName).then(() => setBranchName(''));
   };
 
-  return <main className="grid min-h-0 flex-1 grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)_minmax(19rem,22rem)] overflow-hidden">
+  return <main className="vg-editor-grid">
     <aside aria-label="Source control" className="flex min-h-0 flex-col border-r border-border">
       <section aria-label="Working changes" className="flex min-h-0 flex-col">
         <PanelHeading

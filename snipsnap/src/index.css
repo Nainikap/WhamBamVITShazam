@@ -4,37 +4,41 @@
 
 @layer base {
   :root {
-    /* Studio Graphite, expressed as the tokens shadcn components read. */
-    --background: 222 24% 6%;
-    --foreground: 216 33% 93%;
-    --card: 220 22% 9%;
-    --card-foreground: 216 33% 93%;
-    --popover: 220 22% 10%;
-    --popover-foreground: 216 33% 93%;
-    --primary: 222 100% 68%;
-    --primary-foreground: 222 60% 6%;
-    --secondary: 220 18% 14%;
-    --secondary-foreground: 216 33% 93%;
-    --muted: 220 18% 14%;
-    --muted-foreground: 218 12% 60%;
-    --accent: 220 18% 16%;
-    --accent-foreground: 216 33% 93%;
-    --destructive: 0 100% 72%;
-    --destructive-foreground: 0 40% 8%;
-    --border: 220 16% 19%;
-    --input: 220 16% 22%;
-    --ring: 222 100% 68%;
+    /*
+     * Black, grey and white only. The prism scene behind the interface is the one
+     * place colour is allowed, so every surface here is a step of lightness and the
+     * diff roles are told apart by how bright they are, not by hue.
+     */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 13%;
+    --muted-foreground: 0 0% 62%;
+    --accent: 0 0% 19%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 0% 84%;
+    --destructive-foreground: 0 0% 6%;
+    --border: 0 0% 21%;
+    --input: 0 0% 26%;
+    --ring: 0 0% 88%;
     --radius: 0.6rem;
 
-    /* What a difference between two commits means. */
-    --added: 150 68% 55%;
-    --added-soft: 152 52% 12%;
-    --removed: 0 100% 72%;
-    --removed-soft: 356 42% 15%;
-    --retimed: 40 82% 65%;
-    --retimed-soft: 38 48% 14%;
-    --edited: 273 100% 77%;
-    --edited-soft: 271 33% 18%;
+    /* What a difference between two commits means, as four steps of grey. */
+    --added: 0 0% 100%;
+    --added-soft: 0 0% 17%;
+    --removed: 0 0% 46%;
+    --removed-soft: 0 0% 10%;
+    --retimed: 0 0% 78%;
+    --retimed-soft: 0 0% 14%;
+    --edited: 0 0% 62%;
+    --edited-soft: 0 0% 12%;
   }
 
   * {
@@ -44,13 +48,12 @@
   body {
     @apply bg-background text-foreground;
     margin: 0;
-    min-width: 1080px;
+    min-width: 900px;
     font-synthesis: none;
-    background-image: radial-gradient(circle at 1px 1px, hsl(220 18% 15%) 1px, transparent 0);
-    background-size: 16px 16px;
+    background-color: #000;
   }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-thumb { @apply rounded-full bg-muted; }
+  ::-webkit-scrollbar-thumb { border-radius: 999px; background: rgb(255 255 255 / 0.14); }
   ::-webkit-scrollbar-track { background: transparent; }
 }

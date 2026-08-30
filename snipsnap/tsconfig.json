@@ -20,7 +20,9 @@
     "resolveJsonModule": true,
     "types": [
       "node",
-      "vite/client"
+      "vite/client",
+      "@webgpu/types",
+      "@vgpu/wgsl/wgsl-types"
     ],
     "baseUrl": ".",
     "paths": {
