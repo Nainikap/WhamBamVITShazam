@@ -25,6 +25,15 @@ const operationVariant = {
   reorder: 'edited',
 } as const;
 
+const operationRowTone = {
+  add: 'border-added/40 bg-added-soft/70',
+  delete: 'border-removed/40 bg-removed-soft/70',
+  modify: 'border-retimed/40 bg-retimed-soft/70',
+  reorder: 'border-edited/40 bg-edited-soft/70',
+} as const;
+
+const commitDotColors = ['#4ade80', '#60a5fa', '#f59e0b', '#c084fc', '#22d3ee'];
+
 function HunkRow({ hunk, actionLabel, onAction, fps }: {
   hunk: SemanticHunk;
   actionLabel?: string;
@@ -32,7 +41,7 @@ function HunkRow({ hunk, actionLabel, onAction, fps }: {
   fps: number;
 }) {
   const range = hunk.affectedFrameRange;
-  return <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-2">
+  return <div className={cn('flex items-center gap-2 rounded-md border px-2.5 py-2', operationRowTone[hunk.operation])}>
     <Badge variant={operationVariant[hunk.operation]} className="shrink-0 uppercase">{hunk.operation}</Badge>
     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
       <span className="break-words text-[11px] font-medium leading-snug">{hunk.message}</span>
@@ -60,6 +69,15 @@ function commitDiffVariant(hunk: SemanticHunk): 'added' | 'removed' | 'retimed' 
   if (hunk.operation === 'delete') return 'removed';
   if (hunk.operation === 'reorder') return 'edited';
   return ['sourceRange', 'range', 'durationFrames', 'split'].includes(hunk.fieldGroup) ? 'retimed' : 'edited';
+}
+
+function commitDiffSelectionTone(hunk: SemanticHunk): string {
+  return {
+    added: 'bg-added-soft text-added',
+    removed: 'bg-removed-soft text-removed',
+    retimed: 'bg-retimed-soft text-retimed',
+    edited: 'bg-edited-soft text-edited',
+  }[commitDiffVariant(hunk)];
 }
 
 export function Editor() {
@@ -208,8 +226,9 @@ export function Editor() {
         <PanelHeading title="Commits" count={status.history.length} />
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col gap-1 p-2">
-            {status.history.map((commit) => {
+            {status.history.map((commit, commitIndex) => {
               const selected = commit.id === revision.commit.id;
+              const commitColor = commitDotColors[commitIndex % commitDotColors.length];
               return <div key={commit.id} className="flex min-w-0 flex-col">
                 <button
                   aria-label={`View commit ${commit.message}`}
@@ -225,14 +244,16 @@ export function Editor() {
                   }}
                   className={cn(
                     'flex min-w-0 items-start gap-2 overflow-hidden rounded-md border border-transparent px-2.5 py-2 text-left transition-colors',
-                    selected ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
+                    selected ? 'border-edited/45 bg-edited-soft/70' : 'hover:bg-accent',
                   )}
                 >
                   <span className={cn(
-                    'mt-1 h-2.5 w-2.5 shrink-0 rounded-full border border-primary',
-                    commit.id === status.headCommit && 'bg-primary',
+                    'mt-1 h-2.5 w-2.5 shrink-0 rounded-full border-2',
                     commit.parents.length > 1 && 'ring-2 ring-edited/40',
-                  )} />
+                  )} style={{
+                    borderColor: commitColor,
+                    backgroundColor: commit.id === status.headCommit ? commitColor : 'transparent',
+                  }} />
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
                     <strong className="line-clamp-2 break-words text-xs font-medium" title={commit.message}>{commit.message}</strong>
                     <small className="truncate text-[10px] text-muted-foreground">
@@ -259,7 +280,7 @@ export function Editor() {
                     onClick={() => openRevisionDiff(null)}
                     className={cn(
                       'flex min-w-0 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[10px] transition-colors hover:bg-accent',
-                      store.diffOpen && selectedDiffHunkId === null && 'bg-primary/10 text-foreground',
+                      store.diffOpen && selectedDiffHunkId === null && 'bg-edited-soft text-edited',
                     )}
                   >
                     <span className="font-medium">All changes</span>
@@ -273,7 +294,7 @@ export function Editor() {
                     onClick={() => openRevisionDiff(hunk.id)}
                     className={cn(
                       'flex min-w-0 items-start gap-2 overflow-hidden rounded px-2 py-1.5 text-left transition-colors hover:bg-accent',
-                      store.diffOpen && selectedDiffHunkId === hunk.id && 'bg-primary/10',
+                      store.diffOpen && selectedDiffHunkId === hunk.id && commitDiffSelectionTone(hunk),
                     )}
                   >
                     <Badge variant={commitDiffVariant(hunk)} className="mt-0.5 shrink-0 px-1.5 py-0 text-[8px]">

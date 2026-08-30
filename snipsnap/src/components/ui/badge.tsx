@@ -20,7 +20,7 @@ const badgeVariants = cva(
         removed: "border-removed/40 bg-removed-soft text-removed",
         retimed: "border-retimed/40 bg-retimed-soft text-retimed",
         edited: "border-edited/40 bg-edited-soft text-edited",
-        info: "border-primary/30 bg-primary/15 text-primary",
+        info: "border-edited/40 bg-edited-soft text-edited",
       },
     },
     defaultVariants: {

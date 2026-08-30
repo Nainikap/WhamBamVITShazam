@@ -8,7 +8,7 @@ import { relativeTime } from './format';
 const ROW = 58;
 const COLUMN = 14;
 const LEFT = 12;
-const LANE_COLORS = ['#ffffff', '#b7b7b7', '#777777', '#d8d8d8', '#969696'];
+const LANE_COLORS = ['#4ade80', '#60a5fa', '#f59e0b', '#c084fc', '#22d3ee'];
 
 export interface CommitGraphProps {
   history: CommitInfo[];
@@ -63,8 +63,8 @@ export function CommitGraph({ history, headCommit, selectedCommit, branches, onS
         const head = entry.commit.id === headCommit;
         const merge = entry.commit.parents.length > 1;
         return <g key={entry.commit.id}>
-          {selected && <circle cx={cx} cy={cy} r="8" fill="none" stroke="#ffffff" strokeWidth="1" opacity="0.35" />}
-          <circle cx={cx} cy={cy} r={merge ? 5 : 4} fill={head ? '#ffffff' : '#111113'} stroke={color} strokeWidth="2" />
+          {selected && <circle cx={cx} cy={cy} r="8" fill="none" stroke={color} strokeWidth="1.5" opacity="0.55" />}
+          <circle cx={cx} cy={cy} r={merge ? 5 : 4} fill={head ? color : '#111113'} stroke={color} strokeWidth="2" />
           {merge && <circle cx={cx} cy={cy} r="1.5" fill={head ? '#111113' : color} />}
         </g>;
       })}
@@ -85,7 +85,7 @@ export function CommitGraph({ history, headCommit, selectedCommit, branches, onS
             className={cn(
               'flex h-[52px] w-full min-w-0 flex-col justify-center gap-1 rounded-lg border px-2.5 text-left transition-colors',
               selected
-                ? 'border-primary/45 bg-primary/10'
+                ? 'border-edited/45 bg-edited-soft/70'
                 : 'border-transparent hover:border-border hover:bg-accent/70',
             )}
           >

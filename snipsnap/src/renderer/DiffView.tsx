@@ -170,7 +170,7 @@ function Lane({ track, laneFrames, fps }: { track: TimelineDiffTrack; laneFrames
           {segment.parts.map((part) => <i
             key={`${part.change}-${part.laneStart}`}
             className={cn('diff-part absolute inset-y-0 block', `part-${part.change}`, {
-              'bg-[repeating-linear-gradient(135deg,hsl(var(--removed)/0.55)_0_5px,hsl(var(--removed)/0.3)_5px_10px)]': part.change === 'removed',
+              'bg-removed/45': part.change === 'removed',
               'bg-added/35': part.change === 'added',
               'bg-secondary': part.change === 'kept' && tone !== 'moved' && tone !== 'edited',
               'bg-retimed/30': part.change === 'kept' && tone === 'moved',
