@@ -5,4 +5,5 @@ export * from './source-sync';
 export * from './source-watch-service';
 export * from './storage';
 export * from './media-probe';
+export * from './media-transfer';
 export * from './resolve-database';
