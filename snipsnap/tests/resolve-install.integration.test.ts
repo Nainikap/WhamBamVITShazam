@@ -25,6 +25,7 @@ describe('installing the Resolve script', () => {
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
     delete process.env.SNIPSNAP_RESOLVE_SCRIPTS;
+    delete process.env.XDG_DATA_HOME;
   });
 
   it('installs into a Scripts folder that already exists', async () => {
@@ -59,8 +60,34 @@ describe('installing the Resolve script', () => {
       return;
     }
 
+    if (process.platform === 'linux') {
+      const dataHome = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
+      expect(defaultResolveRoots()).toEqual([path.join(dataHome, 'SnipSnap', 'resolve')]);
+      expect(resolveScriptFolders()).toContain(path.join(
+        dataHome, 'DaVinciResolve', 'Fusion', 'Scripts', 'Utility',
+      ));
+      expect(resolveDatabaseRoots()).toContain(path.join(
+        dataHome, 'DaVinciResolve', 'Resolve Project Library',
+        'Resolve Projects', 'Users', 'guest', 'Projects',
+      ));
+      expect(commonExportRoots()).toContain(path.join(os.homedir(), 'Movies'));
+      return;
+    }
+
     expect(resolveScriptFolders().some((folder) => folder.includes('com.blackmagic-design.DaVinciResolveLite')))
       .toBe(true);
+  });
+
+  it.runIf(process.platform === 'linux')('honours XDG data paths on Linux', () => {
+    process.env.XDG_DATA_HOME = path.join(root, 'xdg-data');
+    expect(defaultResolveRoots()).toEqual([path.join(root, 'xdg-data', 'SnipSnap', 'resolve')]);
+    expect(resolveScriptFolders()[0]).toBe(path.join(
+      root, 'xdg-data', 'DaVinciResolve', 'Fusion', 'Scripts', 'Utility',
+    ));
+    expect(resolveDatabaseRoots()).toContain(path.join(
+      root, 'xdg-data', 'DaVinciResolve', 'Resolve Disk Database',
+      'Resolve Projects', 'Users', 'guest', 'Projects',
+    ));
   });
 
   it('keeps generated exports from same-named database projects separate', () => {

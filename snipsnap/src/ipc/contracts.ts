@@ -6,12 +6,15 @@ import type {
   ProjectOverview,
   ProjectStatus,
   ProjectSummary,
+  KdenliveFolderScanResult,
   RevisionDetails,
   SourceScanResult,
   TimelineComparison,
+  WorkspaceComparisonScope,
 } from '../application';
 import type { SemanticHunk } from '../diff';
 import type { ConflictResolution } from '../merge';
+import type { KdenliveInterchangeReport } from '../adapters/kdenlive';
 
 export const channels = {
   listProjects: 'projects:list',
@@ -19,10 +22,15 @@ export const channels = {
   openProject: 'projects:open',
   addResolveFolder: 'resolve:add-folder',
   addResolveProjectFile: 'resolve:add-project-file',
+  importKdenliveOtio: 'kdenlive:import-otio',
+  addKdenliveFolder: 'kdenlive:add-folder',
+  refreshKdenliveFolders: 'kdenlive:refresh-folders',
+  openInKdenlive: 'kdenlive:open-revision',
   exportFromResolve: 'resolve:export',
   resolveRoots: 'resolve:roots',
   status: 'projects:status',
   connectOtioSource: 'source:connect-otio',
+  connectKdenliveSource: 'source:connect-kdenlive',
   startResolveBridge: 'source:start-resolve-bridge',
   stopResolveBridge: 'source:stop-resolve-bridge',
   scanOtioSource: 'source:scan-otio',
@@ -39,6 +47,7 @@ export const channels = {
   revisionDetails: 'projects:revision-details',
   compare: 'projects:compare',
   compareTimelines: 'projects:compare-timelines',
+  compareWorkspaceTimelines: 'projects:compare-workspace-timelines',
   merge: 'projects:merge',
   resolveConflict: 'projects:resolve-conflict',
   completeMerge: 'projects:complete-merge',
@@ -61,10 +70,21 @@ export interface SnipSnapApi {
   openProject(projectId: string): Promise<ProjectStatus>;
   addResolveFolder(): Promise<string[] | null>;
   addResolveProjectFile(): Promise<string[] | null>;
+  importKdenliveOtio(): Promise<{ status: ProjectStatus; report: KdenliveInterchangeReport } | null>;
+  addKdenliveFolder(): Promise<KdenliveFolderScanResult | null>;
+  refreshKdenliveFolders(): Promise<KdenliveFolderScanResult>;
+  openInKdenlive(projectId: string, revision: string): Promise<{
+    commitId: string;
+    filePath: string;
+    reportPath: string;
+    report: KdenliveInterchangeReport;
+    requiresManualImport: true;
+  }>;
   exportFromResolve(): Promise<{ ok: boolean; installed?: boolean; message: string }>;
   resolveRoots(): Promise<string[]>;
   status(projectId: string): Promise<ProjectStatus>;
   connectOtioSource(projectId: string, expectedVersion: number): Promise<SourceScanResult | null>;
+  connectKdenliveSource(projectId: string, expectedVersion: number): Promise<SourceScanResult | null>;
   startResolveBridge(projectId: string, expectedVersion: number): Promise<ProjectStatus>;
   stopResolveBridge(projectId: string): Promise<ProjectStatus>;
   scanOtioSource(projectId: string): Promise<SourceScanResult>;
@@ -81,6 +101,13 @@ export interface SnipSnapApi {
   revisionDetails(projectId: string, revision: string, parentIndex?: number): Promise<RevisionDetails>;
   compare(projectId: string, base: string, head: string): Promise<SemanticHunk[]>;
   compareTimelines(projectId: string, base: string, head: string): Promise<TimelineComparison>;
+  compareWorkspaceTimelines(
+    projectId: string,
+    scope: WorkspaceComparisonScope,
+    expectedHead: string,
+    expectedIndexDigest: string,
+    expectedWorkspaceVersion: number,
+  ): Promise<TimelineComparison>;
   merge(projectId: string, target: string, source: string): Promise<MergeOutcome>;
   resolveConflict(projectId: string, sessionId: string, resolution: ConflictResolution): Promise<MergeSession>;
   completeMerge(projectId: string, sessionId: string): Promise<ProjectStatus>;

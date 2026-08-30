@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { packagedElectronArgs } from './electron-args';
 
 let application: ElectronApplication | undefined;
 let peerApplication: ElectronApplication | undefined;
@@ -103,7 +104,7 @@ test.beforeEach(async ({ browserName }, testInfo) => {
   await mkdir(resolveRoot, { recursive: true });
   await seedResolveExport(testInfo.title.includes('scrubbing') || testInfo.title.includes('playback'));
   application = await electron.launch({
-    args: [packagedAppPath()],
+    args: packagedElectronArgs(packagedAppPath()),
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: dataRoot,
@@ -183,6 +184,14 @@ async function applyStageAllAndCommit(message: string): Promise<void> {
 }
 
 test('lists the Resolve export and imports it on first open', async () => {
+  const nativeWindowVisible = await application?.evaluate(({ BrowserWindow }) => (
+    BrowserWindow.getAllWindows()[0]?.isVisible()
+  ));
+  expect(nativeWindowVisible).toBe(false);
+  const videoOverlayDisabled = await application?.evaluate(({ app }) => (
+    app.commandLine.hasSwitch('disable-direct-composition-video-overlays')
+  ));
+  expect(videoOverlayDisabled).toBe(process.platform === 'win32');
   await expect(page.getByText('New from Resolve')).toBeVisible();
   await openProject();
 
@@ -190,13 +199,66 @@ test('lists the Resolve export and imports it on first open', async () => {
   await expect(page.getByRole('region', { name: 'Timeline tracks' })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Commit graph' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected commit' })).toContainText(/· by .+ ·/u);
   await expect(page.getByRole('button', { name: 'Commit', exact: true })).toBeDisabled();
+});
+
+test('keeps every editor surface reachable without horizontal clipping at supported window sizes', async () => {
+  await openProject();
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1024, height: 760 },
+    { width: 700, height: 620 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect(page.getByLabel('Source control')).toBeVisible();
+    await expect(page.getByLabel('Inspector')).toBeAttached();
+    await expect(page.getByRole('region', { name: 'Commit video preview' })).toBeAttached();
+
+    const geometry = await page.evaluate(() => {
+      const bounds = (selector: string) => {
+        const node = document.querySelector(selector);
+        if (!(node instanceof HTMLElement)) throw new Error(`${selector} is missing`);
+        const rect = node.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+      };
+      return {
+        viewportWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        source: bounds('.vg-source-control'),
+        workspace: bounds('.vg-editor-workspace'),
+        inspector: bounds('.vg-inspector'),
+      };
+    });
+
+    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+    for (const surface of [geometry.source, geometry.workspace, geometry.inspector]) {
+      expect(surface.left).toBeGreaterThanOrEqual(-1);
+      expect(surface.right).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+      expect(surface.width).toBeGreaterThan(0);
+    }
+  }
+});
+
+test('keeps the project rendered in one window while a Resolve save refreshes it', async () => {
+  await openProject();
+  const initialWindowCount = application?.windows().length;
+  await exportResolveTrim(90);
+  await expect(page.getByText(/change detected in Resolve/u)).toBeVisible();
+  await expect(page.getByRole('status')).toHaveCount(0);
+
+  await expect(page.locator('.vg-project')).toHaveCSS('visibility', 'visible');
+  await expect(page.locator('.vg-project')).toHaveCSS('opacity', '1');
+  await expect(page.locator('.vg-editor-grid')).toBeVisible();
+  expect(application?.windows()).toHaveLength(initialWindowCount ?? 1);
+  await expect(page.locator('[data-radix-dialog-overlay]')).toHaveCount(0);
 });
 
 test('hides a project whose Resolve files have gone', async () => {
   await rm(path.join(resolveRoot, 'Resolve Basic Cut', 'Resolve Basic Cut.drp'));
   await page.getByRole('button', { name: 'Refresh' }).click();
-  await expect(page.getByRole('heading', { name: 'No Resolve projects found yet' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No video projects found yet' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open Resolve Basic Cut' })).toHaveCount(0);
 });
 
@@ -273,6 +335,7 @@ test('shows commit diffs in the left history and focuses each semantic change in
   await expect(comparison.getByText('Focused change: Trimmed end of clip Opening by 6 frames')).toBeVisible();
   await expect(comparison.locator('.border-retimed')).toHaveCount(1);
   await expect(comparison.locator('.border-edited')).toHaveCount(0);
+  expect(Number(await comparison.getByLabel('Preview playhead').first().inputValue())).toBeGreaterThan(0);
 
   await look.click();
   await expect(comparison.getByText('Focused change: Changed clip Opening: look')).toBeVisible();
@@ -320,12 +383,15 @@ test('creates a branch from an old commit, switches branches, and restores histo
 
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
   await page.getByLabel('Branch from selected commit').fill('alternate-cut');
-  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  // Hidden Electron windows on macOS ARM can report Retina pointer coordinates
+  // from the adjacent workspace for far-right inspector controls. Keyboard
+  // activation still verifies that the real accessible button and handler work.
+  await page.getByRole('button', { name: 'Create', exact: true }).press('Enter');
   await expect(page.getByText(/Created and switched to alternate-cut/u)).toBeVisible();
   await expect(page.getByLabel('Switch branch')).toContainText('alternate-cut');
 
-  await page.getByLabel('Switch branch').click();
-  await page.getByRole('option', { name: /^main/u }).click();
+  await page.getByLabel('Switch branch').press('Enter');
+  await page.getByRole('option', { name: /^main/u }).press('Enter');
   await expect(page.getByText('Switched to main.')).toBeVisible();
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
   await page.getByRole('button', { name: 'Restore to working' }).click();
@@ -346,7 +412,7 @@ test('returns to the dashboard with the project listed as most recently worked o
 
 test('hosts a project and lets a second app join and push a branch', async () => {
   await openProject();
-  await page.getByRole('button', { name: 'Host this project' }).click();
+  await page.getByRole('button', { name: 'Host this project' }).press('Enter');
   await expect(page.getByText('Hosting', { exact: true })).toBeVisible();
   const inviteCode = await page.getByLabel('Pairing code').inputValue();
   expect(inviteCode.length).toBeGreaterThan(40);
@@ -356,7 +422,7 @@ test('hosts a project and lets a second app join and push a branch', async () =>
   await mkdir(peerRoot, { recursive: true });
   await mkdir(peerResolveRoot, { recursive: true });
   peerApplication = await electron.launch({
-    args: [packagedAppPath()],
+    args: packagedElectronArgs(packagedAppPath()),
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: peerRoot,
@@ -376,10 +442,10 @@ test('hosts a project and lets a second app join and push a branch', async () =>
   await expect(peerPage.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' })).toBeVisible();
 
   await peerPage.getByLabel('Branch from selected commit').fill('peer-cut');
-  await peerPage.getByRole('button', { name: 'Create', exact: true }).click();
-  await peerPage.getByRole('button', { name: 'Push commits' }).click();
+  await peerPage.getByRole('button', { name: 'Create', exact: true }).press('Enter');
+  await peerPage.getByRole('button', { name: 'Push commits' }).press('Enter');
   await expect(peerPage.getByText('Pushed peer-cut')).toBeVisible();
-  await page.getByLabel('Switch branch').click();
+  await page.getByLabel('Switch branch').press('Enter');
   await expect(page.getByRole('option', { name: /peer-cut/u })).toBeVisible();
 });
 
@@ -392,8 +458,22 @@ test('shows one accurately named, atomic unstaged change for a blade cut', async
   await expect(changes.getByText('Split clip Opening into 2 clips', { exact: true })).toBeVisible();
   await expect(changes.getByRole('button', { name: 'Stage', exact: true })).toHaveCount(1);
 
+  await changes.getByRole('button', { name: 'View change Split clip Opening into 2 clips' }).click();
+  let comparison = page.getByRole('region', { name: 'Commit comparison' });
+  await expect(comparison).toBeVisible();
+  await expect(comparison.getByText('Staged changes', { exact: true }).first()).toBeVisible();
+  await expect(comparison.getByText('Working changes', { exact: true }).first()).toBeVisible();
+  await expect(comparison.getByText('Focused change: Split clip Opening into 2 clips')).toBeVisible();
+  await comparison.getByRole('button', { name: 'Close comparison' }).click();
+
   await changes.getByRole('button', { name: 'Stage', exact: true }).click();
   await expect(changes.getByRole('button', { name: 'Unstage', exact: true })).toHaveCount(1);
+  await changes.getByRole('button', { name: 'View change Split clip Opening into 2 clips' }).click();
+  comparison = page.getByRole('region', { name: 'Commit comparison' });
+  await expect(comparison.getByText('Last commit', { exact: true }).first()).toBeVisible();
+  await expect(comparison.getByText('Staged changes', { exact: true }).first()).toBeVisible();
+  await expect(comparison.getByText('Focused change: Split clip Opening into 2 clips')).toBeVisible();
+  await comparison.getByRole('button', { name: 'Close comparison' }).click();
   await changes.getByRole('button', { name: 'Unstage', exact: true }).click();
   await expect(changes.getByRole('button', { name: 'Stage', exact: true })).toHaveCount(1);
   await changes.getByRole('button', { name: 'Stage', exact: true }).click();

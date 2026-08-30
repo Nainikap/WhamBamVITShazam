@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { importOtio } from '../src/adapters/otio';
+import { importKdenliveProject } from '../src/adapters/kdenlive';
 import { reconcileImportedProject } from '../src/application/source-sync';
 import { semanticDiff } from '../src/diff';
+import { deterministicUuid } from '../src/domain';
+import { KDENLIVE_NATIVE_FIXTURE } from './fixtures/kdenlive-native';
 
 const fixture = readFileSync(path.join(__dirname, 'fixtures', 'resolve-basic.otio'), 'utf8');
 
@@ -89,5 +92,30 @@ describe('Resolve source synchronization', () => {
     const reconciled = reconcileImportedProject(base, imported);
     expect(reconciled.transitions).toEqual(base.transitions);
     expect(reconciled.tracks.map(({ itemIds }) => itemIds)).toEqual(base.tracks.map(({ itemIds }) => itemIds));
+  });
+
+  it('keeps a moved Kdenlive clip stable when the editor also rewrites its asset ID', () => {
+    const base = importKdenliveProject(KDENLIVE_NATIVE_FIXTURE, { sourceIdentity: '/edit/project/sample.kdenlive' }).project;
+    const movedDocument = KDENLIVE_NATIVE_FIXTURE
+      .replace('{11111111-1111-4111-8111-111111111111}', '{33333333-3333-4333-8333-333333333333}')
+      .replace('  <playlist id="video-playlist">\n    <blank length="00:00:01.000"/>', '  <playlist id="video-playlist">');
+    const imported = importKdenliveProject(movedDocument, { sourceIdentity: '/edit/project/sample.kdenlive' }).project;
+    const moved = imported.clips.find(({ name }) => name === 'shot.mp4');
+    const movedTrack = imported.tracks.find(({ id }) => id === moved?.trackId);
+    if (!moved || !movedTrack) throw new Error('Moved Kdenlive fixture clip is missing');
+    const rewrittenId = deterministicUuid('Kdenlive rewrote the timeline item ID');
+    movedTrack.itemIds = movedTrack.itemIds.map((id) => id === moved.id ? rewrittenId : id);
+    moved.id = rewrittenId;
+
+    const reconciled = reconcileImportedProject(base, imported);
+    const original = base.clips.find(({ name }) => name === 'shot.mp4');
+    expect(reconciled.clips.find(({ name }) => name === 'shot.mp4')?.id).toBe(original?.id);
+    expect(semanticDiff(base, reconciled)).toEqual([
+      expect.objectContaining({
+        entityId: original?.id,
+        fieldGroup: 'timelinePosition',
+        message: 'Moved clip shot.mp4 25 frames earlier',
+      }),
+    ]);
   });
 });

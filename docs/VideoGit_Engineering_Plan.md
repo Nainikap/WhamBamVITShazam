@@ -14,6 +14,21 @@
 > initial preview path; managed CAS, CFR proxy generation, arbitrary effects, and verified renders
 > remain D1/V2 work.
 
+> **Approved V2 Kdenlive native-save vertical slice (updated 2026-08-31):** Kdenlive may act as a second
+> timeline editor through its supported OpenTimelineIO import/export commands. SnipSnap may import
+> a Kdenlive-exported `.otio` or the cut-only timeline subset of a native `.kdenlive`/MLT document,
+> reconcile rewritten identifiers into the canonical model,
+> and export an immutable commit to an atomic OTIO handoff that opens in Kdenlive. Every handoff
+> must include a machine-readable capability/loss report. Portable tracks, clips, gaps, source
+> ranges, media references, and markers are the supported interchange level. Captions, arbitrary
+> effects, transitions, generators, disabled state, colour labels, Resolve Color/Fusion graphs,
+> and editor-specific metadata must be reported as nonportable or best-effort rather than silently
+> claimed. When connected to a native project, SnipSnap watches the saved file, converts each
+> distinct `Ctrl+S` state into canonical WORKING, and atomically regenerates a sibling `.otio`.
+> It never writes the native project or automates Kdenlive's UI. Canonical JSON remains the only
+> Git source of truth; native effect/composition fidelity and baked cross-editor renders remain out
+> of scope.
+
 ---
 
 ## 1. Recommended architecture (the decision)

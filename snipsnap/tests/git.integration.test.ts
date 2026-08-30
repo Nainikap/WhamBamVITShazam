@@ -11,7 +11,7 @@ import {
   validateProject,
   type Project,
 } from '../src/domain';
-import { GitRepository, StaleRefError, runGit } from '../src/git';
+import { GitRepository, StaleRefError, readGlobalCommitIdentity, runGit } from '../src/git';
 
 function createStorageFixture(clipCount = 500): Project {
   const projectId = deterministicUuid('storage-fixture:project');
@@ -114,6 +114,44 @@ describe('native Git repository', () => {
 
   afterEach(async () => {
     await rm(directory, { recursive: true, force: true });
+  });
+
+  it('uses an explicitly resolved global Git identity for every authored object', async () => {
+    const configPath = path.join(directory, 'host.gitconfig');
+    await writeFile(configPath, '[user]\n\tname = Tarun\n\temail = tarun@example.com\n');
+    const identity = await readGlobalCommitIdentity(directory, configPath);
+    expect(identity).toEqual({ name: 'Tarun', email: 'tarun@example.com' });
+    const authored = new GitRepository(directory, async () => identity);
+    const project = createDemoProject('Authored timeline');
+    const initial = await authored.createInitialCommit(project, 'Import authored timeline');
+    expect(await authored.commitInfo(initial)).toMatchObject({ author: 'Tarun <tarun@example.com>' });
+
+    const changed = reduceCommand(project, {
+      type: 'setClipGain',
+      clipId: project.clips[0]?.id as string,
+      gainDb: -3,
+    });
+    await authored.writeIndex(changed);
+    const committed = await authored.commitIndex('Author the edit', initial);
+    expect(await authored.commitInfo(committed)).toMatchObject({ author: 'Tarun <tarun@example.com>' });
+
+    const merged = await authored.commitSnapshot(
+      changed,
+      'Author the merge',
+      [committed],
+      'main',
+      committed,
+    );
+    expect(await authored.commitInfo(merged)).toMatchObject({ author: 'Tarun <tarun@example.com>' });
+    await authored.createTag('authored', merged, 'Approved by Tarun');
+    const tagger = await runGit(directory, ['for-each-ref', '--format=%(taggername)%00%(taggeremail)', 'refs/tags/authored']);
+    expect(tagger.stdout.trim().split('\0')).toEqual(['Tarun', '<tarun@example.com>']);
+  });
+
+  it('rejects an incomplete global Git identity so commits can use the deterministic fallback', async () => {
+    const configPath = path.join(directory, 'incomplete.gitconfig');
+    await writeFile(configPath, '[user]\n\tname = Tarun\n');
+    expect(await readGlobalCommitIdentity(directory, configPath)).toBeNull();
   });
 
   it('stores canonical snapshots in real index, tree, commit, and branch objects', async () => {

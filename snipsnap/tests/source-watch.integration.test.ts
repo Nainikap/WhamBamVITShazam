@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,24 +11,24 @@ describe('Resolve source watcher', () => {
     await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
   });
 
-  it('coalesces file updates and survives replacement-style exports', async () => {
+  it('coalesces file updates and survives replacement of the watched directory entry', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-watch-'));
     directories.push(directory);
     const sourcePath = path.join(directory, 'timeline.otio');
     await writeFile(sourcePath, 'first');
     let notify: ((change: WatchedSourceChange) => void) | undefined;
     const observed = new Promise<WatchedSourceChange>((resolve) => { notify = resolve; });
-    const watcher = new SourceWatchService((change) => notify?.(change), 30);
+    const watcher = new SourceWatchService((change) => notify?.(change), 30, 25);
     watcher.watch('project-id', sourcePath);
 
-    // fs.watch arms itself asynchronously, so a single write can land before it
-    // is listening. Keep exporting until it reports, which is also what a real
-    // Resolve export loop looks like.
-    let settled = false;
-    void observed.then(() => { settled = true; });
-    const rewrite = setInterval(() => {
-      if (!settled) void writeFile(sourcePath, `second-${Date.now()}`);
-    }, 150);
+    // This leaves fs.watch attached to the old directory inode. The polling
+    // fallback must notice the newly created path, as happens with replacement
+    // saves on Windows and with some NLE save implementations.
+    const movedDirectory = `${directory}-old`;
+    directories.push(movedDirectory);
+    await rename(directory, movedDirectory);
+    await mkdir(directory);
+    await writeFile(sourcePath, 'second');
     try {
       const change = await Promise.race([
         observed,
@@ -36,7 +36,6 @@ describe('Resolve source watcher', () => {
       ]);
       expect(change).toEqual({ projectId: 'project-id', sourcePath });
     } finally {
-      clearInterval(rewrite);
       watcher.close();
     }
   });

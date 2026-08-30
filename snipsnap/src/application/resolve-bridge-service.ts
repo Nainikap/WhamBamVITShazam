@@ -28,6 +28,15 @@ export interface ResolveBridgeOptions {
   databasePollIntervalMs?: number;
 }
 
+export function resolvePythonInvocation(platform: NodeJS.Platform = process.platform): {
+  command: string;
+  prefix: string[];
+} {
+  return platform === 'win32'
+    ? { command: 'pyw', prefix: ['-3'] }
+    : { command: 'python3', prefix: [] };
+}
+
 /** Runs one validated, save-marker-driven Resolve scripting process per project. */
 export class ResolveBridgeService {
   private readonly processes = new Map<string, ChildProcessWithoutNullStreams>();
@@ -47,6 +56,15 @@ export class ResolveBridgeService {
     return this.processes.has(projectId) || this.databasePollers.has(projectId);
   }
 
+  /** Resolve exposes one active project, so only the project being viewed may consume its saves. */
+  async startExclusive(projectId: string, expectedVersion?: number): Promise<void> {
+    const running = new Set([...this.processes.keys(), ...this.databasePollers.keys()]);
+    for (const otherProjectId of running) {
+      if (otherProjectId !== projectId) await this.stop(otherProjectId);
+    }
+    await this.start(projectId, expectedVersion);
+  }
+
   async start(projectId: string, expectedVersion?: number): Promise<void> {
     if (this.isRunning(projectId)) return;
     const status = await this.projects.status(projectId);
@@ -56,8 +74,14 @@ export class ResolveBridgeService {
     await this.projects.updateResolveBridgeState(projectId, 'starting');
     await this.onChange(projectId);
 
-    const command = this.options.command ?? (process.platform === 'win32' ? 'py' : 'python3');
-    const prefix = this.options.commandPrefixArgs ?? (process.platform === 'win32' ? ['-3'] : []);
+    // `py.exe` is a console application. Windows attaches a conhost window to
+    // it even when Electron requests windowsHide, and that host can flash over
+    // Resolve whenever the bridge writes a save event. `pyw.exe` uses the same
+    // launcher and still supports piped stdout/stderr without creating a
+    // visible console window.
+    const python = resolvePythonInvocation();
+    const command = this.options.command ?? python.command;
+    const prefix = this.options.commandPrefixArgs ?? python.prefix;
     const resolveApi = process.platform === 'win32' && process.env.PROGRAMDATA
       ? path.join(process.env.PROGRAMDATA, 'Blackmagic Design', 'DaVinci Resolve', 'Support', 'Developer', 'Scripting')
       : undefined;
@@ -108,13 +132,6 @@ export class ResolveBridgeService {
     this.stopDatabaseFallback(projectId);
     await this.projects.updateResolveBridgeState(projectId, 'stopped');
     await this.onChange(projectId);
-  }
-
-  async restore(): Promise<void> {
-    for (const project of await this.projects.listProjects()) {
-      const binding = await this.projects.sourceBinding(project.id);
-      if (binding?.mode === 'resolve') await this.start(project.id);
-    }
   }
 
   close(): void {

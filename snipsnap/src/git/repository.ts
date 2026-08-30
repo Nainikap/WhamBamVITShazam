@@ -36,10 +36,34 @@ export interface CommitIdentity {
   email: string;
 }
 
+export type CommitIdentityProvider = () => Promise<CommitIdentity | null>;
+
 const defaultIdentity: CommitIdentity = {
   name: 'SnipSnap User',
   email: 'local@snipsnap.invalid',
 };
+
+function validIdentityValue(value: string): boolean {
+  return value.length > 0 && value.length <= 320 && !/[\0\r\n]/u.test(value);
+}
+
+/** Read the user's normal Git author without exposing global config to repository operations. */
+export async function readGlobalCommitIdentity(
+  repoPath: string,
+  globalConfig: 'host' | string = 'host',
+): Promise<CommitIdentity | null> {
+  try {
+    const [nameResult, emailResult] = await Promise.all([
+      runGit(repoPath, ['config', '--global', '--get', 'user.name'], { globalConfig }),
+      runGit(repoPath, ['config', '--global', '--get', 'user.email'], { globalConfig }),
+    ]);
+    const name = nameResult.stdout.trim().normalize('NFC');
+    const email = emailResult.stdout.trim().normalize('NFC');
+    return validIdentityValue(name) && validIdentityValue(email) ? { name, email } : null;
+  } catch {
+    return null;
+  }
+}
 
 function assertBranchName(name: string): void {
   if (!SAFE_REF_PATTERN.test(name)
@@ -94,11 +118,11 @@ function countObjectsMetric(output: string, name: 'count' | 'size'): number {
 }
 
 export class GitRepository {
-  constructor(readonly path: string) {}
+  constructor(readonly path: string, private readonly identityProvider?: CommitIdentityProvider) {}
 
-  static async create(path: string): Promise<GitRepository> {
+  static async create(path: string, identityProvider?: CommitIdentityProvider): Promise<GitRepository> {
     await mkdir(path, { recursive: true });
-    const repository = new GitRepository(path);
+    const repository = new GitRepository(path, identityProvider);
     await runGit(path, ['init', '--initial-branch=main']);
     await runGit(path, ['config', 'user.name', defaultIdentity.name]);
     await runGit(path, ['config', 'user.email', defaultIdentity.email]);
@@ -169,7 +193,7 @@ export class GitRepository {
     tree: string,
     message: string,
     parents: string[],
-    identity: CommitIdentity,
+    identity?: CommitIdentity,
   ): Promise<string> {
     const args = ['commit-tree', tree];
     for (const parent of parents) {
@@ -178,13 +202,17 @@ export class GitRepository {
     }
     args.push('-F', '-');
     await this.autoOptimizeSnapshotStorage();
-    return (await runGit(this.path, args, { input: `${message.trim()}\n`, env: identityEnv(identity) })).stdout.trim();
+    const effectiveIdentity = identity ?? await this.identityProvider?.() ?? defaultIdentity;
+    return (await runGit(this.path, args, {
+      input: `${message.trim()}\n`,
+      env: identityEnv(effectiveIdentity),
+    })).stdout.trim();
   }
 
   async createInitialCommit(
     project: Project,
     message: string,
-    identity: CommitIdentity = defaultIdentity,
+    identity?: CommitIdentity,
   ): Promise<string> {
     const tree = await this.writeIndex(project);
     const commit = await this.commitTree(tree, message, [], identity);
@@ -195,7 +223,7 @@ export class GitRepository {
   async commitIndex(
     message: string,
     expectedHead: string,
-    identity: CommitIdentity = defaultIdentity,
+    identity?: CommitIdentity,
   ): Promise<string> {
     if (!OID_PATTERN.test(expectedHead)) throw new Error('Invalid expected HEAD');
     const tree = (await runGit(this.path, ['write-tree'])).stdout.trim();
@@ -211,7 +239,7 @@ export class GitRepository {
     parents: string[],
     targetBranch: string,
     expectedTarget: string,
-    identity: CommitIdentity = defaultIdentity,
+    identity?: CommitIdentity,
   ): Promise<string> {
     const tree = await this.treeFor(project);
     const commit = await this.commitTree(tree, message, parents, identity);
@@ -328,10 +356,13 @@ export class GitRepository {
     return { id, parents: parents ? parents.split(' ') : [], author, authoredAt, message };
   }
 
-  async createTag(name: string, revision: string, message: string, identity: CommitIdentity = defaultIdentity): Promise<void> {
+  async createTag(name: string, revision: string, message: string, identity?: CommitIdentity): Promise<void> {
     assertBranchName(name);
     const commit = await this.resolve(revision);
-    await runGit(this.path, ['tag', '--annotate', name, commit, '--message', message], { env: identityEnv(identity) });
+    const effectiveIdentity = identity ?? await this.identityProvider?.() ?? defaultIdentity;
+    await runGit(this.path, ['tag', '--annotate', name, commit, '--message', message], {
+      env: identityEnv(effectiveIdentity),
+    });
   }
 
   async fsck(): Promise<void> {

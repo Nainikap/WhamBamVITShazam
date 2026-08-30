@@ -44,9 +44,13 @@
   body {
     @apply bg-background text-foreground;
     margin: 0;
-    min-width: 900px;
+    min-width: 0;
     font-synthesis: none;
     background-color: #000;
+    /* The shell is a fixed 100vh app; a portal (tooltip, dropdown) that pokes
+       past the edge must never make the document scrollable — clip, because a
+       hidden viewport still honours programmatic scrolls. */
+    overflow: clip;
   }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }

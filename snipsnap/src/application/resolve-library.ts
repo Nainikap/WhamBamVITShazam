@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { access, copyFile, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -81,6 +82,10 @@ export function defaultResolveRoots(): string[] {
     const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
     return [path.join(appData, 'SnipSnap', 'resolve')];
   }
+  if (process.platform === 'linux') {
+    const dataHome = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+    return [path.join(dataHome, 'SnipSnap', 'resolve')];
+  }
   const containers = ['com.blackmagic-design.DaVinciResolveLite', 'com.blackmagic-design.DaVinciResolve'];
   return [
     path.join(home, 'Library', 'Application Support', 'SnipSnap', 'resolve'),
@@ -113,6 +118,14 @@ export function resolveDatabaseRoots(): string[] {
       path.join(programData, 'Blackmagic Design', 'DaVinci Resolve', 'Support'),
     ];
     return bases.flatMap((base) => PROJECT_LIBRARY_TAILS.map((tail) => path.join(base, ...tail)));
+  }
+  if (process.platform === 'linux') {
+    const dataHome = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+    const bases = [
+      path.join(dataHome, 'DaVinciResolve'),
+      path.join(home, '.local', 'share', 'DaVinciResolve'),
+    ];
+    return [...new Set(bases.flatMap((base) => PROJECT_LIBRARY_TAILS.map((tail) => path.join(base, ...tail))))];
   }
   const bases = [
     path.join(home, 'Library', 'Application Support'),
@@ -148,6 +161,14 @@ export function resolveScriptFolders(): string[] {
     return [appData, programData].map((base) => path.join(
       base, 'Blackmagic Design', 'DaVinci Resolve', 'Support', 'Fusion', 'Scripts', 'Utility',
     ));
+  }
+  if (process.platform === 'linux') {
+    const dataHome = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+    return [...new Set([
+      path.join(dataHome, 'DaVinciResolve', 'Fusion', 'Scripts', 'Utility'),
+      path.join(home, '.local', 'share', 'DaVinciResolve', 'Fusion', 'Scripts', 'Utility'),
+      path.join('/opt', 'resolve', 'Fusion', 'Scripts', 'Utility'),
+    ])];
   }
   const containers = ['com.blackmagic-design.DaVinciResolveLite', 'com.blackmagic-design.DaVinciResolve'];
   return [
@@ -285,7 +306,7 @@ interface DatabaseProject {
 async function readProjectDatabase(databasePath: string): Promise<DatabaseProject | null> {
   const sqlite = loadSqlite();
   if (!sqlite) return null;
-  const copy = `${databasePath}.snipsnap-read`;
+  const copy = `${databasePath}.snipsnap-read-${process.pid}-${randomUUID()}`;
   try {
     await copyFile(databasePath, copy);
     const database = new sqlite.DatabaseSync(copy, { readOnly: true });
@@ -305,7 +326,7 @@ async function readProjectDatabase(databasePath: string): Promise<DatabaseProjec
   } catch {
     return null;
   } finally {
-    await rm(copy, { force: true });
+    await rm(copy, { force: true }).catch(() => undefined);
   }
 }
 

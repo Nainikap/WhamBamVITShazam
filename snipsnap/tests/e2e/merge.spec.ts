@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { ProjectService, ResolveLibrary, resolveProjectId } from '../../src/application';
 import { runGit } from '../../src/git';
+import { layoutGraph } from '../../src/renderer/commit-graph-layout';
+import { packagedElectronArgs } from './electron-args';
 
 const RATE = 30;
 const FRAMES = 300;
@@ -139,7 +141,7 @@ async function prepareFixture(prefix: string): Promise<MergeFixture> {
 
 async function launchFixture(fixture: MergeFixture): Promise<{ application: ElectronApplication; page: Page }> {
   const application = await electron.launch({
-    args: [packagedAppPath()],
+    args: packagedElectronArgs(packagedAppPath()),
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: fixture.dataRoot,
@@ -324,9 +326,9 @@ test('divergent branch commits stay visible and independent fields merge cleanly
     await expect(graph.getByText('main', { exact: true })).toBeVisible();
     await expect(graph.locator('.vg-cube')).toHaveCount(0);
 
-    await graph.getByRole('button', { name: 'Graph commit Warm the interview look' }).click();
+    await graph.getByRole('button', { name: 'View commit Warm the interview look' }).click();
     await expect(page.getByRole('heading', { name: 'Warm the interview look' })).toBeVisible();
-    await graph.getByRole('button', { name: 'Graph commit Lower the interview gain' }).click();
+    await graph.getByRole('button', { name: 'View commit Lower the interview gain' }).click();
     await expect(page.getByRole('heading', { name: 'Lower the interview gain' })).toBeVisible();
 
     await expect(page.getByText(/change detected in Resolve/u)).toBeVisible();
@@ -462,7 +464,11 @@ test('integrates look, subtitle, and music branches without losing any contribut
     const finalCommit = completed.history.find(({ id }) => id === completed.headCommit);
     expect(finalCommit?.parents).toHaveLength(2);
     await expect(graph.getByRole('listitem')).toHaveCount(8);
-    await expect(graph.locator('svg path')).toHaveCount(10);
+    // Every parent link renders as one segment per row it crosses, so the lane
+    // artwork stays continuous through the per-row gutter cells.
+    const { edges: graphEdges } = layoutGraph(completed.history);
+    const expectedSegments = graphEdges.reduce((sum, edge) => sum + (edge.to.row - edge.from.row + 1), 0);
+    await expect(graph.locator('svg path')).toHaveCount(expectedSegments);
     await expect(graph.getByText('merge', { exact: true })).toHaveCount(3);
     for (const contributor of [colour.headCommit, subtitles.headCommit, music.headCommit, main.headCommit]) {
       expect(completed.history.some(({ id }) => id === contributor)).toBe(true);

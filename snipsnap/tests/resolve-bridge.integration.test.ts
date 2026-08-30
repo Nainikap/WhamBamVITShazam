@@ -66,4 +66,26 @@ describe('save-driven Resolve bridge', () => {
     await bridge.stop(imported.id);
     expect((await service.status(imported.id)).source.state).toBe('stopped');
   });
+
+  it('keeps only the project being viewed connected to Resolve', async () => {
+    const fixture = await readFile(path.join(__dirname, 'fixtures', 'resolve-basic.otio'), 'utf8');
+    const first = await service.importOtio(fixture);
+    const secondDocument = JSON.parse(fixture) as { name: string };
+    secondDocument.name = 'Second Resolve Project';
+    const second = await service.importOtio(JSON.stringify(secondDocument));
+    const idle = path.join(root, 'idle-bridge.cjs');
+    await writeFile(idle, 'setInterval(() => {}, 1000);\n');
+
+    bridge = new ResolveBridgeService(service, 'ignored.py', () => undefined, {
+      command: process.execPath,
+      commandPrefixArgs: [idle],
+    });
+    await bridge.start(first.id, (await service.status(first.id)).workspaceVersion);
+    expect(bridge.isRunning(first.id)).toBe(true);
+
+    await bridge.startExclusive(second.id, (await service.status(second.id)).workspaceVersion);
+    expect(bridge.isRunning(first.id)).toBe(false);
+    expect(bridge.isRunning(second.id)).toBe(true);
+    expect((await service.status(first.id)).source.state).toBe('stopped');
+  });
 });

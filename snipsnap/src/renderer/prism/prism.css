@@ -16,8 +16,12 @@
   --vg-display: 'Mondwest', 'Iowan Old Style', Palatino, 'Palatino Linotype', serif;
   position: relative;
   display: flex;
+  min-width: 0;
   height: 100vh;
-  overflow: hidden;
+  height: 100dvh;
+  /* clip, not hidden: a hidden box is still programmatically scrollable, so a
+     focus or scroll-into-view on a clipped portal shifts the whole app. */
+  overflow: clip;
   background: #000;
   color: #f2f2f2;
 }
@@ -514,13 +518,13 @@
   border-radius: 0;
   background: #0c0c0e;
   opacity: 0;
-  transition: opacity 160ms ease, visibility 0s 160ms;
+  transition: none;
 }
 
 .vg-shell[data-stage='project'] .vg-project {
   visibility: visible;
   opacity: 1;
-  transition: opacity 160ms ease, visibility 0s;
+  transition: none;
 }
 
 .vg-project .vg-glass {
@@ -868,48 +872,236 @@
   bottom: 26px;
   left: 50%;
   width: min(680px, calc(100% - 64px));
+  max-height: min(9rem, calc(100% - 3rem));
+  overflow: auto;
+  overflow-wrap: anywhere;
   border-color: rgb(255 255 255 / 0.16);
   backdrop-filter: blur(24px) saturate(150%);
   background: rgb(8 8 10 / 0.72);
   transform: translateX(-50%);
 }
 
-.vg-editor-grid {
+.vg-toast.error {
+  border-color: rgb(248 113 113 / 0.72);
+  background: rgb(69 10 10 / 0.96);
+  box-shadow: 0 16px 46px rgb(0 0 0 / 0.48);
+  color: #fee2e2;
+}
+
+/* ---------------------------------------------------------- the studio */
+
+/*
+ * The project screen after Screen Studio: a plain themed toolbar on top, the
+ * video floats in the middle, everything else lives in the sidebars, and the
+ * sequence runs full-bleed along the bottom.
+ */
+
+.vg-studio {
   display: grid;
   min-width: 0;
   min-height: 0;
   flex: 1;
-  grid-template-columns: minmax(13.5rem, 16.5rem) minmax(0, 1fr) minmax(14rem, 17rem);
   overflow: hidden;
+  background: #050506;
+  grid-template-columns: clamp(16rem, 21vw, 19rem) minmax(0, 1fr) clamp(16.5rem, 22vw, 19.5rem);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'left stage side'
+    'rail rail  rail';
 }
 
-.vg-editor-grid > aside,
-.vg-editor-grid > section {
+.vg-studio-stage {
+  display: flex;
   min-width: 0;
   min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  padding: 16px 18px;
+  grid-area: stage;
 }
 
-.vg-editor-grid > .vg-glass {
-  border-radius: 0;
+.vg-studio-left,
+.vg-studio-side {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  background: rgb(10 10 12 / 0.92);
 }
 
-@media (max-width: 1180px) {
-  .vg-editor-grid {
-    grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr) minmax(14rem, 17rem);
+.vg-studio-left {
+  border-right: 1px solid rgb(255 255 255 / 0.12);
+  grid-area: left;
+}
+
+.vg-studio-side {
+  border-left: 1px solid rgb(255 255 255 / 0.12);
+  grid-area: side;
+}
+
+.vg-side-section {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+
+.vg-studio-rail {
+  min-width: 0;
+  max-height: 36vh;
+  overflow-y: auto;
+  border-top: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(8 8 9 / 0.94);
+  grid-area: rail;
+}
+
+.vg-rail-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* Black, grey, and white only: the semantic tints collapse to greys wherever
+   this class scopes them, so labels carry the meaning instead of colour. */
+.vg-mono {
+  --added: 0 0% 90%;
+  --added-soft: 0 0% 16%;
+  --removed: 0 0% 52%;
+  --removed-soft: 0 0% 11%;
+  --retimed: 0 0% 74%;
+  --retimed-soft: 0 0% 13%;
+  --edited: 0 0% 96%;
+  --edited-soft: 0 0% 19%;
+}
+
+/* Diff surfaces are the exception to the grey rule: anything added is green
+   and anything deleted is red, exactly like a code diff. */
+.vg-diff-colors {
+  --added: 142 71% 45%;
+  --added-soft: 142 38% 14%;
+  --removed: 0 76% 62%;
+  --removed-soft: 0 39% 15%;
+}
+
+.viewer[data-variant='compact'] .vg-player-controls {
+  gap: 0.5rem;
+}
+
+.viewer[data-variant='compact'] .vg-player-total {
+  display: none;
+}
+
+/* A quick action never flashes it; the cube only fades in once the app has
+   actually kept the user waiting. */
+.vg-cube-veil {
+  position: absolute;
+  z-index: 24;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.38);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  perspective: 640px;
+  pointer-events: none;
+  animation: vg-cube-reveal 260ms ease 450ms forwards;
+}
+
+@keyframes vg-cube-reveal {
+  to { opacity: 1; }
+}
+
+.vg-cube {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  transform-style: preserve-3d;
+  animation: vg-cube-spin 1.7s linear infinite;
+}
+
+.vg-cube i {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid rgb(255 255 255 / 0.9);
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0 18px rgb(255 255 255 / 0.12);
+}
+
+.vg-cube i:nth-child(1) { transform: rotateY(0deg) translateZ(22px); }
+.vg-cube i:nth-child(2) { transform: rotateY(90deg) translateZ(22px); }
+.vg-cube i:nth-child(3) { transform: rotateY(180deg) translateZ(22px); }
+.vg-cube i:nth-child(4) { transform: rotateY(270deg) translateZ(22px); }
+.vg-cube i:nth-child(5) { transform: rotateX(90deg) translateZ(22px); }
+.vg-cube i:nth-child(6) { transform: rotateX(270deg) translateZ(22px); }
+
+@keyframes vg-cube-spin {
+  0% { transform: rotateX(-20deg) rotateY(0deg); }
+  100% { transform: rotateX(-20deg) rotateY(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vg-cube {
+    animation-duration: 6s;
+  }
+}
+
+@media (max-width: 780px) {
+  .vg-player-controls {
+    gap: 0.5rem;
+    padding-inline: 0.5rem;
+  }
+
+  .vg-player-media,
+  .vg-player-total {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .vg-project-header .vg-mark {
+    display: none;
+  }
+
+  .vg-player-current {
+    display: none;
   }
 }
 
 @media (max-width: 980px) {
-  .vg-editor-grid {
-    grid-template-columns: minmax(0, 1fr);
+  .vg-studio {
     overflow: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto auto;
+    grid-template-areas:
+      'stage'
+      'rail'
+      'left'
+      'side';
+  }
+
+  .vg-studio-left,
+  .vg-studio-side {
+    border-top: 1px solid rgb(255 255 255 / 0.12);
+    border-right: 0;
+    border-left: 0;
   }
 }
 
-.vg-history-graph {
-  position: relative;
+/* The VS Code-style commit graph: contiguous per-row gutter cells keep the
+   lane lines unbroken, including through a row's unfolded change list. */
+.vg-graph {
+  display: flex;
   min-width: 0;
-  overflow: hidden;
+  flex-direction: column;
+}
+
+.vg-graph-row {
+  height: 56px;
+}
+
+.vg-graph-gutter {
+  display: block;
+  flex-shrink: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
