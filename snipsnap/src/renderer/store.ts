@@ -216,8 +216,8 @@ export const useAppStore = create<AppStore>((set, get) => {
         diffOpen: false,
         comparison: null,
         notice: limitationCount > 0
-          ? `Imported Kdenlive OTIO. ${limitationCount} item${limitationCount === 1 ? '' : 's'} need fidelity review.`
-          : 'Imported Kdenlive OTIO with no known portability warnings.',
+          ? `Connected Kdenlive. ${limitationCount} item${limitationCount === 1 ? '' : 's'} need fidelity review.`
+          : 'Connected Kdenlive. Ctrl+S saves now update SnipSnap automatically.',
       });
     }),
 
@@ -229,8 +229,8 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({
         overviews,
         notice: result.discovered === 0
-          ? 'No .otio timelines were found in that folder.'
-          : `Tracking ${result.tracked.length} Kdenlive timeline${result.tracked.length === 1 ? '' : 's'}`
+          ? 'No .kdenlive projects or .otio timelines were found in that folder.'
+          : `Tracking ${result.tracked.length} Kdenlive project${result.tracked.length === 1 ? '' : 's'}`
             + `${failed ? `; ${failed} invalid file${failed === 1 ? '' : 's'} skipped` : ''}.`,
       });
     }),
@@ -251,10 +251,10 @@ export const useAppStore = create<AppStore>((set, get) => {
         overviews,
         notice: kdenlive.failures.length
           ? `${overviews.length} video project${overviews.length === 1 ? '' : 's'} available; `
-            + `${kdenlive.failures.length} invalid Kdenlive OTIO file${kdenlive.failures.length === 1 ? '' : 's'} skipped.`
+            + `${kdenlive.failures.length} invalid Kdenlive source${kdenlive.failures.length === 1 ? '' : 's'} skipped.`
           : overviews.length
             ? `${overviews.length} video project${overviews.length === 1 ? '' : 's'} available.`
-          : 'No projects found. Export OTIO from Resolve or Kdenlive first.',
+          : 'No projects found. Connect a Resolve or Kdenlive project first.',
       });
     }),
 

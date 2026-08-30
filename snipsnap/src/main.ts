@@ -65,7 +65,7 @@ const sourceWatcher = new SourceWatchService(async ({ projectId }) => {
 
 async function restoreSourceConnections(): Promise<void> {
   for (const project of await projects.listProjects()) {
-    const binding = await projects.sourceBinding(project.id);
+    const binding = await projects.restoreSourceBinding(project.id);
     if (binding?.mode === 'file' || binding?.mode === 'kdenlive') sourceWatcher.watch(project.id, binding.path);
   }
 }
@@ -213,15 +213,15 @@ function registerIpc(): void {
   ipcMain.handle(channels.resolveRoots, () => projects.resolveRoots());
   ipcMain.handle(channels.importKdenliveOtio, async () => {
     const selection = await dialog.showOpenDialog({
-      title: 'Import an OTIO timeline exported by Kdenlive',
-      message: 'In Kdenlive use File \u203a OpenTimelineIO Export, then choose that .otio file here.',
+      title: 'Connect a Kdenlive project',
+      message: 'Choose the native .kdenlive project for automatic Ctrl+S timeline sync. Existing OTIO exports are also supported.',
       properties: ['openFile'],
-      filters: [{ name: 'Kdenlive OpenTimelineIO', extensions: ['otio', 'json'] }],
+      filters: [{ name: 'Kdenlive project or OpenTimelineIO', extensions: ['kdenlive', 'otio', 'json'] }],
     });
     const sourcePath = selection.filePaths[0];
     if (selection.canceled || !sourcePath) return null;
     const result = await projects.importKdenliveSource(sourcePath);
-    sourceWatcher.watch(result.status.project.id, sourcePath);
+    sourceWatcher.watch(result.status.project.id, result.sourcePath);
     return result;
   });
   const watchKdenliveScan = (scan: Awaited<ReturnType<ProjectService['refreshKdenliveRoots']>>) => {
@@ -230,8 +230,8 @@ function registerIpc(): void {
   };
   ipcMain.handle(channels.addKdenliveFolder, async () => {
     const selection = await dialog.showOpenDialog({
-      title: 'Choose a folder containing Kdenlive OTIO exports',
-      message: 'SnipSnap discovers .otio files below this folder and watches every valid timeline.',
+      title: 'Choose a folder containing Kdenlive projects',
+      message: 'SnipSnap discovers native .kdenlive projects and watches Ctrl+S saves. OTIO-only timelines remain supported.',
       properties: ['openDirectory'],
     });
     const folder = selection.filePaths[0];

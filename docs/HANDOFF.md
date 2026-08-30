@@ -1,6 +1,6 @@
 # SnipSnap project handoff
 
-> Snapshot date: 2026-08-30
+> Snapshot date: 2026-08-31
 >
 > This document is a restart aid for a new developer or coding-agent conversation. It does not
 > override `AGENTS.md` or the documentation precedence in `docs/README.md`. Always inspect the
@@ -19,7 +19,7 @@ Git stores canonical timeline snapshots and ancestry; semantic diff/staging/merg
 TypeScript and Git must not text-merge timeline.json. Keep renderer -> typed preload IPC -> main
 process boundaries intact.
 
-Treat additional cross-NLE work beyond the approved Kdenlive OTIO slice as new V2 scope that needs
+Treat additional cross-NLE work beyond the approved Kdenlive native-save/OTIO slice as new V2 scope that needs
 an explicit plan and honest fidelity rules. Do not claim Resolve Color/Fusion/plugin portability through OTIO. Run the relevant tests,
 inspect the diff, and use conventional commits without sweeping unrelated changes.
 ```
@@ -40,7 +40,7 @@ Do not hard-reset to the baseline hash. It is an orientation marker, not a resto
 
 ## Product decision
 
-SnipSnap has a Resolve-first workflow plus an approved Kdenlive OTIO interchange slice:
+SnipSnap has a Resolve-first workflow plus an approved Kdenlive native-save/OTIO interchange slice:
 
 ```text
 Resolve save
@@ -51,6 +51,12 @@ Resolve save
   -> complete timeline snapshot in native Git commit
   -> branches / history / compare / three-way merge
   -> local commit preview / immutable OTIO export
+
+Kdenlive Ctrl+S
+  -> bounded native MLT cut-timeline parse
+  -> stable-ID reconciliation + canonical timeline WORKING
+  -> atomic same-name sibling OTIO
+  -> semantic INDEX staging / native Git commit
 ```
 
 There is no editor in SnipSnap. The command reducer remains as pure domain/application support and
@@ -266,10 +272,10 @@ If the next goal is simply to move development to Linux:
 4. package Debian/RPM and run the same unit/integration/E2E gates;
 5. copy footage separately because it is intentionally not in Git.
 
-The approved Kdenlive OTIO vertical slice now covers editor identity, capability/loss schemas,
-portable L0/L1 import/watch, stable reconciliation, and canonical-to-Kdenlive export/open. Next
-cross-NLE work should validate more real Resolve/Kdenlive golden projects, consider direct MLT only
-for explicitly selected Kdenlive-only fidelity, and add baked artifacts for nonportable visuals
+The approved Kdenlive native-save vertical slice covers editor identity, capability/loss schemas,
+bounded active-sequence MLT parsing, automatic WORKING/OTIO updates on save, stable reconciliation,
+and canonical-to-Kdenlive export/open. Next cross-NLE work should validate more real
+Resolve/Kdenlive golden projects and add baked artifacts for nonportable visuals
 rather than pretending those effects are editable everywhere.
 
 ## Secrets and local data

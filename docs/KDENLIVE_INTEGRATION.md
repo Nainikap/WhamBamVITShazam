@@ -1,28 +1,29 @@
 # Kdenlive integration
 
-SnipSnap's first Kdenlive integration uses Kdenlive's supported OpenTimelineIO import/export
-boundary. Canonical `timeline.json` remains the only timeline representation stored in Git;
-`.otio` is an editor handoff and `.kdenlive`/MLT is not parsed or versioned by this slice.
+SnipSnap connects directly to a saved `.kdenlive` project for the cut-only timeline subset and uses
+Kdenlive's supported OpenTimelineIO boundary for handoff. Canonical `timeline.json` remains the only
+timeline representation stored in Git; native project files, OTIO, and footage stay outside Git.
 
 ## Workflow
 
-1. Export the active Kdenlive timeline with **File > OpenTimelineIO Export**.
-2. Import that `.otio` from the SnipSnap dashboard, or choose **Track Kdenlive folder** to discover
-   every `.otio` file up to four folders below the selected root. Folder roots persist; **Refresh**
-   discovers later exports, and every valid imported OTIO remains watched across app restarts.
-3. Export later Kdenlive edits to the same file. SnipSnap watches it and presents the semantic
-   difference as a pending editor update.
-4. Apply, stage, and commit selected semantic changes normally.
+1. Choose **Connect Kdenlive** and select the native `.kdenlive` project, or choose **Track Kdenlive
+   folder** to discover native projects up to four folders below the selected root. Existing
+   OTIO-only sources remain supported as a fallback.
+2. Edit in Kdenlive and press **Ctrl+S**. SnipSnap watches the native file's parent directory so an
+   atomic save/replacement is detected on Linux, Windows, and macOS.
+3. Each distinct valid save is parsed, reconciled to stable canonical IDs, applied immediately to
+   WORKING, and exported atomically to the same-name sibling `.otio`. HEAD and INDEX do not move.
+4. Review the resulting unstaged semantic changes, then stage and commit selected changes normally.
 5. Select a commit and choose **Prepare for Kdenlive**. SnipSnap resolves the revision to an immutable
    commit ID, writes `<commit>.otio` and `<commit>.report.json` atomically below the project's local
    `kdenlive-handoffs` directory, copies/reveals the OTIO path, and launches Kdenlive without a shell.
 6. In Kdenlive choose **File > OpenTimelineIO Import**, then paste or select the prepared path.
 
-Kdenlive may remove SnipSnap UUID metadata when it exports again. The source-sync layer reconciles
+Kdenlive native files do not contain SnipSnap UUID metadata. The source-sync layer reconciles
 sequences, tracks, assets, clips, gaps, transitions, and captions against the current canonical
 workspace so ordinary rewrites remain modifications of stable entities.
 
-Kdenlive can also export an audio media reference whose auxiliary `available_range` has rate `0`
+The legacy OTIO fallback can also contain an audio media reference whose auxiliary `available_range` has rate `0`
 while its editorial `source_range` has the valid sequence rate. SnipSnap accepts that OpenTimelineIO
 shape, interprets the media availability at the clip source rate, and records a best-effort fidelity
 warning. Editorial source ranges and the canonical timeline remain strictly positive-rate.
@@ -31,7 +32,7 @@ warning. Editorial source ranges and the canonical timeline remain strictly posi
 
 | Timeline feature | Contract |
 |---|---|
-| Video/audio tracks, clips, gaps, source in/out, media references | Portable |
+| Native active sequence, video/audio tracks, clips, gaps, source in/out, media references | Parsed on save and portable |
 | Timeline and clip markers | Portable data; per-instance versus shared marker semantics are best-effort |
 | Transitions | Best-effort; Kdenlive does not document full transition fidelity through OTIO |
 | Audio gain, enabled state, colour labels | Best-effort metadata; verify after import |
@@ -58,7 +59,8 @@ leaves the already-written immutable handoff and fidelity report intact.
 
 ## Deliberate limits
 
-Kdenlive does not continuously export OTIO when its native project is saved. The editor must export
-to the connected `.otio` path when a revision should enter SnipSnap. Native `.kdenlive`/MLT parsing,
-background editor automation, baked render artifacts, and proprietary effect translation require
-separate designs and are not implied by this integration.
+The native adapter implements the same bounded editorial subset promised by the OTIO integration.
+Kdenlive/MLT effects, compositions, subtitles, nested sequences, speed effects, and generators are
+not claimed as portable. They remain intact in the native file—which SnipSnap never writes—but are
+not represented as editable cross-NLE timeline state. The adapter rejects malformed/DTD-bearing XML,
+bounds input size/depth/node count, and publishes the sibling OTIO with temp-file-plus-rename.

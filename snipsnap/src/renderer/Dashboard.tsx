@@ -106,7 +106,7 @@ function Poster({ project, className }: { project: ProjectOverview; className?: 
 function Facts({ project }: { project: ProjectOverview }) {
   const facts = [
     project.kind === 'remote' ? 'Shared project' : null,
-    project.kind === 'kdenlive' ? 'Kdenlive OTIO' : null,
+    project.kind === 'kdenlive' ? 'Kdenlive project' : null,
     project.linked ? `⑂ ${project.branch}` : null,
     ...(project.openable ? [project.resolve?.timelineName ?? project.knownTimelines[0]] : project.knownTimelines),
     project.durationFrames > 0 ? durationLabel(project.durationFrames, project.fps) : null,
@@ -149,12 +149,12 @@ export function Dashboard() {
         <div className="vg-glass-body">
           <h2>No video projects found yet</h2>
           <p>
-            Connect a DaVinci Resolve project, or export a Kdenlive timeline with
-            File &rsaquo; OpenTimelineIO Export and import the resulting <code>.otio</code> here.
+            Connect a DaVinci Resolve project or a native <code>.kdenlive</code> project.
+            Saving in either editor updates SnipSnap automatically.
           </p>
           <div className="flex flex-wrap justify-center gap-2">
             <Button variant="default" onClick={() => setJoinOpen(true)}><Network />Join shared project</Button>
-            <Button variant="default" onClick={() => void store.importKdenlive()}><Film />Import Kdenlive OTIO</Button>
+            <Button variant="default" onClick={() => void store.importKdenlive()}><Film />Connect Kdenlive</Button>
             <Button variant="secondary" onClick={() => void store.addKdenliveFolder()}>
               <FolderSearch />Track Kdenlive folder
             </Button>
@@ -187,14 +187,14 @@ export function Dashboard() {
           onChange={(event) => store.setFilter(event.target.value)}
         />
         <Button variant="secondary" onClick={() => setJoinOpen(true)}><Network />Join</Button>
-        <Button variant="secondary" onClick={() => void store.importKdenlive()}><Film />Kdenlive OTIO</Button>
+        <Button variant="secondary" onClick={() => void store.importKdenlive()}><Film />Kdenlive project</Button>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="secondary" size="icon" aria-label="Track Kdenlive folder" onClick={() => void store.addKdenliveFolder()}>
               <FolderSearch />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Discover and watch Kdenlive OTIO exports</TooltipContent>
+          <TooltipContent>Discover and watch native Kdenlive saves</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>

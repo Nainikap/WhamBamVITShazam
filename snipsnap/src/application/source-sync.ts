@@ -15,12 +15,15 @@ const FileSourceBindingSchema = z.object({
 }).strict();
 
 const KdenliveSourceBindingSchema = z.object({
-  format: z.literal('otio'),
+  format: z.enum(['otio', 'kdenlive']),
   mode: z.literal('kdenlive'),
   path: z.string().min(1),
+  /** Sibling handoff regenerated atomically whenever a native project saves. */
+  otioPath: z.string().min(1).optional(),
   lastSeenDigest: DigestSchema.optional(),
   lastAppliedDigest: DigestSchema.optional(),
   ignoredDigest: DigestSchema.optional(),
+  lastSavedAt: z.string().datetime().optional(),
   lastError: z.string().min(1).max(2000).optional(),
 }).strict();
 
