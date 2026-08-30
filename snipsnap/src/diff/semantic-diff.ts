@@ -22,6 +22,8 @@ export interface SemanticHunk {
   after: unknown;
   parentId?: string;
   orderIndex?: number;
+  /** Position in the canonical entity collection, needed for exact reversal. */
+  collectionIndex?: number;
   message: string;
   affectedFrameRange?: FrameRange;
   /** Primitive edits that must stage together to keep the timeline valid. */
@@ -183,6 +185,7 @@ function createHunk(input: Omit<SemanticHunk, 'id'>): SemanticHunk {
     input.fieldGroup,
     input.before,
     input.after,
+    input.collectionIndex,
     input.parts?.map(({ id }) => id),
   ]);
   return { ...input, id: digestText(identity) };
@@ -236,6 +239,178 @@ function compoundHunk(input: {
     parts: input.parts,
     ...(input.affectedFrameRange ? { affectedFrameRange: input.affectedFrameRange } : {}),
   });
+}
+
+function clipTimelineStart(project: Project, clip: Project['clips'][number]): number | undefined {
+  const track = project.tracks.find(({ id }) => id === clip.trackId);
+  if (!track) return undefined;
+  const clips = new Map(project.clips.map((item) => [item.id, item]));
+  const gaps = new Map(project.gaps.map((item) => [item.id, item]));
+  let cursor = 0;
+  for (const itemId of track.itemIds) {
+    if (itemId === clip.id) return cursor;
+    const precedingClip = clips.get(itemId);
+    if (precedingClip) cursor += precedingClip.sourceRange.duration;
+    else cursor += gaps.get(itemId)?.durationFrames ?? 0;
+  }
+  return undefined;
+}
+
+function itemPrecedesClip(project: Project, itemId: string, clip: Project['clips'][number]): boolean {
+  const track = project.tracks.find(({ id }) => id === clip.trackId);
+  if (!track) return false;
+  const itemIndex = track.itemIds.indexOf(itemId);
+  const clipIndex = track.itemIds.indexOf(clip.id);
+  return itemIndex >= 0 && clipIndex >= 0 && itemIndex < clipIndex;
+}
+
+function clipFingerprint(project: Project, clip: Project['clips'][number]): string | undefined {
+  return project.assets.find(({ id }) => id === clip.assetId)?.fingerprint;
+}
+
+function groupTimelineMoves(
+  base: Project,
+  candidate: Project,
+  hunks: SemanticHunk[],
+): { grouped: SemanticHunk[]; remaining: SemanticHunk[] } {
+  type TimelineMove = {
+    beforeClip: Project['clips'][number];
+    afterClip: Project['clips'][number];
+    beforeStart: number;
+    afterStart: number;
+    partIds: Set<string>;
+  };
+  const dependencies = (
+    beforeClip: Project['clips'][number],
+    afterClip: Project['clips'][number],
+  ): Set<string> => new Set(hunks.filter((hunk) => {
+    if (hunk.entityType === 'gap') {
+      return itemPrecedesClip(base, hunk.entityId, beforeClip)
+        || itemPrecedesClip(candidate, hunk.entityId, afterClip);
+    }
+    if (hunk.entityType === 'track' && hunk.fieldGroup === 'itemIds') {
+      return hunk.entityId === beforeClip.trackId || hunk.entityId === afterClip.trackId;
+    }
+    if (hunk.entityType !== 'clip') return false;
+    if (beforeClip.id !== afterClip.id) {
+      return (hunk.operation === 'delete' && hunk.entityId === beforeClip.id)
+        || (hunk.operation === 'add' && hunk.entityId === afterClip.id);
+    }
+    return hunk.entityId === beforeClip.id && hunk.fieldGroup === 'trackId';
+  }).map(({ id }) => id));
+  const createMove = (
+    beforeClip: Project['clips'][number],
+    afterClip: Project['clips'][number],
+  ): TimelineMove | undefined => {
+    const beforeStart = clipTimelineStart(base, beforeClip);
+    const afterStart = clipTimelineStart(candidate, afterClip);
+    if (beforeStart === undefined || afterStart === undefined
+      || (beforeStart === afterStart && beforeClip.trackId === afterClip.trackId)) return undefined;
+    const partIds = dependencies(beforeClip, afterClip);
+    return partIds.size === 0 ? undefined : { beforeClip, afterClip, beforeStart, afterStart, partIds };
+  };
+
+  const moves: TimelineMove[] = base.clips.flatMap((beforeClip) => {
+    const afterClip = candidate.clips.find(({ id }) => id === beforeClip.id);
+    const move = afterClip ? createMove(beforeClip, afterClip) : undefined;
+    return move ? [move] : [];
+  });
+  const unmatchedAfter = candidate.clips.filter((clip) => !base.clips.some(({ id }) => id === clip.id));
+  const usedAfter = new Set<string>();
+  for (const beforeClip of base.clips.filter((clip) => !candidate.clips.some(({ id }) => id === clip.id))) {
+    const beforeStart = clipTimelineStart(base, beforeClip);
+    if (beforeStart === undefined) continue;
+    const compatible = unmatchedAfter
+      .filter((afterClip) => !usedAfter.has(afterClip.id)
+        && clipFingerprint(base, beforeClip) === clipFingerprint(candidate, afterClip)
+        && beforeClip.name === afterClip.name
+        && same(beforeClip.sourceRange, afterClip.sourceRange))
+      .map((afterClip) => ({ afterClip, afterStart: clipTimelineStart(candidate, afterClip) }))
+      .filter((item): item is { afterClip: Project['clips'][number]; afterStart: number } => item.afterStart !== undefined)
+      .sort((left, right) => {
+        const leftPenalty = left.afterClip.trackId === beforeClip.trackId ? 0 : 1_000;
+        const rightPenalty = right.afterClip.trackId === beforeClip.trackId ? 0 : 1_000;
+        return leftPenalty + Math.abs(left.afterStart - beforeStart)
+          - rightPenalty - Math.abs(right.afterStart - beforeStart);
+      });
+    const match = compatible[0];
+    if (!match) continue;
+    const move = createMove(beforeClip, match.afterClip);
+    if (!move) continue;
+    usedAfter.add(match.afterClip.id);
+    moves.push(move);
+  }
+
+  const parents = moves.map((_, index) => index);
+  const find = (index: number): number => {
+    if (parents[index] === index) return index;
+    const root = find(parents[index] as number);
+    parents[index] = root;
+    return root;
+  };
+  const unite = (left: number, right: number) => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot !== rightRoot) parents[rightRoot] = leftRoot;
+  };
+  for (let left = 0; left < moves.length; left += 1) {
+    for (let right = left + 1; right < moves.length; right += 1) {
+      const first = moves[left];
+      const second = moves[right];
+      if (!first || !second) continue;
+      const sharedDependency = [...first.partIds].some((id) => second.partIds.has(id));
+      const linkedMedia = first.beforeClip.assetId === second.beforeClip.assetId
+        && first.beforeClip.name === second.beforeClip.name
+        && same(first.beforeClip.sourceRange, second.beforeClip.sourceRange)
+        && first.beforeStart === second.beforeStart
+        && first.afterStart === second.afterStart;
+      if (sharedDependency || linkedMedia) unite(left, right);
+    }
+  }
+
+  const components = new Map<number, typeof moves>();
+  moves.forEach((move, index) => components.set(find(index), [...components.get(find(index)) ?? [], move]));
+  const consumed = new Set<string>();
+  const grouped: SemanticHunk[] = [];
+  for (const component of components.values()) {
+    const ordered = [...component].sort((left, right) => compareCanonicalKeys(left.beforeClip.id, right.beforeClip.id));
+    const primary = ordered[0];
+    if (!primary) continue;
+    const partIds = new Set(ordered.flatMap(({ partIds: ids }) => [...ids]));
+    const parts = hunks.filter(({ id }) => partIds.has(id));
+    if (parts.length === 0 || parts.some(({ id }) => consumed.has(id))) continue;
+    parts.forEach(({ id }) => consumed.add(id));
+    const deltas = new Set(ordered.map(({ beforeStart, afterStart }) => afterStart - beforeStart));
+    const labels = new Set(ordered.map(({ beforeClip }) => beforeClip.name));
+    const delta = primary.afterStart - primary.beforeStart;
+    const timing = delta === 0
+      ? 'to another track'
+      : `${Math.abs(delta)} frame${Math.abs(delta) === 1 ? '' : 's'} ${delta < 0 ? 'earlier' : 'later'}`;
+    const linked = ordered.length > 1 && labels.size === 1 && deltas.size === 1;
+    const message = linked
+      ? `Moved linked clip ${primary.beforeClip.name} ${timing} across ${ordered.length} tracks`
+      : ordered.length === 1
+        ? `Moved clip ${primary.beforeClip.name} ${timing}`
+        : `Repositioned ${ordered.length} clips on the timeline`;
+    const rangeStart = Math.min(...ordered.flatMap(({ beforeStart, afterStart }) => [beforeStart, afterStart]));
+    const rangeEndFrame = Math.max(...ordered.flatMap(({ beforeClip, afterClip, beforeStart, afterStart }) => [
+      beforeStart + beforeClip.sourceRange.duration,
+      afterStart + afterClip.sourceRange.duration,
+    ]));
+    grouped.push(compoundHunk({
+      baseDigest: parts[0]?.baseDigest ?? projectDigest(base),
+      parts,
+      entityType: 'clip',
+      entityId: ordered
+        .flatMap(({ beforeClip, afterClip }) => [beforeClip.id, afterClip.id])
+        .sort(compareCanonicalKeys)[0] as string,
+      operation: 'modify',
+      fieldGroup: 'timelinePosition',
+      message,
+      affectedFrameRange: { start: rangeStart, duration: Math.max(1, rangeEndFrame - rangeStart) },
+    }));
+  }
+  return { grouped, remaining: hunks.filter(({ id }) => !consumed.has(id)) };
 }
 
 function groupClipSplits(
@@ -410,7 +585,7 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
     const beforeById = new Map(beforeEntities.map((entity) => [entity.id, entity]));
     const afterById = new Map(afterEntities.map((entity) => [entity.id, entity]));
 
-    for (const entity of beforeEntities) {
+    for (const [collectionIndex, entity] of beforeEntities.entries()) {
       if (!afterById.has(entity.id)) {
         const related = relation(base, type, entity.id);
         const affected = rangeFor(type, entity);
@@ -422,13 +597,14 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
           fieldGroup: 'entity',
           before: entity,
           after: null,
+          collectionIndex,
           ...related,
           message: describe(type, 'delete', entity, []),
           ...(affected === undefined ? {} : { affectedFrameRange: affected }),
         }));
       }
     }
-    for (const entity of afterEntities) {
+    for (const [collectionIndex, entity] of afterEntities.entries()) {
       const before = beforeById.get(entity.id);
       if (!before) {
         const related = relation(candidate, type, entity.id);
@@ -441,6 +617,7 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
           fieldGroup: 'entity',
           before: null,
           after: entity,
+          collectionIndex,
           ...related,
           message: describe(type, 'add', entity, []),
           ...(affected === undefined ? {} : { affectedFrameRange: affected }),
@@ -457,7 +634,7 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
             ].some((item) => item.id === id)))
             : new Set(base.tracks.map(({ id }) => id).filter((id) => candidate.tracks.some((track) => track.id === id)));
           const beforeOrder = (groupValue(before, fields) as string[]).filter((id) => commonIds.has(id));
-          const afterOrder = (groupValue(entity, fields) as string[]).filter((id) => beforeOrder.includes(id));
+          const afterOrder = (groupValue(entity, fields) as string[]).filter((id) => commonIds.has(id));
           if (!same(beforeOrder, afterOrder)) {
             hunks.push(createHunk({
               baseDigest,
@@ -493,7 +670,8 @@ export function semanticDiff(baseInput: Project, candidateInput: Project): Seman
   });
 
   const splitGroups = groupClipSplits(base, candidate, hunks);
-  return [...splitGroups.grouped, ...groupStructuralDependencies(baseDigest, splitGroups.remaining)]
+  const moveGroups = groupTimelineMoves(base, candidate, splitGroups.remaining);
+  return [...splitGroups.grouped, ...moveGroups.grouped, ...groupStructuralDependencies(baseDigest, moveGroups.remaining)]
     .sort((left, right) => compareCanonicalKeys(left.message, right.message) || compareCanonicalKeys(left.id, right.id));
 }
 
@@ -514,7 +692,7 @@ function applyHunk(project: Project, hunk: SemanticHunk): void {
   const values = collection(project, hunk.entityType);
   const index = values.findIndex(({ id }) => id === hunk.entityId);
   if (hunk.operation === 'add') {
-    values.push(hunk.after as Entity);
+    values.splice(Math.min(hunk.collectionIndex ?? values.length, values.length), 0, hunk.after as Entity);
     if (hunk.entityType === 'track' && hunk.parentId) {
       const sequence = project.sequences.find(({ id }) => id === hunk.parentId);
       if (sequence && !sequence.trackIds.includes(hunk.entityId)) {

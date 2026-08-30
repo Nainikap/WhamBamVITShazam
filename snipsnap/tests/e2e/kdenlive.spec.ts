@@ -63,14 +63,20 @@ test('tracks native Kdenlive saves and prepares an immutable handoff', async () 
     expect(KdenliveInterchangeReportSchema.parse(JSON.parse(await readFile(reportPath, 'utf8'))).editor)
       .toBe('kdenlive');
 
-    await writeFile(sourcePath, KDENLIVE_NATIVE_FIXTURE.replace('in="10" out="59"', 'in="10" out="69"'));
+    await writeFile(sourcePath, KDENLIVE_NATIVE_FIXTURE.replace(
+      '  <playlist id="video-playlist">\n    <blank length="00:00:01.000"/>',
+      '  <playlist id="video-playlist">',
+    ));
     await expect(page.getByRole('button', { name: 'Stage', exact: true }).first()).toBeVisible({ timeout: 15_000 });
+    const changes = page.getByLabel('Working changes');
+    await expect(changes.getByText('Moved clip shot.mp4 25 frames earlier')).toBeVisible();
+    await expect(changes.getByRole('button', { name: 'Stage', exact: true })).toHaveCount(1);
     await expect(page.getByText(/Last Ctrl\+S received/u)).toBeVisible();
     const generated = JSON.parse(await readFile(generatedOtioPath, 'utf8')) as {
       tracks: { children: Array<{ children: Array<{ OTIO_SCHEMA: string; source_range?: { duration: { value: number } } }> }> };
     };
     const videoClip = generated.tracks.children[0]?.children.find(({ OTIO_SCHEMA }) => OTIO_SCHEMA === 'Clip.2');
-    expect(videoClip?.source_range?.duration.value).toBe(60);
+    expect(videoClip?.source_range?.duration.value).toBe(50);
   } finally {
     await application.close();
     await rm(workspace, { recursive: true, force: true });

@@ -77,7 +77,8 @@ function scoreClip(
   existingPosition: number,
 ): number {
   const namePenalty = candidate.name === existing.name ? 0 : 10_000;
-  return namePenalty
+  const trackPenalty = candidate.trackId === existing.trackId ? 0 : 1_000;
+  return namePenalty + trackPenalty
     + Math.abs(candidate.sourceRange.start - existing.sourceRange.start)
     + Math.abs(candidate.sourceRange.duration - existing.sourceRange.duration)
     + Math.abs(candidatePosition - existingPosition) * 10;
@@ -122,6 +123,7 @@ export function reconcileImportedProject(base: Project, imported: Project): Proj
   }
 
   const assetIdMap = new Map<string, string>();
+  const assetFingerprintByImportedId = new Map(candidate.assets.map(({ id, fingerprint }) => [id, fingerprint]));
   for (const asset of candidate.assets) {
     const oldId = asset.id;
     const existing = base.assets.find(({ fingerprint }) => fingerprint === asset.fingerprint);
@@ -134,7 +136,6 @@ export function reconcileImportedProject(base: Project, imported: Project): Proj
   for (const candidateTrack of candidate.tracks) {
     const baseTrack = base.tracks.find(({ id }) => id === candidateTrack.id);
     const basePositions = new Map((baseTrack?.itemIds ?? []).map((id, index) => [id, index]));
-    const baseClips = base.clips.filter(({ trackId }) => trackId === candidateTrack.id);
     const baseGaps = base.gaps.filter(({ trackId }) => trackId === candidateTrack.id);
     const baseTransitions = base.transitions.filter(({ trackId }) => trackId === candidateTrack.id);
     const baseCaptions = base.captions.filter(({ trackId }) => trackId === candidateTrack.id);
@@ -147,11 +148,11 @@ export function reconcileImportedProject(base: Project, imported: Project): Proj
       let matchedId: string | undefined;
 
       if (clip) {
-        const importedAsset = candidate.assets.find(({ id }) => id === clip.assetId);
-        const exact = baseClips.find(({ id }) => id === clip.id && !usedItems.has(id));
-        const compatible = baseClips
+        const importedFingerprint = assetFingerprintByImportedId.get(clip.assetId);
+        const exact = base.clips.find(({ id }) => id === clip.id && !usedItems.has(id));
+        const compatible = base.clips
           .filter((existing) => !usedItems.has(existing.id)
-            && base.assets.find(({ id }) => id === existing.assetId)?.fingerprint === importedAsset?.fingerprint)
+            && base.assets.find(({ id }) => id === existing.assetId)?.fingerprint === importedFingerprint)
           .sort((left, right) => scoreClip(clip, left, position, basePositions.get(left.id) ?? position)
             - scoreClip(clip, right, position, basePositions.get(right.id) ?? position));
         matchedId = (exact ?? compatible[0])?.id;

@@ -267,6 +267,7 @@ export function importKdenliveProject(
     const playlist = nodesById.get(contentTrack.attributes.producer ?? '');
     if (!playlist || playlist.name !== 'playlist') return;
     const itemIds: string[] = [];
+    const clipOccurrences = new Map<string, number>();
     playlist.children.forEach((item, itemIndex) => {
       if (item.name === 'blank') {
         const duration = durationFrames(item.attributes.length, fps);
@@ -306,7 +307,16 @@ export function importKdenliveProject(
         asset.durationFrames = Math.max(asset.durationFrames, producerLength, start + duration);
       }
       if (!generated) mediaLinks[fingerprint] = resource;
-      const id = deterministicUuid(`${trackId}:clip:${itemIndex}:${producer.properties['kdenlive:id'] ?? producer.attributes.id ?? name}`);
+      // Kdenlive's entry/bin ID survives gap insertion and playlist movement.
+      // The item index does not, so it must only disambiguate otherwise
+      // identical legacy entries rather than define clip identity.
+      const nativeClipKey = `${item.properties['kdenlive:id']
+        ?? producer.properties['kdenlive:id']
+        ?? producer.attributes.id
+        ?? name}:${start}`;
+      const occurrence = clipOccurrences.get(nativeClipKey) ?? 0;
+      clipOccurrences.set(nativeClipKey, occurrence + 1);
+      const id = deterministicUuid(`${trackId}:clip:${nativeClipKey}:${occurrence}`);
       clips.push({
         id,
         type: 'clip',

@@ -181,8 +181,124 @@ describe('commands and semantic staging', () => {
       itemIds: [...track.itemIds].reverse(),
     });
     expect(semanticDiff(project, working)).toEqual([
-      expect.objectContaining({ operation: 'reorder', fieldGroup: 'itemIds', entityId: track.id }),
+      expect.objectContaining({
+        operation: 'modify',
+        fieldGroup: 'timelinePosition',
+        message: 'Repositioned 2 clips on the timeline',
+        parts: [expect.objectContaining({ operation: 'reorder', fieldGroup: 'itemIds', entityId: track.id })],
+      }),
     ]);
+  });
+
+  it('groups a linked multi-track move and its gap bookkeeping atomically', () => {
+    const projectId = deterministicUuid('linked-move-project');
+    const sequenceId = deterministicUuid('linked-move-sequence');
+    const assetId = deterministicUuid('linked-move-asset');
+    const trackIds = [0, 1, 2].map((index) => deterministicUuid(`linked-move-track-${index}`));
+    const clipIds = trackIds.map((_, index) => deterministicUuid(`linked-move-clip-${index}`));
+    const gapIds = trackIds.map((_, index) => deterministicUuid(`linked-move-gap-${index}`));
+    const prefixGapId = deterministicUuid('linked-move-prefix-gap');
+    const base = validateProject({
+      schemaVersion: 1,
+      id: projectId,
+      name: 'Linked Move',
+      sequences: [{
+        id: sequenceId,
+        name: 'Main',
+        fps: { numerator: 25, denominator: 1 },
+        width: 1920,
+        height: 1080,
+        trackIds,
+        globalStartFrame: 0,
+        markers: [],
+        extras: {},
+      }],
+      tracks: trackIds.map((id, index) => ({
+        id,
+        sequenceId,
+        name: index === 0 ? 'V1' : `A${index}`,
+        kind: index === 0 ? 'video' as const : 'audio' as const,
+        itemIds: index === 2
+          ? [prefixGapId, gapIds[index] as string, clipIds[index] as string]
+          : [gapIds[index] as string, clipIds[index] as string],
+        ...decorations(),
+      })),
+      assets: [{
+        id: assetId,
+        name: 'big-buck-bunny-sample.mp4',
+        fingerprint: 'a'.repeat(64),
+        durationFrames: 251,
+        extras: {},
+      }],
+      clips: clipIds.map((id, index) => ({
+        id,
+        type: 'clip' as const,
+        trackId: trackIds[index] as string,
+        name: 'big-buck-bunny-sample.mp4',
+        assetId,
+        sourceRange: { start: 0, duration: 233 },
+        gainDb: 0,
+        preset: 'none' as const,
+        color: null,
+        ...decorations(),
+      })),
+      gaps: gapIds.map((id, index) => ({
+        id,
+        type: 'gap' as const,
+        trackId: trackIds[index] as string,
+        durationFrames: index === 2 ? 28 : 177,
+        ...decorations(),
+      })).concat([{
+        id: prefixGapId,
+        type: 'gap' as const,
+        trackId: trackIds[2] as string,
+        durationFrames: 149,
+        ...decorations(),
+      }]),
+      transitions: [],
+      captions: [],
+      extras: {},
+    });
+    const working = structuredClone(base);
+    const firstGap = working.gaps.find(({ id }) => id === gapIds[0]);
+    const secondGap = working.gaps.find(({ id }) => id === gapIds[1]);
+    if (!firstGap || !secondGap) throw new Error('Linked move fixture gaps are missing');
+    firstGap.durationFrames -= 28;
+    secondGap.durationFrames -= 28;
+    working.gaps = working.gaps.filter(({ id }) => id !== gapIds[2]);
+    const thirdTrack = working.tracks.find(({ id }) => id === trackIds[2]);
+    if (!thirdTrack) throw new Error('Linked move fixture track is missing');
+    thirdTrack.itemIds = thirdTrack.itemIds.filter((id) => id !== gapIds[2]);
+    // Simulate the legacy Kdenlive adapter changing an item's generated ID
+    // when removal of the preceding gap shifted its playlist index.
+    const thirdClip = working.clips.find(({ id }) => id === clipIds[2]);
+    if (!thirdClip) throw new Error('Linked move fixture clip is missing');
+    const rewrittenClipId = deterministicUuid('linked-move-rewritten-clip');
+    thirdTrack.itemIds = thirdTrack.itemIds.map((id) => id === thirdClip.id ? rewrittenClipId : id);
+    thirdClip.id = rewrittenClipId;
+    validateProject(working);
+
+    const hunks = semanticDiff(base, working);
+    expect(hunks).toHaveLength(1);
+    expect(hunks[0]).toMatchObject({
+      entityType: 'clip',
+      operation: 'modify',
+      fieldGroup: 'timelinePosition',
+      message: 'Moved linked clip big-buck-bunny-sample.mp4 28 frames earlier across 3 tracks',
+      parts: expect.arrayContaining([
+        expect.objectContaining({ entityType: 'clip', operation: 'add' }),
+        expect.objectContaining({ entityType: 'clip', operation: 'delete' }),
+        expect.objectContaining({ entityType: 'gap', operation: 'modify' }),
+        expect.objectContaining({ entityType: 'gap', operation: 'modify' }),
+        expect.objectContaining({ entityType: 'gap', operation: 'delete' }),
+      ]),
+    });
+    expect(applySemanticHunks(base, working, [hunks[0]?.id as string], projectDigest(base))).toEqual(working);
+
+    const reverse = semanticDiff(working, base);
+    expect(reverse).toHaveLength(1);
+    expect(reverse[0]?.message).toBe('Moved linked clip big-buck-bunny-sample.mp4 28 frames later across 3 tracks');
+    expect(applySemanticHunks(working, base, [reverse[0]?.id as string], projectDigest(working))).toEqual(base);
   });
 
   it('tracks every editor change, not only cuts', () => {
