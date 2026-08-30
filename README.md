@@ -300,5 +300,6 @@ contract harness. They do not replace the manual real-Resolve/real-codec gate do
 3. [Cross-NLE Universal Hub](docs/VideoGit_CrossNLE_Universal_Hub_Brainstorm.md) - future research.
 4. [Implementation Status](docs/V1_IMPLEMENTATION_STATUS.md) - current evidence and manual gates.
 5. [Kdenlive Integration](docs/KDENLIVE_INTEGRATION.md) - OTIO workflow and fidelity contract.
-6. [Studio Graphite Design System](docs/SnipSnap_Studio_Graphite_Design_System.md) - UI guardrails.
-7. [Project handoff](docs/HANDOFF.md) - context for continuing in a fresh agent/Linux session.
+6. [Hosted Collaboration Plan](docs/HOSTED_COLLABORATION_PLAN.md) - reasoned future GitHub-style architecture.
+7. [Studio Graphite Design System](docs/SnipSnap_Studio_Graphite_Design_System.md) - UI guardrails.
+8. [Project handoff](docs/HANDOFF.md) - context for continuing in a fresh agent/Linux session.
