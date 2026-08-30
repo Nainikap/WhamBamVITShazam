@@ -39,7 +39,13 @@ export interface MergeDialogProps {
 }
 
 export function MergeDialog({ session, onResolve, onComplete, onAbort, busy }: MergeDialogProps) {
-  const briefs = session.result.conflicts.map((conflict) => describeConflict(conflict, session.result.alternatives));
+  // A provisional graph can be invalid only because an unresolved order/entity
+  // decision has not been applied yet. Show those root editorial decisions
+  // first; the service recalculates and returns a validation-only conflict if
+  // the chosen resolutions still do not form a valid timeline.
+  const semanticConflicts = session.result.conflicts.filter(({ type }) => type !== 'validation');
+  const visibleConflicts = semanticConflicts.length > 0 ? semanticConflicts : session.result.conflicts;
+  const briefs = visibleConflicts.map((conflict) => describeConflict(conflict, session.result.alternatives));
   const remaining = briefs.length;
 
   return <Dialog open>
