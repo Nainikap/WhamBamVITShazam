@@ -47,11 +47,24 @@ function isolatedGitEnvironment(overrides: NodeJS.ProcessEnv | undefined): NodeJ
   return environment;
 }
 
+export function gitProcessIsolation(platform: NodeJS.Platform = process.platform): {
+  shell: false;
+  windowsHide: true;
+  detached: boolean;
+} {
+  return { shell: false, windowsHide: true, detached: platform === 'win32' };
+}
+
 export function runGit(repoPath: string, args: readonly string[], options: GitOptions = {}): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('git', ['-C', repoPath, ...args], {
-      shell: false,
-      windowsHide: true,
+      // Git for Windows is a console executable. windowsHide prevents its own
+      // window from being shown, but Git can still attach a conhost child that
+      // briefly takes the foreground during staging, commits, and ref reads.
+      // A detached Windows process has no inherited console while its explicit
+      // pipes remain fully awaitable. Do not detach on Unix, where that would
+      // create an unnecessary long-lived process group.
+      ...gitProcessIsolation(),
       env: isolatedGitEnvironment(options.env),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
