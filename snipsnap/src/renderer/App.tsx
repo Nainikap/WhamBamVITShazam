@@ -8,9 +8,13 @@ export function App() {
   const store = useAppStore();
 
   useEffect(() => {
-    const stopListening = store.listenForSourceChanges();
+    const stopSourceListening = store.listenForSourceChanges();
+    const stopCollaborationListening = store.listenForCollaborationChanges();
     void store.initialize();
-    return stopListening;
+    return () => {
+      stopSourceListening();
+      stopCollaborationListening();
+    };
   }, []);
 
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import type { CollaborationStatus } from '../application';
 import type { SemanticHunk } from '../diff';
 import { CommitGraph } from './CommitGraph';
 import { CommitPlayer } from './CommitPlayer';
@@ -53,6 +54,12 @@ export function Editor() {
   const dirty = status.staged.length > 0 || status.unstaged.length > 0 || Boolean(status.source.pending);
   const canCommit = status.staged.length > 0;
   const canDiff = status.history.length > 1;
+  const collaboration: CollaborationStatus = store.collaboration.projectId === status.project.id
+    ? store.collaboration
+    : { mode: 'none', connected: false };
+  const transferPercent = collaboration.progress?.totalBytes
+    ? Math.round((collaboration.progress.completedBytes / collaboration.progress.totalBytes) * 100)
+    : 0;
   const resolveSyncActive = status.source.mode === 'resolve'
     && ['starting', 'waiting-for-resolve', 'watching'].includes(status.source.state);
 
@@ -280,6 +287,58 @@ export function Editor() {
     </section>
 
     <aside className="inspector" aria-label="Inspector">
+      <section className="inspector-block collaboration-block">
+        <div className="panel-head">
+          <h3>Collaborate</h3>
+          <span className={`connection-dot ${collaboration.connected ? 'online' : ''}`}>
+            {collaboration.mode === 'hosting' ? 'Hosting' : collaboration.mode === 'peer' ? 'Connected' : 'Local'}
+          </span>
+        </div>
+
+        {collaboration.mode === 'none' && <div className="collaboration-body">
+          <p className="hint">Share every commit, branch, tag, diff, and missing media with another SnipSnap computer on this network.</p>
+          <button className="wide primary" onClick={() => void store.startHosting()}>Host this project</button>
+        </div>}
+
+        {collaboration.mode === 'hosting' && <div className="collaboration-body">
+          <small className="peer-address">Listening at {collaboration.address}</small>
+          <label className="invite-field">
+            <span>Pairing code</span>
+            <textarea readOnly rows={3} value={collaboration.inviteCode ?? ''} aria-label="Pairing code" />
+          </label>
+          <div className="collaboration-actions">
+            <button
+              className="primary"
+              onClick={() => void navigator.clipboard.writeText(collaboration.inviteCode ?? '')}
+            >Copy code</button>
+            <button onClick={() => void store.stopHosting()}>Stop</button>
+          </div>
+          <small className="hint">Keep SnipSnap open while your collaborator joins, pulls, or pushes.</small>
+        </div>}
+
+        {collaboration.mode === 'peer' && <div className="collaboration-body">
+          <div className="peer-summary">
+            <strong>{collaboration.peerName ?? 'LAN host'}</strong>
+            <small>{collaboration.address}</small>
+          </div>
+          <div className="collaboration-actions">
+            <button
+              disabled={dirty}
+              title={dirty ? 'Commit or discard local changes before pulling' : undefined}
+              onClick={() => void store.pullProject()}
+            >Pull</button>
+            <button className="primary" onClick={() => void store.pushProject()}>Push commits</button>
+          </div>
+          {collaboration.lastSyncedAt && <small className="hint">Last synced {relativeTime(collaboration.lastSyncedAt)}</small>}
+        </div>}
+
+        {collaboration.progress && collaboration.progress.stage !== 'complete' && <div className="transfer-status">
+          <div><span>{collaboration.progress.fileName ?? collaboration.progress.stage}</span><strong>{transferPercent}%</strong></div>
+          <progress value={collaboration.progress.completedBytes} max={Math.max(1, collaboration.progress.totalBytes)} />
+          <small>{collaboration.progress.completedFiles}/{collaboration.progress.totalFiles} files verified</small>
+        </div>}
+      </section>
+
       <section className="inspector-block">
         <div className="panel-head">
           <h3>Branch</h3>

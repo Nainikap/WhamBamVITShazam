@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  CollaborationStatus,
   MergeSession,
   ProjectOverview,
   ProjectStatus,
@@ -23,8 +24,10 @@ interface AppStore {
   busy: boolean;
   error: string | null;
   notice: string | null;
+  collaboration: CollaborationStatus;
   initialize(): Promise<void>;
   listenForSourceChanges(): () => void;
+  listenForCollaborationChanges(): () => void;
   setFilter(value: string): void;
   openProject(id: string): Promise<void>;
   goToDashboard(): Promise<void>;
@@ -54,6 +57,11 @@ interface AppStore {
   tag(name: string): Promise<void>;
   exportRevision(revision: string): Promise<void>;
   relinkMedia(fingerprint: string): Promise<void>;
+  startHosting(): Promise<void>;
+  stopHosting(): Promise<void>;
+  joinProject(inviteCode: string): Promise<void>;
+  pullProject(): Promise<void>;
+  pushProject(): Promise<void>;
   clearError(): void;
   clearNotice(): void;
 }
@@ -112,9 +120,14 @@ export const useAppStore = create<AppStore>((set, get) => {
     busy: false,
     error: null,
     notice: null,
+    collaboration: { mode: 'none', connected: false },
 
     initialize: () => run(async () => {
-      set({ overviews: await window.snipsnap.listOverviews() });
+      const [overviews, collaboration] = await Promise.all([
+        window.snipsnap.listOverviews(),
+        window.snipsnap.collaborationStatus(),
+      ]);
+      set({ overviews, collaboration });
     }),
 
     listenForSourceChanges: () => window.snipsnap.onSourceChanged((projectId) => {
@@ -144,10 +157,14 @@ export const useAppStore = create<AppStore>((set, get) => {
       // Importing from Resolve happens here, so a project opens straight from
       // the dashboard whether or not SnipSnap has seen it before.
       const status = await window.snipsnap.openProject(id);
-      const selectedRevision = await window.snipsnap.revisionDetails(id, status.headCommit);
+      const [selectedRevision, collaboration] = await Promise.all([
+        window.snipsnap.revisionDetails(id, status.headCommit),
+        window.snipsnap.collaborationStatus(id),
+      ]);
       set({
         status,
         selectedRevision,
+        collaboration,
         currentProjectId: id,
         route: { name: 'editor', projectId: id },
         diffOpen: false,
@@ -219,6 +236,22 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({
         status: await window.snipsnap.startResolveBridge(currentProjectId, status.workspaceVersion),
         notice: 'Resolve save sync started. Open Resolve, select the timeline, and save the project.',
+      });
+    }),
+
+    listenForCollaborationChanges: () => window.snipsnap.onCollaborationChanged((projectId, collaboration) => {
+      set({ collaboration });
+      const shouldRefresh = collaboration.mode === 'hosting'
+        || collaboration.progress?.stage === 'complete';
+      if (get().currentProjectId !== projectId || !shouldRefresh) return;
+      void run(async () => {
+        await refresh(projectId, get().selectedRevision?.commit.id);
+        set({
+          overviews: await window.snipsnap.listOverviews(),
+          notice: collaboration.mode === 'hosting'
+            ? 'A peer pushed new commits. The project history is up to date.'
+            : 'Collaboration sync complete.',
+        });
       });
     }),
 
@@ -392,6 +425,73 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!details) return;
       set({ selectedRevision: details, notice: 'Media relinked across the whole project history.' });
       await refreshComparison(currentProjectId);
+    }),
+
+    startHosting: () => run(async () => {
+      const projectId = get().currentProjectId;
+      if (!projectId) return;
+      const collaboration = await window.snipsnap.collaborationStartHost(projectId);
+      set({ collaboration, notice: 'Hosting on your local network. Send the pairing code to your collaborator.' });
+    }),
+
+    stopHosting: () => run(async () => {
+      await window.snipsnap.collaborationStopHost();
+      set({
+        collaboration: { mode: 'none', connected: false },
+        notice: 'Stopped hosting the project.',
+      });
+    }),
+
+    joinProject: (inviteCode) => run(async () => {
+      const result = await window.snipsnap.collaborationJoin(inviteCode.trim());
+      const projectId = result.status.project.id;
+      const [selectedRevision, overviews, collaboration] = await Promise.all([
+        window.snipsnap.revisionDetails(projectId, result.status.headCommit),
+        window.snipsnap.listOverviews(),
+        window.snipsnap.collaborationStatus(projectId),
+      ]);
+      set({
+        status: result.status,
+        selectedRevision,
+        overviews,
+        collaboration,
+        currentProjectId: projectId,
+        route: { name: 'editor', projectId },
+        diffOpen: false,
+        comparison: null,
+        notice: `Joined ${collaboration.peerName ?? 'shared project'} with ${result.media.completedFiles} media file${result.media.completedFiles === 1 ? '' : 's'} ready.`,
+      });
+    }),
+
+    pullProject: () => run(async () => {
+      const projectId = get().currentProjectId;
+      if (!projectId) return;
+      const result = await window.snipsnap.collaborationPull(projectId);
+      const [selectedRevision, collaboration] = await Promise.all([
+        window.snipsnap.revisionDetails(projectId, result.status.headCommit),
+        window.snipsnap.collaborationStatus(projectId),
+      ]);
+      const updatedBranches = (result.pull?.fastForwarded.length ?? 0) + (result.pull?.added.length ?? 0);
+      set({
+        status: result.status,
+        selectedRevision,
+        collaboration,
+        overviews: await window.snipsnap.listOverviews(),
+        notice: `Pulled ${updatedBranches} updated branch${updatedBranches === 1 ? '' : 'es'} and verified ${result.media.completedFiles} media file${result.media.completedFiles === 1 ? '' : 's'}.`,
+      });
+      await refreshComparison(projectId);
+    }),
+
+    pushProject: () => run(async () => {
+      const projectId = get().currentProjectId;
+      if (!projectId) return;
+      const result = await window.snipsnap.collaborationPush(projectId);
+      const collaboration = await window.snipsnap.collaborationStatus(projectId);
+      set({
+        status: result.status,
+        collaboration,
+        notice: `Pushed ${result.status.branch} to ${collaboration.peerName ?? 'the host'}.`,
+      });
     }),
 
     clearError: () => set({ error: null }),

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 let application: ElectronApplication | undefined;
+let peerApplication: ElectronApplication | undefined;
 let page: Page;
 let dataRoot: string;
 let resolveRoot: string;
@@ -80,6 +81,8 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
+  if (peerApplication) await peerApplication.close();
+  peerApplication = undefined;
   if (application) await application.close();
   application = undefined;
   await rm(path.dirname(dataRoot), { recursive: true, force: true });
@@ -180,6 +183,43 @@ test('returns to the dashboard with the project listed as most recently worked o
   await expect(page.getByRole('heading', { name: 'Video projects' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open Resolve Basic Cut' })).toContainText('Trim for the dashboard');
   await expect(page.locator('.state-pill.state-clean').first()).toBeVisible();
+});
+
+test('hosts a project and lets a second app join and push a branch', async () => {
+  await openProject();
+  await page.getByRole('button', { name: 'Host this project' }).click();
+  await expect(page.getByText('Hosting', { exact: true })).toBeVisible();
+  const inviteCode = await page.getByLabel('Pairing code').inputValue();
+  expect(inviteCode.length).toBeGreaterThan(40);
+
+  const peerRoot = path.join(path.dirname(dataRoot), 'peer-data');
+  const peerResolveRoot = path.join(path.dirname(dataRoot), 'peer-resolve');
+  await mkdir(peerRoot, { recursive: true });
+  await mkdir(peerResolveRoot, { recursive: true });
+  peerApplication = await electron.launch({
+    args: [packagedAppPath()],
+    env: {
+      ...process.env,
+      SNIPSNAP_DATA_ROOT: peerRoot,
+      SNIPSNAP_RESOLVE_ROOT: peerResolveRoot,
+      SNIPSNAP_RESOLVE_DATABASE: path.join(peerResolveRoot, 'no-database'),
+    },
+  });
+  const peerPage = await peerApplication.firstWindow();
+  await peerPage.waitForLoadState('domcontentloaded');
+  await peerPage.getByRole('button', { name: 'Join shared project' }).click();
+  await peerPage.getByLabel('Pairing code').fill(inviteCode);
+  await peerPage.getByRole('button', { name: 'Join and download' }).click();
+
+  await expect(peerPage.getByLabel('Commit history')).toBeVisible();
+  await expect(peerPage.getByText('Connected', { exact: true })).toBeVisible();
+  await expect(peerPage.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' })).toBeVisible();
+
+  await peerPage.getByLabel('Branch from selected commit').fill('peer-cut');
+  await peerPage.getByRole('button', { name: 'Create', exact: true }).click();
+  await peerPage.getByRole('button', { name: 'Push commits' }).click();
+  await expect(peerPage.getByText('Pushed peer-cut')).toBeVisible();
+  await expect(page.getByLabel('Switch branch').locator('option[value="peer-cut"]')).toHaveCount(1);
 });
 
 test('scrubbing the sequence moves the video and playing moves the sequence', async () => {

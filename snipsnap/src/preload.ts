@@ -38,6 +38,19 @@ const api: SnipSnapApi = {
   tag: (projectId, name, revision, message) => ipcRenderer.invoke(channels.tag, projectId, name, revision, message),
   exportOtio: (projectId, revision) => ipcRenderer.invoke(channels.exportOtio, projectId, revision),
   relinkMedia: (projectId, fingerprint, revision) => ipcRenderer.invoke(channels.relinkMedia, projectId, fingerprint, revision),
+  collaborationStartHost: (projectId) => ipcRenderer.invoke(channels.collaborationStartHost, projectId),
+  collaborationStopHost: () => ipcRenderer.invoke(channels.collaborationStopHost),
+  collaborationJoin: (inviteCode) => ipcRenderer.invoke(channels.collaborationJoin, inviteCode),
+  collaborationPull: (projectId) => ipcRenderer.invoke(channels.collaborationPull, projectId),
+  collaborationPush: (projectId) => ipcRenderer.invoke(channels.collaborationPush, projectId),
+  collaborationStatus: (projectId) => ipcRenderer.invoke(channels.collaborationStatus, projectId),
+  onCollaborationChanged: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, projectId: string, status: Parameters<typeof listener>[1]) => {
+      listener(projectId, status);
+    };
+    ipcRenderer.on(channels.collaborationChanged, handler);
+    return () => ipcRenderer.removeListener(channels.collaborationChanged, handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('snipsnap', api);

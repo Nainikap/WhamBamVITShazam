@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProjectOverview } from '../application';
 import { durationLabel, frameRateLabel, relativeTime, shortId } from './format';
 import { useAppStore } from './store';
@@ -9,6 +9,49 @@ const stateLabel: Record<ProjectOverview['state'], string> = {
   uncommitted: 'Uncommitted',
   'resolve-pending': 'Resolve update',
 };
+
+function JoinDialog({ busy, onClose, onJoin }: {
+  busy: boolean;
+  onClose(): void;
+  onJoin(inviteCode: string): void;
+}) {
+  const [inviteCode, setInviteCode] = useState('');
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (inviteCode.trim()) onJoin(inviteCode);
+  };
+
+  return <div className="modal-backdrop">
+    <form className="modal join-modal" role="dialog" aria-label="Join a shared project" onSubmit={submit}>
+      <div className="join-head">
+        <div>
+          <span className="eyebrow">LOCAL NETWORK</span>
+          <h2>Join a shared project</h2>
+          <p>Paste the pairing code from your collaborator. SnipSnap will securely copy the Git history and missing footage.</p>
+        </div>
+        <button type="button" aria-label="Close join dialog" onClick={onClose}>Close</button>
+      </div>
+      <label className="join-code-field">
+        <span>Pairing code</span>
+        <textarea
+          autoFocus
+          aria-label="Pairing code"
+          rows={5}
+          spellCheck={false}
+          placeholder="Paste pairing code"
+          value={inviteCode}
+          onChange={(event) => setInviteCode(event.target.value)}
+        />
+      </label>
+      <div className="modal-actions">
+        <button type="button" onClick={onClose}>Cancel</button>
+        <button className="primary" disabled={busy || !inviteCode.trim()}>
+          {busy ? 'Joining…' : 'Join and download'}
+        </button>
+      </div>
+    </form>
+  </div>;
+}
 
 function StatePill({ project }: { project: ProjectOverview }) {
   if (!project.openable) return <span className="state-pill state-blocked">Needs timeline export</span>;
@@ -47,6 +90,7 @@ function Meta({ project }: { project: ProjectOverview }) {
   return <div className="project-meta">
     {project.linked && <span className="branch-chip">⑂ {project.branch}</span>}
     {project.kind === 'database' && <span className="db-chip">Resolve database</span>}
+    {project.kind === 'remote' && <span className="db-chip remote-chip">Shared project</span>}
     {project.openable
       ? <span className="timeline-chip">▤ {project.resolve.timelineName}</span>
       : project.knownTimelines.map((name) => <span className="timeline-chip" key={name}>▤ {name}</span>)}
@@ -60,6 +104,7 @@ function Meta({ project }: { project: ProjectOverview }) {
 
 export function Dashboard() {
   const store = useAppStore();
+  const [joinOpen, setJoinOpen] = useState(false);
   const filter = store.filter.trim().toLowerCase();
   const matching = filter
     ? store.overviews.filter((project) => project.name.toLowerCase().includes(filter)
@@ -68,7 +113,7 @@ export function Dashboard() {
   const [latest, ...earlier] = matching;
 
   if (store.overviews.length === 0) {
-    return <main className="dashboard empty-state">
+    return <><main className="dashboard empty-state">
       <div className="empty-icon" aria-hidden="true">⌁</div>
       <h2>No Resolve projects found yet</h2>
       <p>
@@ -79,15 +124,22 @@ export function Dashboard() {
         File &rsaquo; Export &rsaquo; Timeline and save it next to the project.
       </p>
       <div className="empty-actions">
+        <button className="primary" onClick={() => setJoinOpen(true)}>Join shared project</button>
         <button className="primary" onClick={() => void store.addResolveProjectFile()}>Choose a .drp file</button>
         <button onClick={() => void store.addResolveFolder()}>Choose a folder</button>
         <button onClick={() => void store.exportFromResolve()}>Export from Resolve</button>
         <button onClick={() => void store.refreshLibrary()}>Look again</button>
       </div>
-    </main>;
+    </main>
+    {joinOpen && <JoinDialog
+      busy={store.busy}
+      onClose={() => setJoinOpen(false)}
+      onJoin={(inviteCode) => void store.joinProject(inviteCode)}
+    />}
+    </>;
   }
 
-  return <main className="dashboard">
+  return <><main className="dashboard">
     <header className="dashboard-head">
       <div>
         <h1>Video projects</h1>
@@ -101,6 +153,7 @@ export function Dashboard() {
           value={store.filter}
           onChange={(event) => store.setFilter(event.target.value)}
         />
+        <button onClick={() => setJoinOpen(true)}>Join</button>
         <button onClick={() => void store.addResolveProjectFile()}>Add .drp</button>
         <button onClick={() => void store.addResolveFolder()}>Add folder</button>
         <button onClick={() => void store.exportFromResolve()}>Export from Resolve</button>
@@ -178,5 +231,11 @@ export function Dashboard() {
         </li>)}
       </ul>
     </section>}
-  </main>;
+  </main>
+  {joinOpen && <JoinDialog
+    busy={store.busy}
+    onClose={() => setJoinOpen(false)}
+    onJoin={(inviteCode) => void store.joinProject(inviteCode)}
+  />}
+  </>;
 }

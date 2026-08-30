@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import started from 'electron-squirrel-startup';
 import {
+  LanCollaborationService,
   ProjectService,
   ResolveBridgeService,
   SourceWatchService,
@@ -31,6 +32,13 @@ const dataRoot = process.env.SNIPSNAP_DATA_ROOT || path.join(app.getPath('userDa
 const projects = new ProjectService(dataRoot);
 function notifySourceChanged(projectId: string): void {
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.sourceChanged, projectId);
+}
+function notifyCollaborationChanged(projectId: string): void {
+  void collaboration.status(projectId).then((status) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(channels.collaborationChanged, projectId, status);
+    }
+  });
 }
 const sourceWatcher = new SourceWatchService(async ({ projectId }) => {
   const result = await projects.scanOtioSource(projectId);
@@ -164,6 +172,12 @@ function resolveSaveBridgePath(): string {
 }
 
 const resolveBridge = new ResolveBridgeService(projects, resolveSaveBridgePath(), notifySourceChanged);
+const collaboration = new LanCollaborationService(
+  dataRoot,
+  projects,
+  notifyCollaborationChanged,
+  notifyCollaborationChanged,
+);
 
 function registerIpc(): void {
   ipcMain.handle(channels.listProjects, () => projects.listProjects());
@@ -304,6 +318,12 @@ function registerIpc(): void {
     if (selection.canceled || !mediaPath) return null;
     return projects.linkMedia(projectId, fingerprint, mediaPath, revision);
   });
+  ipcMain.handle(channels.collaborationStartHost, (_event, projectId: string) => collaboration.startHosting(projectId));
+  ipcMain.handle(channels.collaborationStopHost, () => collaboration.stopHosting());
+  ipcMain.handle(channels.collaborationJoin, (_event, inviteCode: string) => collaboration.join(inviteCode));
+  ipcMain.handle(channels.collaborationPull, (_event, projectId: string) => collaboration.pull(projectId));
+  ipcMain.handle(channels.collaborationPush, (_event, projectId: string) => collaboration.push(projectId));
+  ipcMain.handle(channels.collaborationStatus, (_event, projectId?: string) => collaboration.status(projectId));
 }
 
 function createWindow(): void {
@@ -353,5 +373,6 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   sourceWatcher.close();
   resolveBridge.close();
+  void collaboration.stopHosting();
   if (process.platform !== 'darwin') app.quit();
 });

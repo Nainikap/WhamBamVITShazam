@@ -1,4 +1,6 @@
 import type {
+  CollaborationStatus,
+  CollaborationSyncResult,
   MergeOutcome,
   MergeSession,
   ProjectOverview,
@@ -44,6 +46,13 @@ export const channels = {
   tag: 'projects:tag',
   exportOtio: 'projects:export-otio',
   relinkMedia: 'media:relink',
+  collaborationStartHost: 'collaboration:start-host',
+  collaborationStopHost: 'collaboration:stop-host',
+  collaborationJoin: 'collaboration:join',
+  collaborationPull: 'collaboration:pull',
+  collaborationPush: 'collaboration:push',
+  collaborationStatus: 'collaboration:status',
+  collaborationChanged: 'collaboration:changed',
 } as const;
 
 export interface SnipSnapApi {
@@ -79,4 +88,11 @@ export interface SnipSnapApi {
   tag(projectId: string, name: string, revision: string, message: string): Promise<void>;
   exportOtio(projectId: string, revision: string): Promise<{ canceled: boolean; commitId?: string }>;
   relinkMedia(projectId: string, fingerprint: string, revision: string): Promise<RevisionDetails | null>;
+  collaborationStartHost(projectId: string): Promise<CollaborationStatus>;
+  collaborationStopHost(): Promise<void>;
+  collaborationJoin(inviteCode: string): Promise<CollaborationSyncResult>;
+  collaborationPull(projectId: string): Promise<CollaborationSyncResult>;
+  collaborationPush(projectId: string): Promise<CollaborationSyncResult>;
+  collaborationStatus(projectId?: string): Promise<CollaborationStatus>;
+  onCollaborationChanged(listener: (projectId: string, status: CollaborationStatus) => void): () => void;
 }
