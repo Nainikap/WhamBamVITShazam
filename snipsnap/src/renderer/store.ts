@@ -33,6 +33,7 @@ interface AppStore {
   goToDashboard(): Promise<void>;
   addResolveFolder(): Promise<void>;
   addResolveProjectFile(): Promise<void>;
+  importKdenlive(): Promise<void>;
   exportFromResolve(): Promise<void>;
   refreshLibrary(): Promise<void>;
   connectSource(): Promise<void>;
@@ -56,6 +57,7 @@ interface AppStore {
   abortMerge(): Promise<void>;
   tag(name: string): Promise<void>;
   exportRevision(revision: string): Promise<void>;
+  openRevisionInKdenlive(revision: string): Promise<void>;
   relinkMedia(fingerprint: string): Promise<void>;
   startHosting(): Promise<void>;
   stopHosting(): Promise<void>;
@@ -143,10 +145,10 @@ export const useAppStore = create<AppStore>((set, get) => {
         set({
           overviews: await window.snipsnap.listOverviews(),
           notice: pending
-            ? `Resolve exported ${pending.changeCount} timeline change${pending.changeCount === 1 ? '' : 's'}. Review before applying.`
+            ? `${source?.mode === 'kdenlive' ? 'Kdenlive' : 'Resolve'} exported ${pending.changeCount} timeline change${pending.changeCount === 1 ? '' : 's'}. Review before applying.`
             : source?.mode === 'resolve' && source.lastSavedAt
               ? `Resolve save synchronized. ${count} uncommitted change${count === 1 ? '' : 's'} since HEAD.`
-              : 'Resolve source status updated.',
+              : `${source?.mode === 'kdenlive' ? 'Kdenlive' : 'Resolve'} source status updated.`,
         });
       });
     }),
@@ -181,10 +183,11 @@ export const useAppStore = create<AppStore>((set, get) => {
       const roots = await window.snipsnap.addResolveFolder();
       if (!roots) return;
       const overviews = await window.snipsnap.listOverviews();
+      const resolveCount = overviews.filter(({ editor }) => editor === 'resolve').length;
       set({
         overviews,
-        notice: overviews.length
-          ? `Watching ${roots.length} folder${roots.length === 1 ? '' : 's'}. Found ${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'}.`
+        notice: resolveCount
+          ? `Watching ${roots.length} folder${roots.length === 1 ? '' : 's'}. Found ${resolveCount} Resolve project${resolveCount === 1 ? '' : 's'}.`
           : 'No .drp file with a matching .otio export was found in that folder.',
       });
     }),
@@ -193,11 +196,37 @@ export const useAppStore = create<AppStore>((set, get) => {
       const roots = await window.snipsnap.addResolveProjectFile();
       if (!roots) return;
       const overviews = await window.snipsnap.listOverviews();
+      const resolveCount = overviews.filter(({ editor }) => editor === 'resolve').length;
       set({
         overviews,
-        notice: overviews.length
-          ? `Found ${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'}.`
+        notice: resolveCount
+          ? `Found ${resolveCount} Resolve project${resolveCount === 1 ? '' : 's'}.`
           : 'That project file has no .otio timeline export beside it yet.',
+      });
+    }),
+
+    importKdenlive: () => run(async () => {
+      const result = await window.snipsnap.importKdenliveOtio();
+      if (!result) return;
+      const projectId = result.status.project.id;
+      const [selectedRevision, overviews, collaboration] = await Promise.all([
+        window.snipsnap.revisionDetails(projectId, result.status.headCommit),
+        window.snipsnap.listOverviews(),
+        window.snipsnap.collaborationStatus(projectId),
+      ]);
+      const limitationCount = result.report.losses.reduce((count, loss) => count + loss.count, 0);
+      set({
+        status: result.status,
+        selectedRevision,
+        overviews,
+        collaboration,
+        currentProjectId: projectId,
+        route: { name: 'editor', projectId },
+        diffOpen: false,
+        comparison: null,
+        notice: limitationCount > 0
+          ? `Imported Kdenlive OTIO. ${limitationCount} item${limitationCount === 1 ? '' : 's'} need fidelity review.`
+          : 'Imported Kdenlive OTIO with no known portability warnings.',
       });
     }),
 
@@ -215,8 +244,8 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({
         overviews,
         notice: overviews.length
-          ? `${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'} available.`
-          : 'No Resolve projects found. Run the SnipSnap script in Resolve to export them.',
+          ? `${overviews.length} video project${overviews.length === 1 ? '' : 's'} available.`
+          : 'No projects found. Export OTIO from Resolve or Kdenlive first.',
       });
     }),
 
@@ -423,6 +452,18 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!projectId) return;
       const result = await window.snipsnap.exportOtio(projectId, revision);
       if (!result.canceled) set({ notice: `Exported commit ${result.commitId?.slice(0, 10)}.` });
+    }),
+
+    openRevisionInKdenlive: (revision) => run(async () => {
+      const projectId = get().currentProjectId;
+      if (!projectId) return;
+      const handoff = await window.snipsnap.openInKdenlive(projectId, revision);
+      const limitationCount = handoff.report.losses.reduce((count, loss) => count + loss.count, 0);
+      set({
+        notice: limitationCount > 0
+          ? `Opened ${handoff.commitId.slice(0, 10)} in Kdenlive with ${limitationCount} fidelity warning${limitationCount === 1 ? '' : 's'}. The report is beside the OTIO handoff.`
+          : `Opened commit ${handoff.commitId.slice(0, 10)} in Kdenlive.`,
+      });
     }),
 
     relinkMedia: (fingerprint) => run(async () => {

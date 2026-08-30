@@ -13,6 +13,7 @@ import {
   SourceWatchService,
   atomicWriteText,
   installResolveScript,
+  launchKdenlive,
   resolvePythonInvocation,
 } from './application';
 import { channels } from './ipc';
@@ -58,7 +59,7 @@ const sourceWatcher = new SourceWatchService(async ({ projectId }) => {
 async function restoreSourceConnections(): Promise<void> {
   for (const project of await projects.listProjects()) {
     const binding = await projects.sourceBinding(project.id);
-    if (binding?.mode === 'file') sourceWatcher.watch(project.id, binding.path);
+    if (binding?.mode === 'file' || binding?.mode === 'kdenlive') sourceWatcher.watch(project.id, binding.path);
   }
 }
 
@@ -193,9 +194,9 @@ function registerIpc(): void {
   ipcMain.handle(channels.listProjects, () => projects.listProjects());
   ipcMain.handle(channels.listOverviews, () => projects.listProjectOverviews());
   ipcMain.handle(channels.openProject, async (_event, projectId: string) => {
-    let status = await projects.openResolveProjectById(projectId);
+    let status = await projects.openProjectById(projectId);
     const binding = await projects.sourceBinding(projectId);
-    if (binding?.mode === 'file') sourceWatcher.watch(projectId, binding.path);
+    if (binding?.mode === 'file' || binding?.mode === 'kdenlive') sourceWatcher.watch(projectId, binding.path);
     if (binding?.mode === 'resolve') {
       await resolveBridge.startExclusive(projectId, status.workspaceVersion);
       status = await projects.status(projectId);
@@ -203,6 +204,24 @@ function registerIpc(): void {
     return status;
   });
   ipcMain.handle(channels.resolveRoots, () => projects.resolveRoots());
+  ipcMain.handle(channels.importKdenliveOtio, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Import an OTIO timeline exported by Kdenlive',
+      message: 'In Kdenlive use File \u203a OpenTimelineIO Export, then choose that .otio file here.',
+      properties: ['openFile'],
+      filters: [{ name: 'Kdenlive OpenTimelineIO', extensions: ['otio', 'json'] }],
+    });
+    const sourcePath = selection.filePaths[0];
+    if (selection.canceled || !sourcePath) return null;
+    const result = await projects.importKdenliveSource(sourcePath);
+    sourceWatcher.watch(result.status.project.id, sourcePath);
+    return result;
+  });
+  ipcMain.handle(channels.openInKdenlive, async (_event, projectId: string, revision: string) => {
+    const handoff = await projects.prepareKdenliveHandoff(projectId, revision);
+    await launchKdenlive(handoff.filePath);
+    return handoff;
+  });
   ipcMain.handle(channels.addResolveProjectFile, async () => {
     const selection = await dialog.showOpenDialog({
       title: 'Choose a DaVinci Resolve project file',

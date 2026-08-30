@@ -117,6 +117,7 @@ export function Editor() {
     : 0;
   const resolveSyncActive = status.source.mode === 'resolve'
     && ['starting', 'waiting-for-resolve', 'watching'].includes(status.source.state);
+  const sourceEditor = status.source.mode === 'kdenlive' ? 'Kdenlive' : 'Resolve';
 
   function guardedCheckout(branch: string): void {
     if (!status || branch === status.branch) return;
@@ -181,7 +182,7 @@ export function Editor() {
           <div className="flex flex-col gap-3 p-3">
             {status.unstaged.length + status.staged.length === 0
               ? <p className="text-xs text-muted-foreground">
-                The latest saved Resolve timeline matches this commit.
+                The latest saved {sourceEditor} timeline matches this commit.
               </p>
               : <>
                 {status.staged.length > 0 && <div className="flex flex-col gap-1.5">
@@ -390,7 +391,9 @@ export function Editor() {
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-xs font-medium">{status.source.mode === 'resolve'
                 ? `${status.source.resolveProjectName ?? 'DaVinci Resolve'} · ${status.source.resolveTimelineName ?? 'active timeline'}`
-                : status.source.connected ? status.source.fileName : 'Connect SnipSnap to DaVinci Resolve'}</span>
+                : status.source.mode === 'kdenlive'
+                  ? `Kdenlive · ${status.source.fileName ?? 'OTIO timeline'}`
+                  : status.source.connected ? status.source.fileName : 'Connect SnipSnap to DaVinci Resolve'}</span>
               <span className="truncate font-mono text-[10px] text-muted-foreground">
                 {status.source.error ?? (status.source.mode === 'resolve'
                   ? status.source.lastSavedAt
@@ -400,18 +403,19 @@ export function Editor() {
               </span>
             </div>
             <div className="flex shrink-0 gap-2">
-              {status.source.mode === 'file' && <Button variant="secondary" size="sm" onClick={() => void store.scanSource()}>Check file</Button>}
-              {resolveSyncActive
+              {(status.source.mode === 'file' || status.source.mode === 'kdenlive')
+                && <Button variant="secondary" size="sm" onClick={() => void store.scanSource()}>Check file</Button>}
+              {status.resolve && (resolveSyncActive
                 ? <Button variant="secondary" size="sm" onClick={() => void store.stopResolveSync()}>Stop sync</Button>
                 : <Button size="sm" variant="default" onClick={() => void store.startResolveSync()}>
                   {status.source.mode === 'resolve' ? 'Restart sync' : 'Start save sync'}
-                </Button>}
+                </Button>)}
             </div>
           </div>
 
           {status.source.pending && <div className="vg-source-pending flex shrink-0 items-center gap-3 rounded-lg border border-retimed/40 bg-retimed-soft px-3 py-2.5">
             <span className="flex-1 text-xs">
-              <strong>{status.source.pending.changeCount} change{status.source.pending.changeCount === 1 ? '' : 's'} detected in Resolve</strong>
+              <strong>{status.source.pending.changeCount} change{status.source.pending.changeCount === 1 ? '' : 's'} detected in {sourceEditor}</strong>
               {status.source.pending.unsupportedCount > 0 && ` · ${status.source.pending.unsupportedCount} unsupported`}
             </span>
             <Button variant="secondary" size="sm" onClick={() => void store.dismissSource()}>Ignore</Button>

@@ -1,4 +1,4 @@
-import { ArrowRight, FilePlus2, FolderOpen, Image, Network, RefreshCw } from 'lucide-react';
+import { ArrowRight, FilePlus2, Film, FolderOpen, Image, Network, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProjectOverview } from '../application';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,7 @@ const stateLabel: Record<ProjectOverview['state'], string> = {
   clean: 'Committed',
   staged: 'Staged',
   uncommitted: 'Uncommitted',
-  'resolve-pending': 'Resolve update',
+  'resolve-pending': 'Editor update',
 };
 
 const stateVariant: Record<ProjectOverview['state'], 'default' | 'info' | 'retimed' | 'added'> = {
@@ -106,8 +106,9 @@ function Poster({ project, className }: { project: ProjectOverview; className?: 
 function Facts({ project }: { project: ProjectOverview }) {
   const facts = [
     project.kind === 'remote' ? 'Shared project' : null,
+    project.kind === 'kdenlive' ? 'Kdenlive OTIO' : null,
     project.linked ? `⑂ ${project.branch}` : null,
-    ...(project.openable ? [project.resolve.timelineName] : project.knownTimelines),
+    ...(project.openable ? [project.resolve?.timelineName ?? project.knownTimelines[0]] : project.knownTimelines),
     project.durationFrames > 0 ? durationLabel(project.durationFrames, project.fps) : null,
     project.width > 0 ? `${project.width}×${project.height}` : null,
     project.fps > 0 ? frameRateLabel(project.fps) : null,
@@ -146,14 +147,14 @@ export function Dashboard() {
       <div className="vg-glass vg-empty">
         <GlassSurface />
         <div className="vg-glass-body">
-          <h2>No Resolve projects found yet</h2>
+          <h2>No video projects found yet</h2>
           <p>
-            SnipSnap reads DaVinci Resolve&rsquo;s project library, and any <code>.drp</code> with an
-            <code> .otio</code> beside it. Point it at a project file, or export a timeline from Resolve
-            with File &rsaquo; Export &rsaquo; Timeline.
+            Connect a DaVinci Resolve project, or export a Kdenlive timeline with
+            File &rsaquo; OpenTimelineIO Export and import the resulting <code>.otio</code> here.
           </p>
           <div className="flex flex-wrap justify-center gap-2">
             <Button variant="default" onClick={() => setJoinOpen(true)}><Network />Join shared project</Button>
+            <Button variant="default" onClick={() => void store.importKdenlive()}><Film />Import Kdenlive OTIO</Button>
             <Button variant="default" onClick={() => void store.addResolveProjectFile()}>
               <FilePlus2 />Choose a .drp file
             </Button>
@@ -181,6 +182,7 @@ export function Dashboard() {
           onChange={(event) => store.setFilter(event.target.value)}
         />
         <Button variant="secondary" onClick={() => setJoinOpen(true)}><Network />Join</Button>
+        <Button variant="secondary" onClick={() => void store.importKdenlive()}><Film />Kdenlive</Button>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="secondary" size="icon" aria-label="Add .drp" onClick={() => void store.addResolveProjectFile()}>
@@ -223,8 +225,8 @@ export function Dashboard() {
             {project.linked && project.headMessage && <span className="vg-item-commit">
               <span className="truncate">{project.headMessage}</span>
             </span>}
-            <span className="vg-item-path" title={project.resolve.drpPath || project.path}>
-              {project.resolve.drpPath || project.path}
+            <span className="vg-item-path" title={project.sourcePath || project.path}>
+              {project.sourcePath || project.path}
             </span>
             <span className="vg-item-meta">
               <span>{relativeTime(project.updatedAt)}</span>

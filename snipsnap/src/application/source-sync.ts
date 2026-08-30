@@ -14,6 +14,16 @@ const FileSourceBindingSchema = z.object({
   lastError: z.string().min(1).max(2000).optional(),
 }).strict();
 
+const KdenliveSourceBindingSchema = z.object({
+  format: z.literal('otio'),
+  mode: z.literal('kdenlive'),
+  path: z.string().min(1),
+  lastSeenDigest: DigestSchema.optional(),
+  lastAppliedDigest: DigestSchema.optional(),
+  ignoredDigest: DigestSchema.optional(),
+  lastError: z.string().min(1).max(2000).optional(),
+}).strict();
+
 const ResolveSourceBindingSchema = z.object({
   format: z.literal('otio'),
   mode: z.literal('resolve'),
@@ -31,7 +41,7 @@ const ResolveSourceBindingSchema = z.object({
 export const SourceBindingSchema = z.preprocess((value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value) || 'mode' in value) return value;
   return { ...value, mode: 'file' };
-}, z.discriminatedUnion('mode', [FileSourceBindingSchema, ResolveSourceBindingSchema]));
+}, z.discriminatedUnion('mode', [FileSourceBindingSchema, KdenliveSourceBindingSchema, ResolveSourceBindingSchema]));
 
 export const PendingSyncSchema = z.object({
   digest: z.string().regex(/^[a-f0-9]{64}$/u),

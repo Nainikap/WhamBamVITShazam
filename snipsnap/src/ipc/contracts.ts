@@ -12,6 +12,7 @@ import type {
 } from '../application';
 import type { SemanticHunk } from '../diff';
 import type { ConflictResolution } from '../merge';
+import type { KdenliveInterchangeReport } from '../adapters/kdenlive';
 
 export const channels = {
   listProjects: 'projects:list',
@@ -19,6 +20,8 @@ export const channels = {
   openProject: 'projects:open',
   addResolveFolder: 'resolve:add-folder',
   addResolveProjectFile: 'resolve:add-project-file',
+  importKdenliveOtio: 'kdenlive:import-otio',
+  openInKdenlive: 'kdenlive:open-revision',
   exportFromResolve: 'resolve:export',
   resolveRoots: 'resolve:roots',
   status: 'projects:status',
@@ -61,6 +64,13 @@ export interface SnipSnapApi {
   openProject(projectId: string): Promise<ProjectStatus>;
   addResolveFolder(): Promise<string[] | null>;
   addResolveProjectFile(): Promise<string[] | null>;
+  importKdenliveOtio(): Promise<{ status: ProjectStatus; report: KdenliveInterchangeReport } | null>;
+  openInKdenlive(projectId: string, revision: string): Promise<{
+    commitId: string;
+    filePath: string;
+    reportPath: string;
+    report: KdenliveInterchangeReport;
+  }>;
   exportFromResolve(): Promise<{ ok: boolean; installed?: boolean; message: string }>;
   resolveRoots(): Promise<string[]>;
   status(projectId: string): Promise<ProjectStatus>;

@@ -92,6 +92,12 @@ export function App() {
               </div>
               <Button
                 size="sm"
+                variant="secondary"
+                className="shrink-0"
+                onClick={() => void store.openRevisionInKdenlive(store.selectedRevision?.commit.id ?? status.headCommit)}
+              >Open in Kdenlive</Button>
+              <Button
+                size="sm"
                 className="shrink-0"
                 onClick={() => void store.exportRevision(store.selectedRevision?.commit.id ?? status.headCommit)}
               >Export OTIO</Button>
