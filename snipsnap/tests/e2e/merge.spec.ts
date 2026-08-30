@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ProjectService, ResolveLibrary, resolveProjectId } from '../../src/application';
 import { runGit } from '../../src/git';
+import { packagedElectronArgs } from './electron-args';
 
 const RATE = 30;
 const FRAMES = 300;
@@ -139,7 +140,7 @@ async function prepareFixture(prefix: string): Promise<MergeFixture> {
 
 async function launchFixture(fixture: MergeFixture): Promise<{ application: ElectronApplication; page: Page }> {
   const application = await electron.launch({
-    args: [packagedAppPath()],
+    args: packagedElectronArgs(packagedAppPath()),
     env: {
       ...process.env,
       SNIPSNAP_DATA_ROOT: fixture.dataRoot,

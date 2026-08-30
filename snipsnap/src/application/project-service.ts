@@ -4,9 +4,21 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { exportOtio, importOtio, type UnsupportedContent } from '../adapters/otio';
+import {
+  exportKdenliveOtio,
+  importKdenliveOtio,
+  type KdenliveInterchangeReport,
+} from '../adapters/kdenlive';
 import { reduceCommand, type EditCommand } from '../commands';
 import { applySemanticHunks, semanticDiff, type SemanticHunk } from '../diff';
-import { digestText, projectDigest, ProjectSchema, ProjectStructureSchema, type Project } from '../domain';
+import {
+  deterministicUuid,
+  digestText,
+  projectDigest,
+  ProjectSchema,
+  ProjectStructureSchema,
+  type Project,
+} from '../domain';
 import { GitRepository, KeyedMutex, StaleRefError, type CommitInfo } from '../git';
 import {
   completeMerge,
@@ -113,6 +125,13 @@ export interface ProjectSummary {
   name: string;
 }
 
+export interface KdenliveFolderScanResult {
+  roots: string[];
+  discovered: number;
+  tracked: Array<{ projectId: string; sourcePath: string }>;
+  failures: Array<{ sourcePath: string; message: string }>;
+}
+
 /** Where a project came from in DaVinci Resolve. */
 export interface ResolveBinding {
   projectName: string;
@@ -121,6 +140,11 @@ export interface ResolveBinding {
   timelineName: string;
   timelineCount: number;
   folder: string;
+}
+
+/** A Kdenlive OTIO export that remains outside Git and can be watched for edits. */
+export interface KdenliveBinding {
+  otioPath: string;
 }
 
 const ResolveBindingSchema = z.object({
@@ -133,10 +157,15 @@ const ResolveBindingSchema = z.object({
   folder: z.string().min(1),
 }).strict();
 
+const KdenliveBindingSchema = z.object({
+  otioPath: z.string().min(1),
+}).strict();
+
 const ProjectMetadataSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   resolve: ResolveBindingSchema.optional(),
+  kdenlive: KdenliveBindingSchema.optional(),
   sharedFrom: z.string().min(1).max(200).optional(),
 }).strict();
 
@@ -166,10 +195,12 @@ export interface ProjectOverview {
   linked: boolean;
   /** False when the project has no timeline export to read yet. */
   openable: boolean;
-  kind: 'export' | 'database' | 'remote';
-  /** Timeline names Resolve knows about, listed even before any export. */
+  kind: 'export' | 'database' | 'kdenlive' | 'remote';
+  editor: 'resolve' | 'kdenlive' | 'remote';
+  /** Timeline names the source editor knows about, listed even before any export. */
   knownTimelines: string[];
-  resolve: ResolveBinding;
+  resolve?: ResolveBinding;
+  sourcePath: string;
   branch: string;
   headCommit: string;
   headMessage: string;
@@ -201,7 +232,7 @@ export interface TimelineComparison {
 
 export interface SourceSyncStatus {
   connected: boolean;
-  mode?: 'file' | 'resolve';
+  mode?: 'file' | 'resolve' | 'kdenlive';
   fileName?: string;
   filePath?: string;
   state: 'not-connected' | 'starting' | 'waiting-for-resolve' | 'watching' | 'changes-ready' | 'stopped' | 'missing' | 'invalid';
@@ -240,6 +271,7 @@ export interface ProjectStatus {
   path: string;
   /** The Resolve project this timeline came from, when it came from one. */
   resolve?: ResolveBinding;
+  kdenlive?: KdenliveBinding;
   workspaceVersion: number;
   branch: string;
   headCommit: string;
@@ -261,7 +293,7 @@ export interface MergeOutcome {
 
 export class DirtyWorkspaceError extends Error {
   constructor() {
-    super('This action would discard a pending Resolve update or staged/working changes');
+    super('This action would discard a pending editor update or staged/working changes');
     this.name = 'DirtyWorkspaceError';
   }
 }
@@ -395,7 +427,7 @@ export class ProjectService {
     }
     const status: SourceSyncStatus = {
       connected: true,
-      mode: 'file',
+      mode: binding.mode,
       fileName: path.basename(binding.path),
       filePath: binding.path,
       state: exists ? (binding.lastError ? 'invalid' : pending ? 'changes-ready' : 'watching') : 'missing',
@@ -432,6 +464,7 @@ export class ProjectService {
     project: Project,
     initialMessage = 'Import timeline',
     resolve?: ResolveBinding,
+    kdenlive?: KdenliveBinding,
   ): Promise<ProjectSummary> {
     const parsed = ProjectSchema.parse(project);
     return this.mutex.run(parsed.id, async () => {
@@ -457,6 +490,7 @@ export class ProjectService {
           id: parsed.id,
           name: parsed.name,
           ...(resolve ? { resolve } : {}),
+          ...(kdenlive ? { kdenlive } : {}),
         });
       } catch (error) {
         await rm(projectRoot, { recursive: true, force: true });
@@ -479,6 +513,52 @@ export class ProjectService {
     return { ...summary, unsupported: imported.unsupported };
   }
 
+  async importKdenliveSource(sourcePath: string): Promise<{
+    status: ProjectStatus;
+    report: KdenliveInterchangeReport;
+  }> {
+    const resolvedPath = path.resolve(sourcePath);
+    const contents = await readFile(resolvedPath, 'utf8');
+    const imported = importKdenliveOtio(contents);
+    const projectId = deterministicUuid(`kdenlive-otio:${resolvedPath}`);
+    const fallbackName = path.basename(resolvedPath, path.extname(resolvedPath)).normalize('NFC');
+    const project = ProjectSchema.parse({
+      ...imported.project,
+      id: projectId,
+      name: imported.project.name === 'Imported Timeline' ? fallbackName : imported.project.name,
+    });
+    const existing = await this.readMetadata(projectId);
+    if (!existing) {
+      await this.createProject(
+        project,
+        `Import ${project.name} from Kdenlive`,
+        undefined,
+        { otioPath: resolvedPath },
+      );
+      await this.writeMediaLinks(projectId, imported.mediaLinks);
+      const digest = digestText(contents);
+      await atomicWriteJson(this.sourceBindingPath(projectId), {
+        format: 'otio',
+        mode: 'kdenlive',
+        path: resolvedPath,
+        lastSeenDigest: digest,
+        lastAppliedDigest: digest,
+      });
+      return { status: await this.status(projectId), report: imported.report };
+    }
+
+    await atomicWriteJson(this.metadataPath(projectId), {
+      ...existing,
+      name: project.name,
+      kdenlive: { otioPath: resolvedPath },
+    });
+    await atomicWriteJson(this.sourceBindingPath(projectId), {
+      format: 'otio', mode: 'kdenlive', path: resolvedPath,
+    });
+    const scanned = await this.scanOtioSource(projectId);
+    return { status: scanned.status, report: imported.report };
+  }
+
   private async statusUnlocked(projectId: string): Promise<ProjectStatus> {
     const metadata = await this.readMetadata(projectId).catch(() => null);
     const repository = this.repository(projectId);
@@ -498,6 +578,7 @@ export class ProjectService {
       project: workspace.working,
       path: this.projectRoot(projectId),
       ...(metadata?.resolve ? { resolve: metadata.resolve } : {}),
+      ...(metadata?.kdenlive ? { kdenlive: metadata.kdenlive } : {}),
       workspaceVersion: workspace.version,
       branch,
       headCommit,
@@ -517,8 +598,8 @@ export class ProjectService {
 
   private async scanOtioSourceUnlocked(projectId: string): Promise<boolean> {
     const binding = await this.sourceBinding(projectId);
-    if (!binding) throw new Error('Connect a Resolve OTIO file before checking for changes');
-    if (binding.mode !== 'file') throw new Error('Resolve save sync applies snapshots automatically');
+    if (!binding) throw new Error('Connect an editor OTIO file before checking for changes');
+    if (binding.mode === 'resolve') throw new Error('Resolve save sync applies snapshots automatically');
     const contents = await readFile(binding.path, 'utf8');
     const digest = digestText(contents);
     const existingPending = await this.readPendingSync(projectId);
@@ -539,7 +620,12 @@ export class ProjectService {
     }
 
     const workspace = await this.readWorkspace(projectId);
-    const imported = importOtio(contents);
+    const imported = binding.mode === 'kdenlive' ? importKdenliveOtio(contents) : importOtio(contents);
+    // Kdenlive commonly exports an empty Timeline name. Keep the stable name
+    // derived from the source filename instead of proposing a rename on every save.
+    if (binding.mode === 'kdenlive' && imported.project.name === 'Imported Timeline') {
+      imported.project.name = workspace.working.name;
+    }
     const reconciled = reconcileImportedProject(workspace.working, imported.project);
     const nextBinding: SourceBinding = { ...binding, lastSeenDigest: digest };
     delete nextBinding.ignoredDigest;
@@ -1309,8 +1395,95 @@ export class ProjectService {
     return { commitId, contents: exportOtio(await repository.readSnapshot(commitId), { mediaLinks }) };
   }
 
+  async prepareKdenliveHandoff(projectId: string, revision: string): Promise<{
+    commitId: string;
+    filePath: string;
+    reportPath: string;
+    report: KdenliveInterchangeReport;
+  }> {
+    const repository = this.repository(projectId);
+    const commitId = await repository.resolve(revision);
+    const [snapshot, mediaLinks] = await Promise.all([
+      repository.readSnapshot(commitId),
+      this.readMediaLinks(projectId),
+    ]);
+    const exported = exportKdenliveOtio(snapshot, { mediaLinks });
+    const directory = path.join(this.projectRoot(projectId), 'kdenlive-handoffs');
+    const filePath = path.join(directory, `${commitId}.otio`);
+    const reportPath = path.join(directory, `${commitId}.report.json`);
+    await mkdir(directory, { recursive: true });
+    await Promise.all([
+      atomicWriteText(filePath, exported.contents),
+      atomicWriteJson(reportPath, exported.report),
+    ]);
+    return { commitId, filePath, reportPath, report: exported.report };
+  }
+
   private resolveRootsPath(): string {
     return path.join(this.root, 'resolve-roots.json');
+  }
+
+  private kdenliveRootsPath(): string {
+    return path.join(this.root, 'kdenlive-roots.json');
+  }
+
+  async kdenliveRoots(): Promise<string[]> {
+    const value = await this.readOptionalJson(this.kdenliveRootsPath());
+    return value === undefined
+      ? []
+      : [...new Set(z.array(z.string().min(1)).parse(value).map((entry) => path.resolve(entry)))];
+  }
+
+  private async kdenliveOtioFiles(folder: string): Promise<string[]> {
+    const results: string[] = [];
+    const skipped = new Set([
+      '.git', '.vite', 'fixtures', 'kdenlive-handoffs', 'node_modules', 'out', 'test-results', 'tests',
+    ]);
+    const visit = async (current: string, depth: number): Promise<void> => {
+      if (depth > 4 || results.length >= 500) return;
+      let entries;
+      try {
+        entries = await readdir(current, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        if (results.length >= 500) break;
+        const entryPath = path.join(current, entry.name);
+        if (entry.isDirectory() && !skipped.has(entry.name.toLowerCase())) await visit(entryPath, depth + 1);
+        else if (entry.isFile() && path.extname(entry.name).toLowerCase() === '.otio') results.push(entryPath);
+      }
+    };
+    await visit(path.resolve(folder), 0);
+    return results;
+  }
+
+  async refreshKdenliveRoots(): Promise<KdenliveFolderScanResult> {
+    const roots = await this.kdenliveRoots();
+    const sources = [...new Set((await Promise.all(
+      roots.map((root) => this.kdenliveOtioFiles(root)),
+    )).flat())].sort();
+    const tracked: KdenliveFolderScanResult['tracked'] = [];
+    const failures: KdenliveFolderScanResult['failures'] = [];
+    for (const sourcePath of sources) {
+      try {
+        const imported = await this.importKdenliveSource(sourcePath);
+        tracked.push({ projectId: imported.status.project.id, sourcePath });
+      } catch (error) {
+        failures.push({
+          sourcePath,
+          message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+        });
+      }
+    }
+    return { roots, discovered: sources.length, tracked, failures };
+  }
+
+  async addKdenliveRoot(folder: string): Promise<KdenliveFolderScanResult> {
+    const roots = await this.kdenliveRoots();
+    const next = [...new Set([...roots, path.resolve(folder)])];
+    await atomicWriteJson(this.kdenliveRootsPath(), next);
+    return this.refreshKdenliveRoots();
   }
 
   /** The default export folder plus any folder the editor pointed us at. */
@@ -1367,6 +1540,12 @@ export class ProjectService {
       throw new Error('That Resolve project is no longer on disk. Export it again from Resolve.');
     }
     return this.openResolveProject(reference);
+  }
+
+  async openProjectById(projectId: string): Promise<ProjectStatus> {
+    const metadata = await this.readMetadata(projectId);
+    if (metadata?.kdenlive) return (await this.scanOtioSource(projectId)).status;
+    return this.openResolveProjectById(projectId);
   }
 
   private async readMetadata(projectId: string): Promise<z.infer<typeof ProjectMetadataSchema> | null> {
@@ -1443,8 +1622,10 @@ export class ProjectService {
       linked: false,
       openable: reference.activeTimeline !== null || canRebuild,
       kind: reference.kind,
+      editor: 'resolve',
       knownTimelines: reference.knownTimelines ?? reference.timelines.map(({ name }) => name),
       resolve: binding,
+      sourcePath: binding.drpPath || binding.otioPath || binding.folder,
       branch: 'main',
       headCommit: '',
       headMessage: 'Not versioned yet',
@@ -1490,23 +1671,20 @@ export class ProjectService {
         : status.staged.length > 0 ? 'staged' : 'clean';
 
     const metadata = await this.readMetadata(projectId);
-    const binding = metadata?.resolve ?? {
-      projectName: status.project.name,
-      drpPath: '',
-      otioPath: status.source.filePath ?? '',
-      timelineName: status.project.sequences[0]?.name ?? 'Timeline',
-      timelineCount: 1,
-      folder: this.projectRoot(projectId),
-    };
+    const resolve = metadata?.resolve;
+    const kdenlive = metadata?.kdenlive;
+    const timelineName = resolve?.timelineName ?? status.project.sequences[0]?.name ?? 'Timeline';
     return {
       id: projectId,
       name: status.project.name,
       path: this.projectRoot(projectId),
       linked: true,
       openable: true,
-      kind: metadata?.resolve ? (binding.drpPath ? 'export' : 'database') : 'remote',
-      knownTimelines: [binding.timelineName],
-      resolve: binding,
+      kind: resolve ? (resolve.drpPath ? 'export' : 'database') : kdenlive ? 'kdenlive' : 'remote',
+      editor: resolve ? 'resolve' : kdenlive ? 'kdenlive' : 'remote',
+      knownTimelines: [timelineName],
+      ...(resolve ? { resolve } : {}),
+      sourcePath: resolve?.drpPath || resolve?.otioPath || kdenlive?.otioPath || this.projectRoot(projectId),
       branch: status.branch,
       headCommit: status.headCommit,
       headMessage: head?.message ?? '',
@@ -1584,7 +1762,7 @@ export class ProjectService {
       if (discoveredIds.has(project.id)) continue;
       try {
         const metadata = await this.readMetadata(project.id);
-        if (!metadata?.sharedFrom) continue;
+        if (!metadata?.sharedFrom && !metadata?.kdenlive) continue;
         overviews.push(await this.overview(project.id));
       } catch {
         // Invalid local projects stay hidden rather than breaking the dashboard.

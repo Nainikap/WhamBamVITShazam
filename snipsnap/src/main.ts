@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from 'electron';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createReadStream, existsSync } from 'node:fs';
@@ -13,12 +13,28 @@ import {
   SourceWatchService,
   atomicWriteText,
   installResolveScript,
+  launchKdenlive,
+  resolvePythonInvocation,
 } from './application';
 import { channels } from './ipc';
 
 if (started) app.quit();
 
+const keepE2eWindowHidden = process.env.SNIPSNAP_E2E_HEADLESS === '1';
+if (keepE2eWindowHidden && process.platform === 'linux') {
+  // Hidden Wayland toplevels cannot own Radix popup surfaces. X11/Xvfb keeps
+  // the packaged UI testable without mapping anything into Hyprland.
+  app.commandLine.appendSwitch('ozone-platform', 'x11');
+  app.commandLine.appendSwitch('disable-gpu');
+}
 app.commandLine.appendSwitch('enable-unsafe-webgpu');
+if (process.platform === 'win32') {
+  // Chromium otherwise promotes <video> into an independent DirectComposition
+  // surface. The first commit-to-commit seek can initialize that surface as a
+  // full-window black overlay before the decoded frame arrives. Keep normal GPU
+  // compositing and hardware decode, but composite video with the application.
+  app.commandLine.appendSwitch('disable-direct-composition-video-overlays');
+}
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'snipsnap-media',
@@ -50,9 +66,8 @@ const sourceWatcher = new SourceWatchService(async ({ projectId }) => {
 async function restoreSourceConnections(): Promise<void> {
   for (const project of await projects.listProjects()) {
     const binding = await projects.sourceBinding(project.id);
-    if (binding?.mode === 'file') sourceWatcher.watch(project.id, binding.path);
+    if (binding?.mode === 'file' || binding?.mode === 'kdenlive') sourceWatcher.watch(project.id, binding.path);
   }
-  await resolveBridge.restore();
 }
 
 const mediaTypes: Record<string, string> = {
@@ -186,12 +201,58 @@ function registerIpc(): void {
   ipcMain.handle(channels.listProjects, () => projects.listProjects());
   ipcMain.handle(channels.listOverviews, () => projects.listProjectOverviews());
   ipcMain.handle(channels.openProject, async (_event, projectId: string) => {
-    const status = await projects.openResolveProjectById(projectId);
+    let status = await projects.openProjectById(projectId);
     const binding = await projects.sourceBinding(projectId);
-    if (binding?.mode === 'file') sourceWatcher.watch(projectId, binding.path);
+    if (binding?.mode === 'file' || binding?.mode === 'kdenlive') sourceWatcher.watch(projectId, binding.path);
+    if (binding?.mode === 'resolve') {
+      await resolveBridge.startExclusive(projectId, status.workspaceVersion);
+      status = await projects.status(projectId);
+    }
     return status;
   });
   ipcMain.handle(channels.resolveRoots, () => projects.resolveRoots());
+  ipcMain.handle(channels.importKdenliveOtio, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Import an OTIO timeline exported by Kdenlive',
+      message: 'In Kdenlive use File \u203a OpenTimelineIO Export, then choose that .otio file here.',
+      properties: ['openFile'],
+      filters: [{ name: 'Kdenlive OpenTimelineIO', extensions: ['otio', 'json'] }],
+    });
+    const sourcePath = selection.filePaths[0];
+    if (selection.canceled || !sourcePath) return null;
+    const result = await projects.importKdenliveSource(sourcePath);
+    sourceWatcher.watch(result.status.project.id, sourcePath);
+    return result;
+  });
+  const watchKdenliveScan = (scan: Awaited<ReturnType<ProjectService['refreshKdenliveRoots']>>) => {
+    scan.tracked.forEach(({ projectId, sourcePath }) => sourceWatcher.watch(projectId, sourcePath));
+    return scan;
+  };
+  ipcMain.handle(channels.addKdenliveFolder, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Choose a folder containing Kdenlive OTIO exports',
+      message: 'SnipSnap discovers .otio files below this folder and watches every valid timeline.',
+      properties: ['openDirectory'],
+    });
+    const folder = selection.filePaths[0];
+    if (selection.canceled || !folder) return null;
+    return watchKdenliveScan(await projects.addKdenliveRoot(folder));
+  });
+  ipcMain.handle(channels.refreshKdenliveFolders, async () => (
+    watchKdenliveScan(await projects.refreshKdenliveRoots())
+  ));
+  ipcMain.handle(channels.openInKdenlive, async (_event, projectId: string, revision: string) => {
+    const handoff = await projects.prepareKdenliveHandoff(projectId, revision);
+    // Kdenlive has no command-line switch for its OTIO importer. Passing the
+    // file positionally is actively wrong: it treats the JSON as a media clip.
+    // Prepare a truthful handoff instead and put the exact file one paste away.
+    if (process.env.SNIPSNAP_E2E_HEADLESS !== '1') {
+      clipboard.writeText(handoff.filePath);
+      shell.showItemInFolder(handoff.filePath);
+    }
+    await launchKdenlive();
+    return { ...handoff, requiresManualImport: true as const };
+  });
   ipcMain.handle(channels.addResolveProjectFile, async () => {
     const selection = await dialog.showOpenDialog({
       title: 'Choose a DaVinci Resolve project file',
@@ -217,7 +278,11 @@ function registerIpc(): void {
     const script = resolveScriptPath();
     let output = '';
     try {
-      const result = await runFile('python3', [script, '--all'], { timeout: 120_000 });
+      const python = resolvePythonInvocation();
+      const result = await runFile(python.command, [...python.prefix, script, '--all'], {
+        timeout: 120_000,
+        windowsHide: true,
+      });
       output = result.stdout;
       if (!output.includes('Could not reach DaVinci Resolve')) {
         const summary = output.trim().split('\n').filter(Boolean).at(-2) ?? 'Export finished.';
@@ -275,7 +340,7 @@ function registerIpc(): void {
   ipcMain.handle(channels.startResolveBridge, async (_event, projectId: string, expectedVersion: number) => {
     sourceWatcher.unwatch(projectId);
     if (resolveBridge.isRunning(projectId)) await resolveBridge.stop(projectId);
-    await resolveBridge.start(projectId, expectedVersion);
+    await resolveBridge.startExclusive(projectId, expectedVersion);
     return projects.status(projectId);
   });
   ipcMain.handle(channels.stopResolveBridge, async (_event, projectId: string) => {
@@ -335,16 +400,24 @@ function createWindow(): void {
   const window = new BrowserWindow({
     width: 1440,
     height: 940,
-    minWidth: 1050,
-    minHeight: 700,
-    backgroundColor: '#090b10',
+    minWidth: 680,
+    minHeight: 520,
+    show: false,
+    backgroundColor: '#0c0c0e',
     title: 'SnipSnap',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: !keepE2eWindowHidden,
     },
+  });
+
+  // Do not expose Chromium's empty native surface while the renderer is
+  // loading. On Windows that surface appears as a full black window.
+  window.once('ready-to-show', () => {
+    if (!keepE2eWindowHidden) window.show();
   });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

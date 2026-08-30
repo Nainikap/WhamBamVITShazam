@@ -16,7 +16,9 @@
   --vg-display: 'Mondwest', 'Iowan Old Style', Palatino, 'Palatino Linotype', serif;
   position: relative;
   display: flex;
+  min-width: 0;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background: #000;
   color: #f2f2f2;
@@ -514,13 +516,13 @@
   border-radius: 0;
   background: #0c0c0e;
   opacity: 0;
-  transition: opacity 160ms ease, visibility 0s 160ms;
+  transition: none;
 }
 
 .vg-shell[data-stage='project'] .vg-project {
   visibility: visible;
   opacity: 1;
-  transition: opacity 160ms ease, visibility 0s;
+  transition: none;
 }
 
 .vg-project .vg-glass {
@@ -868,10 +870,20 @@
   bottom: 26px;
   left: 50%;
   width: min(680px, calc(100% - 64px));
+  max-height: min(9rem, calc(100% - 3rem));
+  overflow: auto;
+  overflow-wrap: anywhere;
   border-color: rgb(255 255 255 / 0.16);
   backdrop-filter: blur(24px) saturate(150%);
   background: rgb(8 8 10 / 0.72);
   transform: translateX(-50%);
+}
+
+.vg-toast.error {
+  border-color: rgb(248 113 113 / 0.72);
+  background: rgb(69 10 10 / 0.96);
+  box-shadow: 0 16px 46px rgb(0 0 0 / 0.48);
+  color: #fee2e2;
 }
 
 .vg-editor-grid {
@@ -893,16 +905,133 @@
   border-radius: 0;
 }
 
+.viewer[data-variant='compact'] .vg-player-controls {
+  gap: 0.5rem;
+}
+
+.viewer[data-variant='compact'] .vg-player-total {
+  display: none;
+}
+
 @media (max-width: 1180px) {
   .vg-editor-grid {
-    grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr) minmax(14rem, 17rem);
+    grid-template-areas:
+      'source workspace'
+      'inspector inspector';
+    grid-template-columns: minmax(14rem, 16rem) minmax(0, 1fr);
+    grid-template-rows: minmax(40rem, calc(100dvh - 3.5rem)) auto;
+    align-content: start;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .vg-source-control { grid-area: source; }
+  .vg-editor-workspace { grid-area: workspace; }
+  .vg-inspector {
+    grid-area: inspector;
+    min-height: 34rem;
+    overflow: visible;
+  }
+
+  .vg-inspector > .vg-glass-body {
+    overflow: visible;
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 780px) {
+  .vg-project-header {
+    min-height: 3.5rem;
+    height: auto;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .vg-project-header .vg-mark {
+    font-size: 0.95rem;
+  }
+
   .vg-editor-grid {
+    grid-template-areas:
+      'source'
+      'workspace'
+      'inspector';
     grid-template-columns: minmax(0, 1fr);
-    overflow: auto;
+    grid-template-rows: auto;
+  }
+
+  .vg-source-control {
+    min-height: min(38rem, calc(100dvh - 3.5rem));
+  }
+
+  .vg-editor-workspace {
+    min-height: 0;
+    overflow: visible;
+    padding: 0.75rem;
+  }
+
+  .vg-revision-actions,
+  .vg-source-status,
+  .vg-source-pending,
+  .vg-diff-summary {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .vg-revision-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .vg-source-status > div:last-child,
+  .vg-source-pending > button {
+    flex: 1 1 auto;
+  }
+
+  .vg-diff-previews {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vg-diff-toolbar > div,
+  .vg-diff-toolbar > div:last-child {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .vg-diff-summary > span {
+    flex-wrap: wrap;
+  }
+
+  .viewer[data-variant='full'] > div:first-child {
+    height: min(44vh, 24rem);
+    min-height: 12rem;
+  }
+
+  .vg-player-controls {
+    gap: 0.5rem;
+    padding-inline: 0.5rem;
+  }
+
+  .vg-player-media,
+  .vg-player-total {
+    display: none;
+  }
+
+  .vg-toast {
+    bottom: 0.75rem;
+    width: calc(100% - 1.5rem);
+  }
+}
+
+@media (max-width: 520px) {
+  .vg-project-header .vg-mark,
+  .vg-project-header > .separator {
+    display: none;
+  }
+
+  .vg-player-current {
+    display: none;
+  }
+
+  .vg-source-control {
+    min-height: 34rem;
   }
 }
 

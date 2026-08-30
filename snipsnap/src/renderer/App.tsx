@@ -39,6 +39,12 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [store.notice]);
 
+  useEffect(() => {
+    if (!store.error) return undefined;
+    const timer = window.setTimeout(() => store.clearError(), 12_000);
+    return () => window.clearTimeout(timer);
+  }, [store.error]);
+
   const editing = store.route.name === 'editor';
   const stage: Stage = !entered ? 'intro' : editing ? 'project' : 'library';
 
@@ -61,7 +67,7 @@ export function App() {
   return <TooltipProvider delayDuration={300}>
     <GlassFilters />
     <div className="vg-shell" data-stage={stage}>
-      <PrismStage stage={stage} />
+      {stage !== 'project' && <PrismStage stage={stage} />}
 
       {introMounted && <Intro leaving={entered} onContinue={enter} />}
 
@@ -70,7 +76,7 @@ export function App() {
       <div className="vg-project">
         <GlassSurface />
         <div className="vg-glass-body vg-project-body">
-          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
+          <header className="vg-project-header flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -92,6 +98,12 @@ export function App() {
               </div>
               <Button
                 size="sm"
+                variant="secondary"
+                className="shrink-0"
+                onClick={() => void store.openRevisionInKdenlive(store.selectedRevision?.commit.id ?? status.headCommit)}
+              >Prepare for Kdenlive</Button>
+              <Button
+                size="sm"
                 className="shrink-0"
                 onClick={() => void store.exportRevision(store.selectedRevision?.commit.id ?? status.headCommit)}
               >Export OTIO</Button>
@@ -107,12 +119,23 @@ export function App() {
       {(store.error || store.notice) && <Alert
         role={store.error ? 'alert' : 'status'}
         variant={store.error ? 'destructive' : 'default'}
+        style={{
+          position: 'fixed',
+          right: 'clamp(0.75rem, 2vw, 1.5rem)',
+          bottom: 'clamp(0.75rem, 2vw, 1.5rem)',
+          left: 'auto',
+          width: 'min(30rem, calc(100vw - 1.5rem))',
+          maxHeight: '9rem',
+          transform: 'none',
+        }}
         className={cn(
           'alert vg-toast flex items-start justify-between gap-3 py-2',
           store.error ? 'error' : 'notice',
         )}
       >
-        <AlertDescription className="text-xs">{store.error ?? store.notice}</AlertDescription>
+        <AlertDescription className="min-w-0 flex-1 break-words text-xs">
+          {store.error ?? store.notice}
+        </AlertDescription>
         <Button
           variant="ghost"
           size="icon"

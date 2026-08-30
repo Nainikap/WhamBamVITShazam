@@ -8,6 +8,7 @@ import type {
   TimelineComparison,
 } from '../application';
 import type { ConflictChoice } from '../merge';
+import { errorMessage } from './error-message';
 
 export type Route = { name: 'dashboard' } | { name: 'editor'; projectId: string };
 
@@ -33,6 +34,8 @@ interface AppStore {
   goToDashboard(): Promise<void>;
   addResolveFolder(): Promise<void>;
   addResolveProjectFile(): Promise<void>;
+  importKdenlive(): Promise<void>;
+  addKdenliveFolder(): Promise<void>;
   exportFromResolve(): Promise<void>;
   refreshLibrary(): Promise<void>;
   connectSource(): Promise<void>;
@@ -56,6 +59,7 @@ interface AppStore {
   abortMerge(): Promise<void>;
   tag(name: string): Promise<void>;
   exportRevision(revision: string): Promise<void>;
+  openRevisionInKdenlive(revision: string): Promise<void>;
   relinkMedia(fingerprint: string): Promise<void>;
   startHosting(): Promise<void>;
   stopHosting(): Promise<void>;
@@ -66,19 +70,13 @@ interface AppStore {
   clearNotice(): void;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error
-    ? error.message.replace(/^Error invoking remote method '[^']+': Error: /u, '')
-    : String(error);
-}
-
 export const useAppStore = create<AppStore>((set, get) => {
   async function run(operation: () => Promise<void>): Promise<void> {
     set({ busy: true, error: null, notice: null });
     try {
       await operation();
     } catch (error) {
-      set({ error: message(error) });
+      set({ error: errorMessage(error) });
     } finally {
       set({ busy: false });
     }
@@ -137,16 +135,11 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
       void run(async () => {
         await refresh(projectId, get().selectedRevision?.commit.id);
-        const pending = get().status?.source.pending;
-        const source = get().status?.source;
-        const count = get().status?.workingChanges.length ?? 0;
         set({
           overviews: await window.snipsnap.listOverviews(),
-          notice: pending
-            ? `Resolve exported ${pending.changeCount} timeline change${pending.changeCount === 1 ? '' : 's'}. Review before applying.`
-            : source?.mode === 'resolve' && source.lastSavedAt
-              ? `Resolve save synchronized. ${count} uncommitted change${count === 1 ? '' : 's'} since HEAD.`
-              : 'Resolve source status updated.',
+          // The editor already presents source changes beside the timeline.
+          // A second global toast obscures the workspace while editors save.
+          notice: null,
         });
       });
     }),
@@ -181,10 +174,11 @@ export const useAppStore = create<AppStore>((set, get) => {
       const roots = await window.snipsnap.addResolveFolder();
       if (!roots) return;
       const overviews = await window.snipsnap.listOverviews();
+      const resolveCount = overviews.filter(({ editor }) => editor === 'resolve').length;
       set({
         overviews,
-        notice: overviews.length
-          ? `Watching ${roots.length} folder${roots.length === 1 ? '' : 's'}. Found ${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'}.`
+        notice: resolveCount
+          ? `Watching ${roots.length} folder${roots.length === 1 ? '' : 's'}. Found ${resolveCount} Resolve project${resolveCount === 1 ? '' : 's'}.`
           : 'No .drp file with a matching .otio export was found in that folder.',
       });
     }),
@@ -193,11 +187,51 @@ export const useAppStore = create<AppStore>((set, get) => {
       const roots = await window.snipsnap.addResolveProjectFile();
       if (!roots) return;
       const overviews = await window.snipsnap.listOverviews();
+      const resolveCount = overviews.filter(({ editor }) => editor === 'resolve').length;
       set({
         overviews,
-        notice: overviews.length
-          ? `Found ${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'}.`
+        notice: resolveCount
+          ? `Found ${resolveCount} Resolve project${resolveCount === 1 ? '' : 's'}.`
           : 'That project file has no .otio timeline export beside it yet.',
+      });
+    }),
+
+    importKdenlive: () => run(async () => {
+      const result = await window.snipsnap.importKdenliveOtio();
+      if (!result) return;
+      const projectId = result.status.project.id;
+      const [selectedRevision, overviews, collaboration] = await Promise.all([
+        window.snipsnap.revisionDetails(projectId, result.status.headCommit),
+        window.snipsnap.listOverviews(),
+        window.snipsnap.collaborationStatus(projectId),
+      ]);
+      const limitationCount = result.report.losses.reduce((count, loss) => count + loss.count, 0);
+      set({
+        status: result.status,
+        selectedRevision,
+        overviews,
+        collaboration,
+        currentProjectId: projectId,
+        route: { name: 'editor', projectId },
+        diffOpen: false,
+        comparison: null,
+        notice: limitationCount > 0
+          ? `Imported Kdenlive OTIO. ${limitationCount} item${limitationCount === 1 ? '' : 's'} need fidelity review.`
+          : 'Imported Kdenlive OTIO with no known portability warnings.',
+      });
+    }),
+
+    addKdenliveFolder: () => run(async () => {
+      const result = await window.snipsnap.addKdenliveFolder();
+      if (!result) return;
+      const overviews = await window.snipsnap.listOverviews();
+      const failed = result.failures.length;
+      set({
+        overviews,
+        notice: result.discovered === 0
+          ? 'No .otio timelines were found in that folder.'
+          : `Tracking ${result.tracked.length} Kdenlive timeline${result.tracked.length === 1 ? '' : 's'}`
+            + `${failed ? `; ${failed} invalid file${failed === 1 ? '' : 's'} skipped` : ''}.`,
       });
     }),
 
@@ -211,12 +245,16 @@ export const useAppStore = create<AppStore>((set, get) => {
     }),
 
     refreshLibrary: () => run(async () => {
+      const kdenlive = await window.snipsnap.refreshKdenliveFolders();
       const overviews = await window.snipsnap.listOverviews();
       set({
         overviews,
-        notice: overviews.length
-          ? `${overviews.length} Resolve project${overviews.length === 1 ? '' : 's'} available.`
-          : 'No Resolve projects found. Run the SnipSnap script in Resolve to export them.',
+        notice: kdenlive.failures.length
+          ? `${overviews.length} video project${overviews.length === 1 ? '' : 's'} available; `
+            + `${kdenlive.failures.length} invalid Kdenlive OTIO file${kdenlive.failures.length === 1 ? '' : 's'} skipped.`
+          : overviews.length
+            ? `${overviews.length} video project${overviews.length === 1 ? '' : 's'} available.`
+          : 'No projects found. Export OTIO from Resolve or Kdenlive first.',
       });
     }),
 
@@ -423,6 +461,18 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!projectId) return;
       const result = await window.snipsnap.exportOtio(projectId, revision);
       if (!result.canceled) set({ notice: `Exported commit ${result.commitId?.slice(0, 10)}.` });
+    }),
+
+    openRevisionInKdenlive: (revision) => run(async () => {
+      const projectId = get().currentProjectId;
+      if (!projectId) return;
+      const handoff = await window.snipsnap.openInKdenlive(projectId, revision);
+      const limitationCount = handoff.report.losses.reduce((count, loss) => count + loss.count, 0);
+      set({
+        notice: limitationCount > 0
+          ? `Prepared ${handoff.commitId.slice(0, 10)} with ${limitationCount} fidelity warning${limitationCount === 1 ? '' : 's'}. In Kdenlive choose File > OpenTimelineIO Import; the OTIO path is copied.`
+          : `Prepared ${handoff.commitId.slice(0, 10)}. In Kdenlive choose File > OpenTimelineIO Import; the OTIO path is copied.`,
+      });
     }),
 
     relinkMedia: (fingerprint) => run(async () => {

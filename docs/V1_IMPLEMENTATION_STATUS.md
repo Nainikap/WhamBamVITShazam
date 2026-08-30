@@ -35,6 +35,13 @@ permissions, cloud storage, FFmpeg proxy generation, background queue, or upload
 peer media during Push. Both computers must be able to reach each other on the same network, the host
 must keep SnipSnap open, and current originals are sent when no pre-existing proxy asset is available.
 
+An approved V2 Kdenlive OTIO slice also lets a Kdenlive export become a watched SnipSnap project and
+prepares any immutable commit for Kdenlive through an atomic OTIO handoff. Every handoff includes a
+validated JSON fidelity report. This is portable editorial interchange, not native `.kdenlive`/MLT
+versioning or a claim that captions, effects, generators, or Resolve Color/Fusion state are editable
+across NLEs. Kdenlive's supported File > OpenTimelineIO Import action remains an explicit step because
+its command line cannot invoke that importer.
+
 ## Requirement traceability
 
 | Engineering Plan requirement | Implementation | Automated evidence | Status |
@@ -42,6 +49,7 @@ must keep SnipSnap open, and current originals are sent when no pre-existing pro
 | Stable IDs, integer half-open frame ranges, rational FPS, bounded fields, full relationship validation | `src/domain/` Zod schemas and frame helpers | `tests/domain.test.ts` | Automated |
 | Deterministic NFC canonical JSON | `src/domain/canonical.ts` | key-order, Unicode, digest, and stable UUID property tests | Automated |
 | Minimal Resolve OTIO cut subset | `src/adapters/otio/` imports/exports tracks, clips, gaps, timing, and SnipSnap caption metadata | `tests/otio.test.ts`, including parse by official OpenTimelineIO 0.18.1 when installed | Automated for OTIO; Resolve validation pending |
+| Kdenlive OTIO vertical slice | `src/adapters/kdenlive/`, typed IPC, watched Kdenlive source bindings, immutable handoffs, native launcher discovery, and machine-readable loss reports | `tests/kdenlive.test.ts`, `tests/kdenlive-launcher.test.ts`, `tests/kdenlive.integration.test.ts`, and packaged `tests/e2e/kdenlive.spec.ts` | Automated plus live Linux/Kdenlive gate |
 | Footage and machine-local paths never enter Git | canonical assets contain fingerprint/name/length; relink URLs live in untracked `media-links.json` application state | Git integration asserts the commit tree contains only `timeline.json` and its blob has no source path | Automated |
 | Real Git commits, branches, refs, tags, merge-base, and two-parent commits | `src/git/` uses native Git plumbing through `spawn` argument arrays with `shell: false`; Git pack/delta maintenance compacts similar snapshots without changing their logical format | `tests/git.integration.test.ts` and `tests/application.integration.test.ts` inspect actual object types, parents, trees, refs, tags, compaction behavior, and `git fsck` | Automated |
 | Compare-and-swap ref safety | immutable objects are created first; refs move last through `update-ref <new> <expected-old>` | stale-ref unit/integration cases, including a target moved during conflict resolution | Automated |
@@ -114,6 +122,11 @@ caption objects. That fidelity must remain explicit rather than silently adverti
 Resolve's scripting/OTIO APIs also do not expose a portable, complete Color-page node graph. Color
 grades are therefore reported as unsupported rather than falsely versioned; supported editorial,
 audio, transition, marker, metadata, and caption fields produce independent semantic hunks.
+
+Kdenlive's documented OTIO boundary covers multiple tracks, clips, and markers. The automated gate
+also proves stable reconciliation after SnipSnap IDs are removed, literal no-shell process arguments,
+and immutable report publication. It does not claim native MLT fidelity or automatic OTIO export on
+every Kdenlive save. See [`KDENLIVE_INTEGRATION.md`](./KDENLIVE_INTEGRATION.md).
 
 ## Storage and security notes
 

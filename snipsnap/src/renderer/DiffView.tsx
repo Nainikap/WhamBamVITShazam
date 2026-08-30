@@ -77,6 +77,16 @@ function tally(segments: TimelineDiffSegment[]): Record<Tone, number> {
   return counts;
 }
 
+/** Start just before the first frame that actually differs, not at the clip's unchanged head. */
+function previewFocusFrame(segment: TimelineDiffSegment, fps: number): number {
+  const changedPart = segment.parts.find(({ change }) => change !== 'kept');
+  const changeStart = changedPart?.laneStart
+    ?? segment.after?.timelineStart
+    ?? segment.before?.timelineStart
+    ?? segment.laneStart;
+  return Math.max(0, changeStart - Math.max(1, Math.round(fps)));
+}
+
 function hunkEntityIds(hunk: SemanticHunk): Set<string> {
   const ids = new Set([hunk.entityId]);
   const visit = (part: SemanticHunk) => {
@@ -250,16 +260,19 @@ export function DiffView({
   useEffect(() => {
     setPlaying(false);
     if (!selectedHunk) {
-      setPlayhead(0);
+      const firstDifference = changed
+        .map(({ segment }) => previewFocusFrame(segment, diff.fps))
+        .sort((left, right) => left - right)[0];
+      setPlayhead(firstDifference ?? 0);
       return;
     }
     const ids = hunkEntityIds(selectedHunk);
     const segment = changed.find((entry) => ids.has(entry.segment.id))?.segment;
-    if (segment) setPlayhead(segment.after?.timelineStart ?? segment.before?.timelineStart ?? 0);
-  }, [changed, selectedHunk]);
+    if (segment) setPlayhead(previewFocusFrame(segment, diff.fps));
+  }, [changed, diff.fps, selectedHunk]);
 
   return <section aria-label="Commit comparison" className="flex flex-col gap-3">
-    <Card className="flex flex-wrap items-end gap-4 p-3">
+    <Card className="vg-diff-toolbar flex flex-wrap items-end gap-4 p-3">
       <div className="flex min-w-0 flex-[1_1_26rem] items-end gap-2">
         <RevisionPicker label="Base" value={comparison.base.commit.id} options={history} onChange={onSelectBase} />
         <ArrowRight className="mb-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -276,7 +289,7 @@ export function DiffView({
       </div>
     </Card>
 
-    <div className="grid grid-cols-2 gap-3">
+    <div className="vg-diff-previews grid grid-cols-2 gap-3">
       {[comparison.base, comparison.head].map((side, index) => <div key={side.commit.id + index} className="flex min-w-0 flex-col gap-2">
         <div className="flex min-w-0 flex-col">
           <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
@@ -301,7 +314,7 @@ export function DiffView({
     </div>
 
     <Card className="p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="vg-diff-summary mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">Timeline differences</h3>
           <p aria-live="polite" className="mt-0.5 truncate text-[10px] text-muted-foreground">
