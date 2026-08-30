@@ -126,6 +126,8 @@ export function CommitPlayer({
   const displayLabel = useMemo(() => {
     if (!active) return 'No video track in this commit';
     if (active.kind === 'gap') return 'Timeline gap';
+    // A title has no file behind it, which is not the same as one going missing.
+    if (active.isGenerator) return `${active.name} · title`;
     return active.available ? active.name : `${active.name} · media offline`;
   }, [active]);
 
@@ -212,7 +214,7 @@ export function CommitPlayer({
       </div>
       {!canPlayMedia && <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 p-6 text-center">
         <strong className="text-sm">{displayLabel}</strong>
-        {!active?.available && active?.assetFingerprint && onRelink && <Button variant="secondary" size="sm" onClick={() => {
+        {!active?.available && !active?.isGenerator && active?.assetFingerprint && onRelink && <Button variant="secondary" size="sm" onClick={() => {
           if (active.assetFingerprint) onRelink(active.assetFingerprint);
         }}>Locate media</Button>}
       </div>}

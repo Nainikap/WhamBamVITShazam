@@ -107,7 +107,8 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
                 'absolute inset-y-1.5 flex min-w-[3px] items-center gap-1.5 overflow-hidden rounded border border-white/10 px-1.5 text-left',
                 chipTone[segment.kind],
                 selectedSegmentId === segment.id && 'ring-1 ring-primary',
-                segment.kind === 'clip' && !segment.available && 'opacity-55 grayscale',
+                // A generator is dimmed for missing footage otherwise, which it never has.
+                segment.kind === 'clip' && !segment.available && !segment.isGenerator && 'opacity-55 grayscale',
               )}
               style={{
                 left: `${(segment.timelineStart / total) * 100}%`,
