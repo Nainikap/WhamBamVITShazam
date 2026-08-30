@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import type { CommitInfo } from '../git';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { relativeTime, shortId } from './format';
 
-const ROW = 56;
+const ROW = 68;
 const COLUMN = 14;
 const LEFT = 14;
 const LANE_COLORS = ['#5b8cff', '#3ddc84', '#f0c05a', '#c78bff', '#ff8f6b', '#5fd7d0'];
@@ -79,13 +80,14 @@ export interface CommitGraphProps {
   selectedCommit: string;
   branches: Array<{ name: string; commitId: string }>;
   onSelect(commitId: string): void;
+  onDiff(commitId: string, parentId: string): void;
 }
 
 /**
  * The one place commits are listed. Branch topology is drawn beside the rows
  * rather than repeated as a second graph elsewhere in the window.
  */
-export function CommitGraph({ history, headCommit, selectedCommit, branches, onSelect }: CommitGraphProps) {
+export function CommitGraph({ history, headCommit, selectedCommit, branches, onSelect, onDiff }: CommitGraphProps) {
   const { placed, edges, lanes } = useMemo(() => layoutGraph(history), [history]);
   const width = LEFT + Math.max(0, lanes - 1) * COLUMN + 14;
   const height = Math.max(ROW, placed.length * ROW);
@@ -120,27 +122,44 @@ export function CommitGraph({ history, headCommit, selectedCommit, branches, onS
     </svg>
 
     <div className="flex flex-col" style={{ marginLeft: width }}>
-      {placed.map((entry) => <button
+      {placed.map((entry) => <div
         key={entry.commit.id}
-        aria-label={`View commit ${entry.commit.message}`}
-        onClick={() => onSelect(entry.commit.id)}
         style={{ height: ROW }}
         className={cn(
-          'flex flex-col justify-center gap-1 rounded-md border border-transparent px-2.5 text-left transition-colors',
+          'flex items-center rounded-md border border-transparent pr-1 transition-colors',
           entry.commit.id === selectedCommit ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
         )}
       >
-        <span className="truncate text-xs font-medium leading-tight">{entry.commit.message}</span>
-        <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <code className="font-mono">{shortId(entry.commit.id)}</code>
-          <span>·</span>
-          <span className="truncate">{relativeTime(entry.commit.authoredAt)}</span>
-          {(tips.get(entry.commit.id) ?? []).map((name) => (
-            <Badge key={name} variant="info" className="ml-0.5">{name}</Badge>
-          ))}
-          {entry.commit.parents.length > 1 && <Badge variant="edited">merge</Badge>}
-        </span>
-      </button>)}
+        <button
+          aria-label={`View commit ${entry.commit.message}`}
+          onClick={() => onSelect(entry.commit.id)}
+          className="flex min-w-0 flex-1 flex-col justify-center gap-1 self-stretch px-2.5 text-left"
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-xs font-medium leading-tight">{entry.commit.message}</span>
+            {entry.commit.id === headCommit && <Badge variant="outline">HEAD</Badge>}
+          </span>
+          <span className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+            <code className="shrink-0 font-mono">{shortId(entry.commit.id)}</code>
+            <span>·</span>
+            <span className="truncate" title={entry.commit.author}>{entry.commit.author}</span>
+            <span>·</span>
+            <span className="shrink-0">{relativeTime(entry.commit.authoredAt)}</span>
+          </span>
+          <span className="flex min-h-4 items-center gap-1 overflow-hidden">
+            {(tips.get(entry.commit.id) ?? []).map((name) => (
+              <Badge key={name} variant="info">{name}</Badge>
+            ))}
+            {entry.commit.parents.length > 1 && <Badge variant="edited">merge</Badge>}
+          </span>
+        </button>
+        {entry.commit.parents[0] && <Button
+          size="sm"
+          variant="ghost"
+          aria-label={`View diff for ${entry.commit.message}`}
+          onClick={() => onDiff(entry.commit.id, entry.commit.parents[0] as string)}
+        >Diff</Button>}
+      </div>)}
     </div>
   </div>;
 }
