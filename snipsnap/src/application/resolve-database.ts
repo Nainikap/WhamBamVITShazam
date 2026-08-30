@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { copyFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -67,7 +68,7 @@ interface RawItem {
 export async function readResolveTimelines(databasePath: string): Promise<GeneratedTimeline[]> {
   const sqlite = loadSqlite();
   if (!sqlite) return [];
-  const copy = `${databasePath}.snipsnap-build`;
+  const copy = `${databasePath}.snipsnap-build-${process.pid}-${randomUUID()}`;
   const formats = new Map<string, VideoFormat | null>();
 
   try {
@@ -158,7 +159,7 @@ export async function readResolveTimelines(databasePath: string): Promise<Genera
   } catch {
     return [];
   } finally {
-    await rm(copy, { force: true });
+    await rm(copy, { force: true }).catch(() => undefined);
   }
 }
 

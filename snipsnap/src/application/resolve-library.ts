@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { access, copyFile, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -285,7 +286,7 @@ interface DatabaseProject {
 async function readProjectDatabase(databasePath: string): Promise<DatabaseProject | null> {
   const sqlite = loadSqlite();
   if (!sqlite) return null;
-  const copy = `${databasePath}.snipsnap-read`;
+  const copy = `${databasePath}.snipsnap-read-${process.pid}-${randomUUID()}`;
   try {
     await copyFile(databasePath, copy);
     const database = new sqlite.DatabaseSync(copy, { readOnly: true });
@@ -305,7 +306,7 @@ async function readProjectDatabase(databasePath: string): Promise<DatabaseProjec
   } catch {
     return null;
   } finally {
-    await rm(copy, { force: true });
+    await rm(copy, { force: true }).catch(() => undefined);
   }
 }
 
