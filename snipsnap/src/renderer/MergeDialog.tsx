@@ -21,7 +21,7 @@ function Side({ side, tone }: { side: ConflictBrief['original']; tone: 'base' | 
     'border-primary/40': tone === 'ours',
     'border-added/40': tone === 'theirs',
   })}>
-    <span className={cn('font-mono text-[9px] uppercase tracking-widest', {
+    <span className={cn('font-mono text-[9px] tracking-widest', {
       'text-muted-foreground': tone === 'base',
       'text-primary': tone === 'ours',
       'text-added': tone === 'theirs',
@@ -49,7 +49,7 @@ export function MergeDialog({ session, onResolve, onComplete, onAbort, busy }: M
   const remaining = briefs.length;
 
   return <Dialog open>
-    <DialogContent onEscapeKeyDown={(event) => event.preventDefault()}>
+    <DialogContent className="vg-mono" onEscapeKeyDown={(event) => event.preventDefault()}>
       <DialogHeader>
         <DialogTitle>{session.sourceBranch} → {session.targetBranch}</DialogTitle>
         <DialogDescription>
@@ -66,9 +66,9 @@ export function MergeDialog({ session, onResolve, onComplete, onAbort, busy }: M
           </p>}
           {briefs.map((brief) => <article key={brief.id} className="rounded-lg border border-border bg-secondary/40 p-3.5">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={scopeVariant[brief.scope]}>{brief.scope.toUpperCase()}</Badge>
+              <Badge variant={scopeVariant[brief.scope]}>{brief.scope.charAt(0).toUpperCase() + brief.scope.slice(1)}</Badge>
               <strong className="text-[13px]">{brief.title}</strong>
-              <span className="ml-auto font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+              <span className="ml-auto font-mono text-[9px] tracking-widest text-muted-foreground">
                 {brief.category}
               </span>
             </div>

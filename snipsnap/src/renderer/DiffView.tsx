@@ -59,7 +59,7 @@ function RevisionPicker({ label, value, options, onChange }: {
   onChange(id: string): void;
 }) {
   return <div className="flex min-w-0 flex-1 flex-col gap-1">
-    <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">{label}</span>
+    <span className="font-mono text-[9px] tracking-widest text-muted-foreground">{label}</span>
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger aria-label={label}><SelectValue /></SelectTrigger>
       <SelectContent>
@@ -157,7 +157,9 @@ function Lane({ track, laneFrames, fps }: { track: TimelineDiffTrack; laneFrames
   return <div className="grid grid-cols-[7rem_minmax(0,1fr)_6.5rem] overflow-hidden rounded-md border border-border">
     <div className="flex flex-col justify-center border-r border-border bg-card px-2.5 py-2">
       <strong className="line-clamp-2 text-[11px] leading-tight">{track.name}</strong>
-      <small className="font-mono text-[8px] tracking-widest text-muted-foreground">{track.kind.toUpperCase()}</small>
+      <small className="font-mono text-[8px] tracking-widest text-muted-foreground">
+        {track.kind.charAt(0).toUpperCase() + track.kind.slice(1)}
+      </small>
     </div>
     <div className="relative h-11 bg-black/30">
       {track.segments.map((segment) => {
@@ -271,7 +273,7 @@ export function DiffView({
     if (segment) setPlayhead(previewFocusFrame(segment, diff.fps));
   }, [changed, diff.fps, selectedHunk]);
 
-  return <section aria-label="Commit comparison" className="flex flex-col gap-3">
+  return <section aria-label="Commit comparison" className="vg-diff-colors flex flex-col gap-3">
     <Card className="vg-diff-toolbar flex flex-wrap items-end gap-4 p-3">
       <div className="flex min-w-0 flex-[1_1_26rem] items-end gap-2">
         <RevisionPicker label="Base" value={comparison.base.commit.id} options={history} onChange={onSelectBase} />
@@ -292,7 +294,7 @@ export function DiffView({
     <div className="vg-diff-previews grid grid-cols-2 gap-3">
       {[comparison.base, comparison.head].map((side, index) => <div key={side.commit.id + index} className="flex min-w-0 flex-col gap-2">
         <div className="flex min-w-0 flex-col">
-          <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+          <span className="font-mono text-[9px] tracking-widest text-muted-foreground">
             {index === 0 ? 'Base' : 'Compared'}
           </span>
           <strong className="truncate text-sm">{side.commit.message}</strong>

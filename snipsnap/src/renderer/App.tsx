@@ -9,7 +9,7 @@ import { Dashboard } from './Dashboard';
 import { Editor } from './Editor';
 import { MergeDialog } from './MergeDialog';
 import { Intro } from './prism/Intro';
-import { GlassFilters, GlassSurface } from './prism/LiquidGlass';
+import { GlassFilters } from './prism/LiquidGlass';
 import { PrismStage, type Stage } from './prism/PrismStage';
 import './prism/prism.css';
 import { useAppStore } from './store';
@@ -73,16 +73,16 @@ export function App() {
 
       <div className="vg-library" ref={libraryRef}><Dashboard /></div>
 
-      <div className="vg-project">
-        <GlassSurface />
+      <div className="vg-project vg-mono">
         <div className="vg-glass-body vg-project-body">
-          <header className="vg-project-header flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
+          <header className="vg-project-header flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/70 px-5 backdrop-blur">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   aria-label="Dashboard"
+                  className="shrink-0"
                   onClick={() => void store.goToDashboard()}
                 ><ArrowLeft /></Button>
               </TooltipTrigger>
@@ -115,6 +115,9 @@ export function App() {
       </div>
 
       {store.busy && <div className="vg-busy" aria-label="Working" />}
+      {store.busy && <div className="vg-cube-veil" aria-hidden="true">
+        <div className="vg-cube"><i /><i /><i /><i /><i /><i /></div>
+      </div>}
 
       {(store.error || store.notice) && <Alert
         role={store.error ? 'alert' : 'status'}

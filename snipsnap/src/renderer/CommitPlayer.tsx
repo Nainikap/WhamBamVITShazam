@@ -241,7 +241,11 @@ export function CommitPlayer({
   }
 
   return <section
-    className={cn('viewer flex min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-black/60')}
+    className={cn(
+      'viewer flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-black/60',
+      // The full player owns its stage cell; the compact pair sizes itself.
+      variant === 'full' ? 'flex-1' : 'shrink-0',
+    )}
     aria-label={label ?? 'Commit video preview'}
     data-variant={variant}
   >
@@ -256,10 +260,11 @@ export function CommitPlayer({
         togglePlayback();
       }}
       className={cn(
-        'relative shrink-0 cursor-pointer overflow-hidden bg-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-edited',
-        // A fixed box with object-contain letterboxes any aspect ratio without
-        // the stage growing past the transport underneath it.
-        variant === 'full' ? 'h-[44vh]' : 'h-[26vh]',
+        'relative cursor-pointer overflow-hidden bg-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-edited',
+        // The full surface flexes into whatever the stage grants while
+        // object-contain letterboxes any aspect ratio; the compact pair keeps
+        // a fixed box so the side-by-side comparison stays level.
+        variant === 'full' ? 'min-h-0 flex-1' : 'h-[26vh] shrink-0',
       )}
     >
       <video
@@ -296,9 +301,6 @@ export function CommitPlayer({
         aria-hidden="true"
         className={cn('pointer-events-none absolute inset-0 h-full w-full object-contain', !holdingFrame && 'hidden')}
       />
-      <div className="pointer-events-none absolute right-2.5 top-2.5 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-foreground/80">
-        {framesToTimecode(playhead, plan.fps)}
-      </div>
       {!canPlayMedia && <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 p-6 text-center">
         <strong className="text-sm">{displayLabel}</strong>
         {!active?.available && !active?.isGenerator && active?.assetFingerprint && onRelink && <Button variant="secondary" size="sm" onClick={() => {
