@@ -18,6 +18,7 @@ let sourceDocument: {
         name?: string;
         source_range?: { start_time: { value: number }; duration: { value: number } };
         media_reference?: { target_url?: string };
+        metadata?: { videogit?: { gainDb?: number; preset?: 'warm' | 'cool' | 'mono' } };
       }>;
     }>;
   };
@@ -152,10 +153,29 @@ async function exportResolveBladeCut(): Promise<void> {
   await writeFile(otioPath, JSON.stringify(sourceDocument));
 }
 
+async function exportResolveMultiFieldChange(): Promise<void> {
+  const opening = sourceDocument.tracks.children[0]?.children.find(({ name }) => name === 'Opening');
+  if (!opening?.source_range) throw new Error('Fixture opening range missing');
+  opening.source_range.duration.value = 90;
+  opening.metadata = { videogit: { gainDb: -6, preset: 'warm' } };
+  await writeFile(otioPath, JSON.stringify(sourceDocument));
+}
+
 async function applyStageAndCommit(message: string): Promise<void> {
   await expect(page.getByText(/change(s)? detected in Resolve/u)).toBeVisible();
   await page.getByRole('button', { name: 'Apply to working timeline' }).click();
   await page.getByRole('button', { name: 'Stage', exact: true }).first().click();
+  await page.getByLabel('Commit message').fill(message);
+  await page.getByRole('button', { name: 'Commit', exact: true }).click();
+  await expect(page.getByRole('button', { name: `View commit ${message}` })).toBeVisible();
+}
+
+async function applyStageAllAndCommit(message: string): Promise<void> {
+  await expect(page.getByText(/change(s)? detected in Resolve/u)).toBeVisible();
+  await page.getByRole('button', { name: 'Apply to working timeline' }).click();
+  const stageAll = page.getByRole('button', { name: 'Stage all', exact: true });
+  await expect(stageAll).toBeEnabled();
+  await stageAll.click();
   await page.getByLabel('Commit message').fill(message);
   await page.getByRole('button', { name: 'Commit', exact: true }).click();
   await expect(page.getByRole('button', { name: `View commit ${message}` })).toBeVisible();
@@ -206,6 +226,48 @@ test('splits the window into two commits and shows the frames the trim removed',
 
   await page.getByRole('button', { name: 'Close comparison' }).click();
   await expect(page.getByRole('region', { name: 'Timeline tracks' })).toBeVisible();
+});
+
+test('opens a whole commit and focuses each semantic diff independently', async () => {
+  await openProject();
+  await exportResolveMultiFieldChange();
+  await applyStageAllAndCommit('Polish the opening');
+
+  await page.getByRole('button', { name: 'See diff' }).click();
+  const comparison = page.getByRole('region', { name: 'Commit comparison' });
+  await expect(comparison.getByText('Whole commit: 3 changes together')).toBeVisible();
+  const wholeCommit = comparison.getByRole('button', { name: 'Show all changes in this commit' });
+  await expect(wholeCommit).toHaveAttribute('aria-pressed', 'true');
+
+  const trim = comparison.getByRole('button', { name: 'View diff Trimmed end of clip Opening by 6 frames' });
+  const level = comparison.getByRole('button', { name: 'View diff Changed clip Opening: level' });
+  const look = comparison.getByRole('button', { name: 'View diff Changed clip Opening: look' });
+  await expect(trim).toBeVisible();
+  await expect(level).toBeVisible();
+  await expect(look).toBeVisible();
+
+  await level.click();
+  await expect(comparison.getByText('Focused change: Changed clip Opening: level')).toBeVisible();
+  await expect(level).toHaveAttribute('aria-pressed', 'true');
+  await expect(wholeCommit).toHaveAttribute('aria-pressed', 'false');
+  await expect(comparison.locator('.border-edited')).toHaveCount(1);
+  await expect(comparison.locator('.border-retimed')).toHaveCount(0);
+
+  await trim.click();
+  await expect(comparison.getByText('Focused change: Trimmed end of clip Opening by 6 frames')).toBeVisible();
+  await expect(comparison.locator('.border-retimed')).toHaveCount(1);
+  await expect(comparison.locator('.border-edited')).toHaveCount(0);
+
+  await look.click();
+  await expect(comparison.getByText('Focused change: Changed clip Opening: look')).toBeVisible();
+  await expect(look).toHaveAttribute('aria-pressed', 'true');
+
+  await wholeCommit.click();
+  await expect(comparison.getByText('Whole commit: 3 changes together')).toBeVisible();
+  await expect(wholeCommit).toHaveAttribute('aria-pressed', 'true');
+  await expect(trim).toBeVisible();
+  await expect(level).toBeVisible();
+  await expect(look).toBeVisible();
 });
 
 test('creates a branch from an old commit, switches branches, and restores history safely', async () => {
