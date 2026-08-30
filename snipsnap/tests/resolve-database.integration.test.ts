@@ -159,7 +159,9 @@ describe('rebuilding a timeline from a Resolve database', () => {
     const saved = await service.status(projectId);
     expect(saved.source).toMatchObject({ state: 'watching', lastMarker: 'database:save-1' });
     expect(saved.project.name).toBe('Studio Job');
-    expect(saved.workingChanges.map(({ message }) => message)).toContain('Trimmed clip closing');
+    expect(saved.workingChanges.map(({ message }) => message)).toEqual(expect.arrayContaining([
+      expect.stringContaining('Trimmed end of clip closing by'),
+    ]));
     expect(saved.workingChanges.map(({ message }) => message)).not.toContain(
       'Renamed project Studio Job to Hero Cut',
     );
