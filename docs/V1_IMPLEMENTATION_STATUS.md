@@ -1,4 +1,4 @@
-# VideoGit V1/V1.5 implementation status
+# VideoGit V1/V1.5 and LAN MVP implementation status
 
 > Updated: 2026-08-30
 >
@@ -21,10 +21,19 @@ React/Zustand renderer
 SnipSnap contains no video-editing controls. Resolve remains the editor. The save bridge observes
 Resolve's persisted `lastModifiedDate`, atomically exports once per distinct save marker, and makes
 only the newest validated snapshot WORKING. `HEAD -> WORKING` is shown as separate semantic hunks;
-only an explicit SnipSnap commit creates history. Manual OTIO watching remains a fallback. Commits are previewed from locally linked,
-browser-compatible media through a restricted Electron protocol. There is no Fastify server,
-managed media CAS, FFmpeg proxy worker, SQLite queue, hosted auth, or cross-NLE adapter. Those
-remain V2 work.
+only an explicit SnipSnap commit creates history. Manual OTIO watching remains a fallback. Commits
+are previewed from locally linked, browser-compatible media through a restricted Electron protocol.
+
+An additive V2 LAN-demo slice now lets one desktop host a project and another join with a pairing
+code. It transfers native Git bundles for complete commits/branches/tags and sends footage outside
+Git as encrypted, resumable, SHA-256-verified chunks. Received files are deduplicated in a local
+content-addressed store and relinked for commit preview. Pull fast-forwards clean branches, preserves
+divergence under peer-qualified branches, and Push rejects stale or non-fast-forward updates.
+
+This LAN slice is not a hosted collaboration system. It has no NAT traversal, relay, discovery,
+permissions, cloud storage, FFmpeg proxy generation, background queue, or upload of newly introduced
+peer media during Push. Both computers must be able to reach each other on the same network, the host
+must keep SnipSnap open, and current originals are sent when no pre-existing proxy asset is available.
 
 ## Requirement traceability
 
@@ -49,6 +58,10 @@ remain V2 work.
 | Resolve sync and historical-branch browser flows | `tests/e2e/workflow.spec.ts` launches the real packaged Electron entry with an isolated real Git repository and watched OTIO file | two Playwright tests cover automatic detection through commit preview, plus old-commit branching/switch/restore | Automated |
 | Export resolves an immutable commit before compilation | `ProjectService.exportOtio` resolves the revision to an object ID, loads that snapshot, then compiles OTIO and restores sidecar relinks | application integration test | Automated |
 | Offline operation | application and test flows use local files, native Git, and Electron IPC only | all core/integration/E2E tests run without a service dependency | Automated |
+| LAN repository clone/pull/push | native Git bundles carry every branch, tag, commit, parent, and full timeline tree; ref updates retain dirty/stale/non-fast-forward guards | `tests/collaboration.integration.test.ts` imports complete history and proves peer push plus host pull | Automated |
+| Resumable verified media transfer | 8 MiB chunks use per-chunk and whole-file SHA-256; progress metadata survives restart; completed files publish atomically into a local CAS and relink outside Git | `tests/media-transfer.test.ts` covers resume and corruption rejection; collaboration integration verifies preview media bytes | Automated |
+| Encrypted LAN pairing | the pairing code contains a random 256-bit secret; every request is timestamped, nonce-protected, HMAC-authenticated, and AES-256-GCM encrypted | collaboration integration exercises the real loopback HTTP transport without mocks | Automated for protocol; external security review pending |
+| Desktop Host/Join/Pull/Push workflow | typed IPC exposes only collaboration use cases; dashboard joins a peer and editor shows hosting, pairing, sync controls, and transfer progress | packaged Electron Playwright launches two isolated app instances, joins, then pushes a real branch | Automated |
 
 ## Verification commands
 
@@ -69,7 +82,8 @@ The test layers deliberately prove different things:
 - integration tests execute real Git 2.x repositories under temporary directories, including
   physical snapshot compaction with unchanged refs, index, history, and canonical reads;
 - Playwright launches the packaged Electron entry and exercises watched OTIO -> renderer ->
-  preload -> IPC -> services -> Git -> immutable preview plan rather than replacing the API with mocks;
+  preload -> IPC -> services -> Git -> immutable preview plan rather than replacing the API with
+  mocks; it also launches two app instances for a real Host -> Join -> Push UI journey;
 - the packaging check verifies Electron Forge can produce the platform package (for example,
   `out/SnipSnap-win32-x64/SnipSnap.exe` on Windows), and E2E launches that package's generated
   `resources/app.asar` through the Electron automation harness.
@@ -109,6 +123,9 @@ audio, transition, marker, metadata, and caption fields produce independent sema
   is best-effort and never changes commits, refs, the semantic index, or the working snapshot.
 - Source media URLs are stored beside the workspace in `media-links.json`, never in Git. They are
   used for immutable OTIO export and local commit preview; footage is not copied.
+- Media received from a LAN peer is stored under `v1-data/media/sha256/` by its full content digest.
+  Partial files and download metadata remain restart-safe until verification succeeds. Pairing and
+  remote metadata stay in application storage, outside the project Git repository.
 - The custom `snipsnap-media://asset/<project>/<fingerprint>` handler resolves only registered
   sidecar links in the main process. The renderer never receives arbitrary filesystem access.
 - The BrowserWindow is sandboxed with context isolation on and Node integration off.

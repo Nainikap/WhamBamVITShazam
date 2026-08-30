@@ -23,3 +23,8 @@ Node and Electron APIs are available only in the main process. A local Fastify H
 
 SnipSnap does not edit video. Resolve writes the timeline; SnipSnap detects its OTIO export,
 versions the canonical timeline, and previews immutable commits from locally linked media.
+
+The current build also contains an explicitly bounded V2 LAN-demo slice: one SnipSnap desktop can
+host a project and another can join, pull, and push native Git history while missing footage is
+transferred outside Git in encrypted, resumable, hash-verified chunks. See
+[`V1_IMPLEMENTATION_STATUS.md`](./V1_IMPLEMENTATION_STATUS.md) for implemented behavior and limits.
