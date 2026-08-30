@@ -28,6 +28,15 @@ export interface ResolveBridgeOptions {
   databasePollIntervalMs?: number;
 }
 
+export function resolvePythonInvocation(platform: NodeJS.Platform = process.platform): {
+  command: string;
+  prefix: string[];
+} {
+  return platform === 'win32'
+    ? { command: 'pyw', prefix: ['-3'] }
+    : { command: 'python3', prefix: [] };
+}
+
 /** Runs one validated, save-marker-driven Resolve scripting process per project. */
 export class ResolveBridgeService {
   private readonly processes = new Map<string, ChildProcessWithoutNullStreams>();
@@ -56,8 +65,14 @@ export class ResolveBridgeService {
     await this.projects.updateResolveBridgeState(projectId, 'starting');
     await this.onChange(projectId);
 
-    const command = this.options.command ?? (process.platform === 'win32' ? 'py' : 'python3');
-    const prefix = this.options.commandPrefixArgs ?? (process.platform === 'win32' ? ['-3'] : []);
+    // `py.exe` is a console application. Windows attaches a conhost window to
+    // it even when Electron requests windowsHide, and that host can flash over
+    // Resolve whenever the bridge writes a save event. `pyw.exe` uses the same
+    // launcher and still supports piped stdout/stderr without creating a
+    // visible console window.
+    const python = resolvePythonInvocation();
+    const command = this.options.command ?? python.command;
+    const prefix = this.options.commandPrefixArgs ?? python.prefix;
     const resolveApi = process.platform === 'win32' && process.env.PROGRAMDATA
       ? path.join(process.env.PROGRAMDATA, 'Blackmagic Design', 'DaVinci Resolve', 'Support', 'Developer', 'Scripting')
       : undefined;

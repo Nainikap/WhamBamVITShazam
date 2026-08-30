@@ -13,6 +13,7 @@ import {
   SourceWatchService,
   atomicWriteText,
   installResolveScript,
+  resolvePythonInvocation,
 } from './application';
 import { channels } from './ipc';
 
@@ -217,7 +218,11 @@ function registerIpc(): void {
     const script = resolveScriptPath();
     let output = '';
     try {
-      const result = await runFile('python3', [script, '--all'], { timeout: 120_000 });
+      const python = resolvePythonInvocation();
+      const result = await runFile(python.command, [...python.prefix, script, '--all'], {
+        timeout: 120_000,
+        windowsHide: true,
+      });
       output = result.stdout;
       if (!output.includes('Could not reach DaVinci Resolve')) {
         const summary = output.trim().split('\n').filter(Boolean).at(-2) ?? 'Export finished.';
@@ -335,9 +340,10 @@ function createWindow(): void {
   const window = new BrowserWindow({
     width: 1440,
     height: 940,
-    minWidth: 1050,
-    minHeight: 700,
-    backgroundColor: '#090b10',
+    minWidth: 680,
+    minHeight: 520,
+    show: false,
+    backgroundColor: '#0c0c0e',
     title: 'SnipSnap',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -346,6 +352,10 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+
+  // Do not expose Chromium's empty native surface while the renderer is
+  // loading. On Windows that surface appears as a full black window.
+  window.once('ready-to-show', () => window.show());
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.once('did-finish-load', () => {
