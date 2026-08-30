@@ -1,32 +1,43 @@
-# VideoGit documentation
+# SnipSnap documentation
 
-The documents in this directory have different roles:
+The [main README](../README.md) is the starting point for what SnipSnap does, how to install it, how
+to connect Resolve or Kdenlive, and how to run the test suite.
 
-1. [`VideoGit_Engineering_Plan.md`](./VideoGit_Engineering_Plan.md) is the authoritative V1 implementation plan.
-2. [`VideoGit_System_Architecture_V1_V2.md`](./VideoGit_System_Architecture_V1_V2.md) is the V1-to-V2 architecture roadmap. It must not expand V1 beyond the Engineering Plan.
-3. [`VideoGit_CrossNLE_Universal_Hub_Brainstorm.md`](./VideoGit_CrossNLE_Universal_Hub_Brainstorm.md) is product research for a future cross-NLE release, not the current build plan.
-4. [`V1_IMPLEMENTATION_STATUS.md`](./V1_IMPLEMENTATION_STATUS.md) maps the V1/V1.5 contract to the current code and test evidence. It also records validation that still requires DaVinci Resolve and real footage.
-5. [`KDENLIVE_INTEGRATION.md`](./KDENLIVE_INTEGRATION.md) defines native Kdenlive save sync, OTIO handoff, and the explicit fidelity boundary.
-6. [`HOSTED_COLLABORATION_PLAN.md`](./HOSTED_COLLABORATION_PLAN.md) is a reasoned future plan for a durable GitHub-style service, not a V1 requirement.
+## Current product guides
 
-If the documents conflict, follow the Engineering Plan.
+- [Kdenlive integration](KDENLIVE_INTEGRATION.md) explains native `.kdenlive` save tracking,
+  automatic sibling OTIO generation, immutable commit handoff, platform discovery, and fidelity
+  limits.
+- [Resolve integration scripts](../resolve/README.md) explains managed save sync, menu-script
+  installation, export locations, and the manual fallback.
+- [Hosted collaboration plan](HOSTED_COLLABORATION_PLAN.md) reasons through a future durable remote
+  service. It is a plan, not behavior present in the desktop app.
+- [Studio Graphite design system](SnipSnap_Studio_Graphite_Design_System.md) records the interface
+  language and visual constraints.
+- [Contributor handoff](HANDOFF.md) records implementation context for continuing engineering work.
 
-## Core architecture invariant
+## Engineering documents
 
-Git stores canonical timeline JSON snapshots and provides commits, parents, branches, tags, refs, and merge-base discovery. VideoGit computes semantic diffs, semantic staging, and three-way timeline merges in TypeScript. Git must never text-merge timeline JSON.
+The [Engineering Plan](VideoGit_Engineering_Plan.md) remains the authoritative implementation
+contract when code and planning documents disagree. Architecture and cross-editor brainstorm files
+in this directory provide background or future research; they do not silently expand the behavior
+claimed by the main README.
 
-For local V1, the process boundary is:
+## How the application is structured
 
 ```text
-React renderer -> typed preload IPC -> Electron main -> application services
+React renderer → typed context-isolated preload IPC → Electron main → application services
 ```
 
-Node and Electron APIs are available only in the main process. A local Fastify HTTP adapter is optional and is introduced only when a DaVinci companion script or an external client requires it.
+The renderer is sandboxed. Node, Electron, filesystem, cryptography, and child-process access stay
+in the main process. SnipSnap stores complete canonical `timeline.json` snapshots in native Git and
+computes semantic diff, staging, and merge behavior in TypeScript. Git never text-merges the
+timeline.
 
-SnipSnap does not edit video. Resolve or Kdenlive writes the timeline; SnipSnap detects the saved state,
-versions the canonical timeline, and previews immutable commits from locally linked media.
+Resolve and Kdenlive remain the editors. SnipSnap detects their saved timeline state, versions the
+portable editing decisions, and previews immutable commits from media linked on the current
+computer. Native editor files, local media paths, and footage remain outside Git.
 
-The current build also contains an explicitly bounded V2 LAN-demo slice: one SnipSnap desktop can
-host a project and another can join, pull, and push native Git history while missing footage is
-transferred outside Git in encrypted, resumable, hash-verified chunks. See
-[`V1_IMPLEMENTATION_STATUS.md`](./V1_IMPLEMENTATION_STATUS.md) for implemented behavior and limits.
+The desktop app also supports direct same-network host/join/pull/push between two running SnipSnap
+instances. It does not currently provide hosted identities, public repositories, permissions,
+review requests, internet relays, or cloud media storage.

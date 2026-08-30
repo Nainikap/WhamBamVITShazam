@@ -1,41 +1,73 @@
-# SnipSnap
+# SnipSnap desktop application
 
-SnipSnap is the VideoGit V1 desktop application: local-first semantic version control for
-DaVinci Resolve timelines. It versions canonical timeline decisions with native Git while media
-stays external.
+This directory contains the Electron application for SnipSnap, Git-style semantic version control
+for DaVinci Resolve and Kdenlive timelines. For the product overview and editor workflows, start
+with the [repository README](../README.md).
 
-## Run locally
+## Set up the development environment
+
+Git, npm, and Node.js 22.22.0 are required. The local `.mise.toml` pins the correct Node release.
+
+Linux, macOS, and Windows PowerShell use the same project commands:
 
 ```bash
-mise exec -- npm install
+mise install
+mise exec -- npm ci
 mise exec -- npm start
 ```
 
-The local `.mise.toml` pins Node 22.22.0 because Electron Forge 7 packaging is not reliable under
-Node 26. Electron itself is pinned in `package.json` and downloaded by npm.
+Run them from this directory. On Windows, the commands can be entered directly in PowerShell. If
+Node 22.22.0 is already active through another version manager, use `npm ci` and `npm start` without
+the `mise exec --` prefix.
 
-## Workflow
+`npm start` launches the Vite development server and Electron window. Keep the terminal open while
+the app is running; press **Ctrl+C** to stop it.
 
-1. Import a Resolve `.otio` file or create the deterministic demo.
-2. Edit a trim, preset, gain, caption, or track order.
-3. Stage semantic decisions and commit them.
-4. Create and check out branches, compare changes, and merge.
-5. Resolve conflicts with base/ours/theirs; completion stays blocked while invalid.
-6. Tag an approved commit or export immutable HEAD to OTIO.
+## Build and package
 
-Machine-local media URLs are kept in application sidecar state and restored on export. They and
-the footage itself never enter the Git commit tree.
+```bash
+mise exec -- npm run build    # unpacked application under out/
+mise exec -- npm run package  # same packaging gate used by the project
+mise exec -- npm run make     # distributable for the current operating system
+```
 
-## Verify
+Create Windows, macOS, and Linux distributables on their respective operating systems. Electron
+Forge is configured for Windows Squirrel, macOS ZIP, Debian, and RPM outputs.
+
+## Test
 
 ```bash
 mise exec -- npm run typecheck
 mise exec -- npm run lint
 mise exec -- npm test
 mise exec -- npm run test:integration
-mise exec -- npm run test:e2e
+mise exec -- npm run build
 mise exec -- npm run package
 ```
 
-See [`../docs/V1_IMPLEMENTATION_STATUS.md`](../docs/V1_IMPLEMENTATION_STATUS.md) for requirement
-traceability and the remaining live-DaVinci validation gate.
+Changes to the UI, IPC boundary, preview, editor integration, or collaboration should also run the
+packaged Electron journeys:
+
+```bash
+mise exec -- npm run test:e2e
+```
+
+Tests create temporary Git repositories and data roots. They do not need Resolve, Kdenlive, real
+footage, or a configured global Git identity.
+
+## Code boundaries
+
+```text
+src/domain/              timeline schema, validation, frame math, canonical JSON
+src/adapters/            OTIO and native Kdenlive readers/writers
+src/diff/                semantic differences and atomic staging
+src/merge/               conservative three-way merge
+src/git/                 native Git objects, refs, and repository operations
+src/application/         project workflows and editor/collaboration services
+src/ipc/                 typed serializable IPC contract
+src/renderer/            sandboxed React and Zustand interface
+```
+
+The renderer must not import Node, Electron, filesystem, process, or child-process APIs. Those stay
+behind the typed preload and main-process IPC boundary. Footage and machine-local paths must never
+enter committed `timeline.json` snapshots.
