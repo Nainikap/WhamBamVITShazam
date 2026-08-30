@@ -190,7 +190,7 @@ describe('commands and semantic staging', () => {
     ]);
   });
 
-  it('groups a linked multi-track move and its gap bookkeeping atomically', () => {
+  it('shows linked video and audio moves separately while keeping audio streams atomic', () => {
     const projectId = deterministicUuid('linked-move-project');
     const sequenceId = deterministicUuid('linked-move-sequence');
     const assetId = deterministicUuid('linked-move-asset');
@@ -279,26 +279,49 @@ describe('commands and semantic staging', () => {
     validateProject(working);
 
     const hunks = semanticDiff(base, working);
-    expect(hunks).toHaveLength(1);
-    expect(hunks[0]).toMatchObject({
-      entityType: 'clip',
-      operation: 'modify',
-      fieldGroup: 'timelinePosition',
-      message: 'Moved linked clip big-buck-bunny-sample.mp4 28 frames earlier across 3 tracks',
-      parts: expect.arrayContaining([
-        expect.objectContaining({ entityType: 'clip', operation: 'add' }),
-        expect.objectContaining({ entityType: 'clip', operation: 'delete' }),
-        expect.objectContaining({ entityType: 'gap', operation: 'modify' }),
-        expect.objectContaining({ entityType: 'gap', operation: 'modify' }),
-        expect.objectContaining({ entityType: 'gap', operation: 'delete' }),
-      ]),
-    });
-    expect(applySemanticHunks(base, working, [hunks[0]?.id as string], projectDigest(base))).toEqual(working);
+    expect(hunks).toHaveLength(2);
+    expect(hunks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entityType: 'clip',
+        operation: 'modify',
+        fieldGroup: 'timelinePosition',
+        message: 'Moved clip big-buck-bunny-sample.mp4 28 frames earlier',
+        parts: [expect.objectContaining({
+          entityType: 'gap',
+          operation: 'modify',
+          entityId: gapIds[0],
+        })],
+      }),
+      expect.objectContaining({
+        entityType: 'clip',
+        operation: 'modify',
+        fieldGroup: 'timelinePosition',
+        message: 'Moved audio clip big-buck-bunny-sample.mp4 28 frames earlier across 2 tracks',
+        parts: expect.arrayContaining([
+          expect.objectContaining({ entityType: 'clip', operation: 'add' }),
+          expect.objectContaining({ entityType: 'clip', operation: 'delete' }),
+          expect.objectContaining({ entityType: 'gap', operation: 'modify' }),
+          expect.objectContaining({ entityType: 'gap', operation: 'delete' }),
+        ]),
+      }),
+    ]));
+    const video = hunks.find(({ message }) => message.startsWith('Moved clip'));
+    const audio = hunks.find(({ message }) => message.startsWith('Moved audio clip'));
+    if (!video || !audio) throw new Error('Expected separate video and audio move hunks');
+    const videoOnly = applySemanticHunks(base, working, [video.id], projectDigest(base));
+    expect(videoOnly.gaps.find(({ id }) => id === gapIds[0])?.durationFrames).toBe(149);
+    expect(videoOnly.gaps.find(({ id }) => id === gapIds[1])?.durationFrames).toBe(177);
+    const audioOnly = applySemanticHunks(base, working, [audio.id], projectDigest(base));
+    expect(audioOnly.gaps.find(({ id }) => id === gapIds[0])?.durationFrames).toBe(177);
+    expect(audioOnly.gaps.find(({ id }) => id === gapIds[1])?.durationFrames).toBe(149);
+    expect(applySemanticHunks(base, working, hunks.map(({ id }) => id), projectDigest(base))).toEqual(working);
 
     const reverse = semanticDiff(working, base);
-    expect(reverse).toHaveLength(1);
-    expect(reverse[0]?.message).toBe('Moved linked clip big-buck-bunny-sample.mp4 28 frames later across 3 tracks');
-    expect(applySemanticHunks(working, base, [reverse[0]?.id as string], projectDigest(working))).toEqual(base);
+    expect(reverse.map(({ message }) => message)).toEqual(expect.arrayContaining([
+      'Moved clip big-buck-bunny-sample.mp4 28 frames later',
+      'Moved audio clip big-buck-bunny-sample.mp4 28 frames later across 2 tracks',
+    ]));
+    expect(applySemanticHunks(working, base, reverse.map(({ id }) => id), projectDigest(working))).toEqual(base);
   });
 
   it('tracks every editor change, not only cuts', () => {

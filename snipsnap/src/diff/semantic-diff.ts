@@ -363,7 +363,13 @@ function groupTimelineMoves(
         && first.beforeClip.name === second.beforeClip.name
         && same(first.beforeClip.sourceRange, second.beforeClip.sourceRange)
         && first.beforeStart === second.beforeStart
-        && first.afterStart === second.afterStart;
+        && first.afterStart === second.afterStart
+        // A linked video item and its audio item are separate editor-visible
+        // clips and should remain separately stageable. Multiple audio stream
+        // tracks for the same Kdenlive item are implementation detail, so keep
+        // those together as one audio move (and likewise for video streams).
+        && base.tracks.find(({ id }) => id === first.beforeClip.trackId)?.kind
+          === base.tracks.find(({ id }) => id === second.beforeClip.trackId)?.kind;
       if (sharedDependency || linkedMedia) unite(left, right);
     }
   }
@@ -387,8 +393,9 @@ function groupTimelineMoves(
       ? 'to another track'
       : `${Math.abs(delta)} frame${Math.abs(delta) === 1 ? '' : 's'} ${delta < 0 ? 'earlier' : 'later'}`;
     const linked = ordered.length > 1 && labels.size === 1 && deltas.size === 1;
+    const trackKind = base.tracks.find(({ id }) => id === primary.beforeClip.trackId)?.kind;
     const message = linked
-      ? `Moved linked clip ${primary.beforeClip.name} ${timing} across ${ordered.length} tracks`
+      ? `Moved ${trackKind ?? 'linked'} clip ${primary.beforeClip.name} ${timing} across ${ordered.length} tracks`
       : ordered.length === 1
         ? `Moved clip ${primary.beforeClip.name} ${timing}`
         : `Repositioned ${ordered.length} clips on the timeline`;
