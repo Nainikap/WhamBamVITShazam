@@ -149,7 +149,6 @@ function applyPose(
 }
 
 function layoutFor(state: PrismState): PrismLayoutKind {
-  if (state.zoom > 0.55) return 'corners';
   if (state.travel > 0.45) return 'strip';
   return 'hero';
 }

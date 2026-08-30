@@ -57,8 +57,6 @@ export function App() {
   };
 
   const status = store.status;
-  // A database project has no project file, so its folder is the location.
-  const projectPath = status?.resolve?.drpPath || status?.resolve?.folder || status?.path;
 
   return <TooltipProvider delayDuration={300}>
     <GlassFilters />
@@ -72,7 +70,7 @@ export function App() {
       <div className="vg-project">
         <GlassSurface />
         <div className="vg-glass-body vg-project-body">
-          <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-border px-5 py-2">
+          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -90,21 +88,11 @@ export function App() {
               <Separator orientation="vertical" className="h-5" />
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="shrink-0 text-xs font-medium">{status.project.name}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="path-text min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
-                      {projectPath}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="font-mono">
-                    {projectPath}
-                    {status.resolve?.otioPath ? <><br />{status.resolve.otioPath}</> : null}
-                  </TooltipContent>
-                </Tooltip>
+                <span className="truncate text-xs font-medium">{status.project.name}</span>
               </div>
               <Button
                 size="sm"
+                className="shrink-0"
                 onClick={() => void store.exportRevision(store.selectedRevision?.commit.id ?? status.headCommit)}
               >Export OTIO</Button>
             </>}

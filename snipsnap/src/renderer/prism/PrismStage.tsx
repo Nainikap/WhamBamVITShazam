@@ -7,7 +7,7 @@ export type Stage = 'intro' | 'library' | 'project';
 const pose: Record<Stage, PrismState> = {
   intro: { travel: 0, zoom: 0, fade: 1 },
   library: { travel: 1, zoom: 0, fade: 0.9 },
-  project: { travel: 1, zoom: 1, fade: 0.62 },
+  project: { travel: 1, zoom: 0, fade: 0 },
 };
 
 const flightTime: Record<Stage, number> = { intro: 950, library: 1800, project: 760 };

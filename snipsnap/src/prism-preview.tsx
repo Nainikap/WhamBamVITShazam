@@ -56,10 +56,8 @@ function Preview() {
           <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
             <button onClick={() => setStage('library')} type="button">Back</button>
             <span className="vg-mark">VideoGit</span>
-            <span className="path-text min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
-              /Users/editor/Resolve/Cold Open.drp
-            </span>
-            <button type="button">Export OTIO</button>
+            <span className="min-w-0 flex-1 truncate text-xs font-medium">Cold Open</span>
+            <button className="shrink-0" type="button">Export OTIO</button>
           </header>
           <PreviewEditor />
         </div>

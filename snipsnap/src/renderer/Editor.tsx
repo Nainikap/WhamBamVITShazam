@@ -35,8 +35,8 @@ function HunkRow({ hunk, actionLabel, onAction, fps }: {
   return <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-2">
     <Badge variant={operationVariant[hunk.operation]} className="shrink-0 uppercase">{hunk.operation}</Badge>
     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="text-[11px] font-medium leading-snug">{hunk.message}</span>
-      <span className="font-mono text-[9px] text-muted-foreground">
+      <span className="break-words text-[11px] font-medium leading-snug">{hunk.message}</span>
+      <span className="truncate font-mono text-[9px] text-muted-foreground">
         {hunk.entityType} · {hunk.fieldGroup}
         {range ? ` · ${framesToTimecode(range.start, fps)} → ${framesToTimecode(range.start + range.duration, fps)}` : ''}
       </span>
@@ -46,8 +46,8 @@ function HunkRow({ hunk, actionLabel, onAction, fps }: {
 }
 
 function PanelHeading({ title, count, action }: { title: string; count?: number; action?: React.ReactNode }) {
-  return <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
-    <div className="flex items-center gap-2">
+  return <div className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+    <div className="flex min-w-0 items-center gap-2">
       <h2 className="text-xs font-semibold tracking-wide">{title}</h2>
       {count !== undefined && <Badge variant="outline">{count}</Badge>}
     </div>
@@ -210,7 +210,7 @@ export function Editor() {
           <div className="flex flex-col gap-1 p-2">
             {status.history.map((commit) => {
               const selected = commit.id === revision.commit.id;
-              return <div key={commit.id} className="flex flex-col">
+              return <div key={commit.id} className="flex min-w-0 flex-col">
                 <button
                   aria-label={`View commit ${commit.message}`}
                   aria-expanded={selected && expandedCommitId === commit.id}
@@ -224,7 +224,7 @@ export function Editor() {
                     if (!selected || store.diffOpen) void store.loadRevision(commit.id);
                   }}
                   className={cn(
-                    'flex items-start gap-2 rounded-md border border-transparent px-2.5 py-2 text-left transition-colors',
+                    'flex min-w-0 items-start gap-2 overflow-hidden rounded-md border border-transparent px-2.5 py-2 text-left transition-colors',
                     selected ? 'border-primary/40 bg-primary/10' : 'hover:bg-accent',
                   )}
                 >
@@ -234,7 +234,7 @@ export function Editor() {
                     commit.parents.length > 1 && 'ring-2 ring-edited/40',
                   )} />
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <strong className="truncate text-xs font-medium">{commit.message}</strong>
+                    <strong className="line-clamp-2 break-words text-xs font-medium" title={commit.message}>{commit.message}</strong>
                     <small className="truncate text-[10px] text-muted-foreground">
                       {commit.author.replace(/\s*<[^>]*>/u, '')} · {relativeTime(commit.authoredAt)}
                     </small>
@@ -250,7 +250,7 @@ export function Editor() {
 
                 {selected && expandedCommitId === commit.id && commit.parents.length > 0 && <section
                   aria-label={`Changes in commit ${commit.message}`}
-                  className="ml-5 flex flex-col gap-1 border-l border-border py-1 pl-2"
+                  className="ml-5 flex min-w-0 flex-col gap-1 border-l border-border py-1 pl-2"
                 >
                   <button
                     type="button"
@@ -258,7 +258,7 @@ export function Editor() {
                     aria-pressed={store.diffOpen && selectedDiffHunkId === null}
                     onClick={() => openRevisionDiff(null)}
                     className={cn(
-                      'flex items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[10px] transition-colors hover:bg-accent',
+                      'flex min-w-0 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[10px] transition-colors hover:bg-accent',
                       store.diffOpen && selectedDiffHunkId === null && 'bg-primary/10 text-foreground',
                     )}
                   >
@@ -272,7 +272,7 @@ export function Editor() {
                     aria-pressed={store.diffOpen && selectedDiffHunkId === hunk.id}
                     onClick={() => openRevisionDiff(hunk.id)}
                     className={cn(
-                      'flex items-start gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent',
+                      'flex min-w-0 items-start gap-2 overflow-hidden rounded px-2 py-1.5 text-left transition-colors hover:bg-accent',
                       store.diffOpen && selectedDiffHunkId === hunk.id && 'bg-primary/10',
                     )}
                   >
@@ -280,7 +280,7 @@ export function Editor() {
                       {hunk.operation}
                     </Badge>
                     <span className="min-w-0">
-                      <span className="line-clamp-2 text-[10px] font-medium leading-snug">{hunk.message}</span>
+                      <span className="line-clamp-2 break-words text-[10px] font-medium leading-snug">{hunk.message}</span>
                       <span className="mt-0.5 block truncate font-mono text-[8px] text-muted-foreground">
                         {hunk.entityType} · {hunk.fieldGroup}
                       </span>
@@ -315,9 +315,9 @@ export function Editor() {
           }}
         />
         : <>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold tracking-tight">{revision.commit.message}</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="line-clamp-2 break-words text-base font-semibold tracking-tight" title={revision.commit.message}>{revision.commit.message}</h2>
               <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
                 {shortId(revision.commit.id)} · {absoluteTime(revision.commit.authoredAt)}
               </p>
@@ -412,7 +412,7 @@ export function Editor() {
       />
       <div className="flex flex-col gap-3 p-3">
         {collaboration.mode === 'none' && <>
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
             Share every commit, branch, tag, diff, and missing media with another SnipSnap computer on this network.
           </p>
           <Button className="w-full" onClick={() => void store.startHosting()}><Network />Host this project</Button>
@@ -488,7 +488,7 @@ export function Editor() {
       <PanelHeading title="Branch" count={status.branches.length} />
       <div className="flex flex-col gap-3 p-3">
         <div className="flex items-center justify-between gap-2">
-          <Badge variant="info"><GitBranch className="h-3 w-3" />{status.branch}</Badge>
+          <Badge variant="info" className="min-w-0 max-w-[60%] truncate"><GitBranch className="h-3 w-3 shrink-0" />{status.branch}</Badge>
           <code className="font-mono text-[10px] text-muted-foreground">{shortId(status.headCommit)}</code>
         </div>
         <Select value={status.branch} onValueChange={guardedCheckout}>
@@ -528,10 +528,10 @@ export function Editor() {
             <span>
               <Button
                 variant="secondary"
-                className="w-full"
+                className="w-full min-w-0 overflow-hidden"
                 disabled={!mergeSource || dirty}
                 onClick={() => void store.merge(mergeSource)}
-              ><GitMerge />Merge into {status.branch}</Button>
+              ><GitMerge className="shrink-0" /><span className="truncate">Merge into {status.branch}</span></Button>
             </span>
           </TooltipTrigger>
           <TooltipContent>
@@ -549,13 +549,16 @@ export function Editor() {
           ['Duration', framesToTimecode(revision.preview.totalFrames, fps)],
           ['Format', `${revision.preview.width}×${revision.preview.height}`],
           ['Frame rate', `${fps.toFixed(3).replace(/\.?0+$/u, '')} fps`],
-          ['Tracks', revision.preview.tracks.map((track) => track.name).join(', ') || '—'],
+          ['Tracks', revision.preview.tracks.map((track) => track.name.split(' - ')[0] ?? track.name).join(' · ') || '—'],
           ['Media', revision.preview.missingAssets.length
             ? `${revision.preview.missingAssets.length} offline`
             : 'All linked'],
         ].map(([label, value]) => <div key={label} className="flex min-w-0 flex-col">
           <dt className="text-[9px] uppercase tracking-widest text-muted-foreground">{label}</dt>
-          <dd className={cn('truncate font-mono text-[11px]', label === 'Media' && revision.preview.missingAssets.length && 'text-removed')}>
+          <dd
+            className={cn('truncate font-mono text-[11px]', label === 'Media' && revision.preview.missingAssets.length && 'text-removed')}
+            title={value}
+          >
             {value}
           </dd>
         </div>)}

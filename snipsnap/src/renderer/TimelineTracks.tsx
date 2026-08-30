@@ -8,6 +8,27 @@ import { GlassSurface } from './prism/LiquidGlass';
 
 const kindLabel: Record<PreviewTrack['kind'], string> = { video: 'VIDEO', audio: 'AUDIO', caption: 'TEXT' };
 
+function splitTrackLabel(name: string): { index: string; detail?: string } {
+  const match = /^([VA]\d+)\s*[-–:]\s*(.+)$/u.exec(name);
+  const index = match?.[1];
+  const detail = match?.[2];
+  if (!index || !detail) return { index: name };
+  return { index, detail };
+}
+
+function TrackHead({ track }: { track: PreviewTrack }) {
+  const label = splitTrackLabel(track.name);
+  return <div className="sticky left-0 z-10 flex flex-col justify-center gap-0.5 overflow-hidden border-b border-r border-border bg-card px-2.5">
+    <strong className="font-mono text-[11px] leading-none">{label.index}</strong>
+    {label.detail && (
+      <small className="line-clamp-2 break-words text-[10px] leading-tight text-muted-foreground" title={track.name}>
+        {label.detail}
+      </small>
+    )}
+    <small className="font-mono text-[8px] tracking-widest text-muted-foreground">{kindLabel[track.kind]}</small>
+  </div>;
+}
+
 const chipTone: Record<PreviewSegment['kind'], string> = {
   clip: 'bg-gradient-to-b from-[#3a3a3a] to-[#242424]',
   gap: 'bg-[repeating-linear-gradient(45deg,#1a1a1a_0_6px,#141414_6px_12px)] border-dashed',
@@ -88,7 +109,7 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
     </header>
 
     <div className="overflow-x-auto" onWheel={scrubFromWheel}>
-      <div className="relative grid min-w-full grid-cols-[7rem_minmax(0,1fr)]" style={{ width: `${zoom * 100}%` }}>
+      <div className="relative grid min-w-full grid-cols-[10rem_minmax(0,1fr)]" style={{ width: `${zoom * 100}%` }}>
         <div className="sticky left-0 z-10 border-b border-r border-border bg-card" />
         <div className="relative h-6 cursor-pointer border-b border-border bg-card" onClick={seekFromEvent} role="presentation">
           {ticks.map((frame) => <span
@@ -99,13 +120,7 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
         </div>
 
         {plan.tracks.map((track) => [
-          <div
-            key={`${track.id}-head`}
-            className="sticky left-0 z-10 flex flex-col justify-center border-b border-r border-border bg-card px-2.5"
-          >
-            <strong className="line-clamp-2 text-[11px] leading-tight">{track.name}</strong>
-            <small className="font-mono text-[8px] tracking-widest text-muted-foreground">{kindLabel[track.kind]}</small>
-          </div>,
+          <TrackHead key={`${track.id}-head`} track={track} />,
           <div
             key={`${track.id}-lane`}
             className={cn('lane relative cursor-pointer border-b border-border bg-black/30', track.kind === 'caption' ? 'h-9' : 'h-14')}
@@ -141,7 +156,7 @@ export function TimelineTracks({ plan, playhead, onSeek, selectedSegmentId, onSe
           </div>,
         ])}
 
-        <div className="pointer-events-none absolute inset-y-0 left-[7rem] right-0">
+        <div className="pointer-events-none absolute inset-y-0 left-[10rem] right-0">
           <div
             className="playhead absolute inset-y-0 w-px bg-primary shadow-[0_0_7px_hsl(var(--primary))]"
             style={{ left: `${(Math.min(playhead, total) / total) * 100}%` }}
