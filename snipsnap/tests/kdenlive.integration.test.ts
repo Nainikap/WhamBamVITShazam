@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { exportKdenliveOtio, KdenliveInterchangeReportSchema } from '../src/adapters/kdenlive';
 import { ProjectService } from '../src/application';
 import { createDemoProject } from '../src/domain/fixture';
+import { KDENLIVE_NATIVE_FIXTURE } from './fixtures/kdenlive-native';
 
 function stripSnipSnapIds(value: unknown): void {
   if (Array.isArray(value)) {
@@ -79,6 +80,45 @@ describe('Kdenlive project workflow', () => {
       .toBe(false);
   });
 
+  it('turns native Ctrl+S saves into generated OTIO and immediate working diffs', async () => {
+    const nativePath = path.join(root, 'Native Cut.kdenlive');
+    const generatedOtioPath = path.join(root, 'Native Cut.otio');
+    await writeFile(nativePath, KDENLIVE_NATIVE_FIXTURE);
+
+    const imported = await service.importKdenliveSource(nativePath);
+    const projectId = imported.status.project.id;
+    expect(imported.sourcePath).toBe(nativePath);
+    expect(imported.status).toMatchObject({
+      kdenlive: { projectPath: nativePath, otioPath: generatedOtioPath },
+      source: {
+        mode: 'kdenlive',
+        filePath: nativePath,
+        state: 'watching',
+      },
+    });
+    expect(JSON.parse(await readFile(generatedOtioPath, 'utf8'))).toMatchObject({ OTIO_SCHEMA: 'Timeline.1' });
+
+    await writeFile(nativePath, KDENLIVE_NATIVE_FIXTURE.replace('in="10" out="59"', 'in="10" out="69"'));
+    const scanned = await service.scanOtioSource(projectId);
+
+    expect(scanned.changed).toBe(true);
+    expect(scanned.status.source.pending).toBeUndefined();
+    expect(scanned.status.source.lastSavedAt).toBeTruthy();
+    expect(scanned.status.unstaged.some(({ operation, entityType }) => operation === 'modify' && entityType === 'clip')).toBe(true);
+    const generated = JSON.parse(await readFile(generatedOtioPath, 'utf8')) as {
+      tracks: { children: Array<{ children: Array<{ OTIO_SCHEMA: string; source_range?: { duration: { value: number } } }> }> };
+    };
+    const videoClip = generated.tracks.children[0]?.children.find(({ OTIO_SCHEMA }) => OTIO_SCHEMA === 'Clip.2');
+    expect(videoClip?.source_range?.duration.value).toBe(60);
+
+    const restarted = new ProjectService(path.join(root, 'data'));
+    expect(await restarted.restoreSourceBinding(projectId)).toMatchObject({
+      format: 'kdenlive',
+      path: nativePath,
+      otioPath: generatedOtioPath,
+    });
+  });
+
   it('imports Kdenlive audio references whose available range has rate zero', async () => {
     const exported = kdenliveExport('Kdenlive Zero-Rate Audio');
     const tracks = (exported.tracks as {
@@ -137,6 +177,23 @@ describe('Kdenlive project workflow', () => {
     expect(second.tracked).toEqual([
       expect.objectContaining({ sourcePath: validPath }),
     ]);
+  });
+
+  it('prefers a native project over its generated sibling during folder discovery', async () => {
+    const watchedRoot = path.join(root, 'native-folder');
+    const nativePath = path.join(watchedRoot, 'Project One.kdenlive');
+    const otioPath = path.join(watchedRoot, 'Project One.otio');
+    await mkdir(watchedRoot, { recursive: true });
+    await Promise.all([
+      writeFile(nativePath, KDENLIVE_NATIVE_FIXTURE),
+      writeFile(otioPath, `${JSON.stringify(kdenliveExport('Old export'), null, 2)}\n`),
+    ]);
+
+    const scan = await service.addKdenliveRoot(watchedRoot);
+
+    expect(scan.discovered).toBe(1);
+    expect(scan.tracked).toEqual([expect.objectContaining({ sourcePath: nativePath })]);
+    expect(scan.failures).toEqual([]);
   });
 
   it('writes immutable OTIO and a validated machine-readable fidelity report', async () => {

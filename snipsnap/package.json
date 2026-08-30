@@ -42,6 +42,7 @@
     "lucide-react": "^1.37.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "saxes": "^6.0.0",
     "tailwind-merge": "^3.6.0",
     "vgpu": "^0.3.1",
     "zod": "^3.25.76",

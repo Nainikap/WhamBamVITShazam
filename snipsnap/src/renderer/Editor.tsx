@@ -325,7 +325,9 @@ export function Editor() {
               ? status.source.lastSavedAt
                 ? `Last save received ${absoluteTime(status.source.lastSavedAt)}`
                 : 'Open Resolve, select the timeline, and save the project'
-              : status.source.filePath ?? 'Each Resolve save arrives as the new working timeline')}
+              : status.source.mode === 'kdenlive' && status.source.lastSavedAt
+                ? `Last Ctrl+S received ${absoluteTime(status.source.lastSavedAt)} · OTIO regenerated automatically`
+                : status.source.filePath ?? 'Each editor save arrives as the new working timeline')}
           </span>
           <div className="flex flex-wrap gap-2">
             {(status.source.mode === 'file' || status.source.mode === 'kdenlive')

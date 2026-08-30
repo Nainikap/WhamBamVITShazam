@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { exportOtio, importOtio, type UnsupportedContent } from '../adapters/otio';
 import {
   exportKdenliveOtio,
+  importKdenliveProject,
   importKdenliveOtio,
   type KdenliveInterchangeReport,
 } from '../adapters/kdenlive';
@@ -142,9 +143,10 @@ export interface ResolveBinding {
   folder: string;
 }
 
-/** A Kdenlive OTIO export that remains outside Git and can be watched for edits. */
+/** Machine-local Kdenlive project and its generated OTIO handoff. */
 export interface KdenliveBinding {
   otioPath: string;
+  projectPath?: string | undefined;
 }
 
 const ResolveBindingSchema = z.object({
@@ -159,6 +161,7 @@ const ResolveBindingSchema = z.object({
 
 const KdenliveBindingSchema = z.object({
   otioPath: z.string().min(1),
+  projectPath: z.string().min(1).optional(),
 }).strict();
 
 const ProjectMetadataSchema = z.object({
@@ -387,6 +390,39 @@ export class ProjectService {
     return value === undefined ? null : SourceBindingSchema.parse(value);
   }
 
+  /** Upgrade an existing OTIO connection when its same-name native project is available. */
+  async restoreSourceBinding(projectId: string): Promise<SourceBinding | null> {
+    const [binding, metadata] = await Promise.all([
+      this.sourceBinding(projectId),
+      this.readMetadata(projectId),
+    ]);
+    if (!binding || binding.mode !== 'kdenlive' || !metadata?.kdenlive) return binding;
+    const otioPath = metadata.kdenlive.otioPath;
+    const candidate = metadata.kdenlive.projectPath
+      ?? path.join(path.dirname(otioPath), `${path.basename(otioPath, path.extname(otioPath))}.kdenlive`);
+    try {
+      await access(candidate);
+    } catch {
+      return binding;
+    }
+    if (binding.format === 'kdenlive' && binding.path === candidate && binding.otioPath === otioPath) return binding;
+    const upgraded = SourceBindingSchema.parse({
+      format: 'kdenlive',
+      mode: 'kdenlive',
+      path: candidate,
+      otioPath,
+    });
+    await Promise.all([
+      atomicWriteJson(this.sourceBindingPath(projectId), upgraded),
+      atomicWriteJson(this.metadataPath(projectId), {
+        ...metadata,
+        kdenlive: { ...metadata.kdenlive, projectPath: candidate },
+      }),
+      rm(this.pendingSyncPath(projectId), { force: true }),
+    ]);
+    return upgraded;
+  }
+
   private async readPendingSync(projectId: string): Promise<PendingSync | null> {
     const value = await this.readOptionalJson(this.pendingSyncPath(projectId));
     if (value === undefined) return null;
@@ -433,6 +469,7 @@ export class ProjectService {
       state: exists ? (binding.lastError ? 'invalid' : pending ? 'changes-ready' : 'watching') : 'missing',
     };
     if (binding.lastAppliedDigest) status.lastAppliedDigest = binding.lastAppliedDigest;
+    if (binding.mode === 'kdenlive' && binding.lastSavedAt) status.lastSavedAt = binding.lastSavedAt;
     if (binding.lastError) status.error = binding.lastError;
     if (pending) {
       const changes = semanticDiff(workspace.working, pending.project);
@@ -516,12 +553,35 @@ export class ProjectService {
   async importKdenliveSource(sourcePath: string): Promise<{
     status: ProjectStatus;
     report: KdenliveInterchangeReport;
+    sourcePath: string;
   }> {
-    const resolvedPath = path.resolve(sourcePath);
-    const contents = await readFile(resolvedPath, 'utf8');
-    const imported = importKdenliveOtio(contents);
-    const projectId = deterministicUuid(`kdenlive-otio:${resolvedPath}`);
-    const fallbackName = path.basename(resolvedPath, path.extname(resolvedPath)).normalize('NFC');
+    const selectedPath = path.resolve(sourcePath);
+    const selectedExtension = path.extname(selectedPath).toLowerCase();
+    const siblingNativePath = path.join(
+      path.dirname(selectedPath),
+      `${path.basename(selectedPath, selectedExtension)}.kdenlive`,
+    );
+    let projectPath: string | undefined;
+    if (selectedExtension === '.kdenlive') projectPath = selectedPath;
+    else {
+      try {
+        await access(siblingNativePath);
+        projectPath = siblingNativePath;
+      } catch {
+        // An OTIO-only workflow remains supported when no native sibling exists.
+      }
+    }
+    const otioPath = selectedExtension === '.kdenlive'
+      ? path.join(path.dirname(selectedPath), `${path.basename(selectedPath, selectedExtension)}.otio`)
+      : selectedPath;
+    const activeSourcePath = projectPath ?? otioPath;
+    const contents = await readFile(activeSourcePath, 'utf8');
+    const fallbackName = path.basename(activeSourcePath, path.extname(activeSourcePath)).normalize('NFC');
+    const imported = projectPath
+      ? importKdenliveProject(contents, { sourceIdentity: projectPath, fallbackName })
+      : importKdenliveOtio(contents);
+    // A native sibling upgrades an existing OTIO project in place.
+    const projectId = deterministicUuid(`kdenlive-otio:${otioPath}`);
     const project = ProjectSchema.parse({
       ...imported.project,
       id: projectId,
@@ -533,30 +593,38 @@ export class ProjectService {
         project,
         `Import ${project.name} from Kdenlive`,
         undefined,
-        { otioPath: resolvedPath },
+        { otioPath, ...(projectPath ? { projectPath } : {}) },
       );
       await this.writeMediaLinks(projectId, imported.mediaLinks);
       const digest = digestText(contents);
+      if (projectPath) {
+        await atomicWriteText(otioPath, exportKdenliveOtio(project, { mediaLinks: imported.mediaLinks }).contents);
+      }
       await atomicWriteJson(this.sourceBindingPath(projectId), {
-        format: 'otio',
+        format: projectPath ? 'kdenlive' : 'otio',
         mode: 'kdenlive',
-        path: resolvedPath,
+        path: activeSourcePath,
+        otioPath,
         lastSeenDigest: digest,
         lastAppliedDigest: digest,
+        ...(projectPath ? { lastSavedAt: new Date().toISOString() } : {}),
       });
-      return { status: await this.status(projectId), report: imported.report };
+      return { status: await this.status(projectId), report: imported.report, sourcePath: activeSourcePath };
     }
 
     await atomicWriteJson(this.metadataPath(projectId), {
       ...existing,
       name: project.name,
-      kdenlive: { otioPath: resolvedPath },
+      kdenlive: { otioPath, ...(projectPath ? { projectPath } : {}) },
     });
     await atomicWriteJson(this.sourceBindingPath(projectId), {
-      format: 'otio', mode: 'kdenlive', path: resolvedPath,
+      format: projectPath ? 'kdenlive' : 'otio',
+      mode: 'kdenlive',
+      path: activeSourcePath,
+      otioPath,
     });
     const scanned = await this.scanOtioSource(projectId);
-    return { status: scanned.status, report: imported.report };
+    return { status: scanned.status, report: imported.report, sourcePath: activeSourcePath };
   }
 
   private async statusUnlocked(projectId: string): Promise<ProjectStatus> {
@@ -603,7 +671,7 @@ export class ProjectService {
     const contents = await readFile(binding.path, 'utf8');
     const digest = digestText(contents);
     const existingPending = await this.readPendingSync(projectId);
-    if (existingPending?.digest === digest) {
+    if (binding.format !== 'kdenlive' && existingPending?.digest === digest) {
       if (binding.lastError) {
         const next = { ...binding };
         delete next.lastError;
@@ -611,7 +679,7 @@ export class ProjectService {
       }
       return true;
     }
-    if (binding.ignoredDigest === digest) {
+    if (binding.format !== 'kdenlive' && binding.ignoredDigest === digest) {
       if (existingPending) await rm(this.pendingSyncPath(projectId), { force: true });
       const next = { ...binding, lastSeenDigest: digest };
       delete next.lastError;
@@ -620,13 +688,42 @@ export class ProjectService {
     }
 
     const workspace = await this.readWorkspace(projectId);
-    const imported = binding.mode === 'kdenlive' ? importKdenliveOtio(contents) : importOtio(contents);
+    const imported = binding.mode === 'kdenlive'
+      ? binding.format === 'kdenlive'
+        ? importKdenliveProject(contents, {
+          sourceIdentity: binding.path,
+          fallbackName: workspace.working.name,
+        })
+        : importKdenliveOtio(contents)
+      : importOtio(contents);
     // Kdenlive commonly exports an empty Timeline name. Keep the stable name
     // derived from the source filename instead of proposing a rename on every save.
     if (binding.mode === 'kdenlive' && imported.project.name === 'Imported Timeline') {
       imported.project.name = workspace.working.name;
     }
     const reconciled = reconcileImportedProject(workspace.working, imported.project);
+    if (binding.format === 'kdenlive') {
+      const changed = semanticDiff(workspace.working, reconciled).length > 0;
+      const mediaLinks = { ...await this.readMediaLinks(projectId), ...imported.mediaLinks };
+      const generatedOtioPath = binding.otioPath
+        ?? path.join(path.dirname(binding.path), `${path.basename(binding.path, path.extname(binding.path))}.otio`);
+      const nextBinding = {
+        ...binding,
+        lastSeenDigest: digest,
+        lastAppliedDigest: digest,
+        lastSavedAt: new Date().toISOString(),
+      };
+      delete nextBinding.ignoredDigest;
+      delete nextBinding.lastError;
+      await Promise.all([
+        ...(changed ? [this.writeWorkspace(projectId, { version: workspace.version + 1, working: reconciled })] : []),
+        this.writeMediaLinks(projectId, mediaLinks),
+        atomicWriteText(generatedOtioPath, exportKdenliveOtio(reconciled, { mediaLinks }).contents),
+        atomicWriteJson(this.sourceBindingPath(projectId), { ...nextBinding, otioPath: generatedOtioPath }),
+        rm(this.pendingSyncPath(projectId), { force: true }),
+      ]);
+      return changed;
+    }
     const nextBinding: SourceBinding = { ...binding, lastSeenDigest: digest };
     delete nextBinding.ignoredDigest;
     delete nextBinding.lastError;
@@ -1434,7 +1531,7 @@ export class ProjectService {
       : [...new Set(z.array(z.string().min(1)).parse(value).map((entry) => path.resolve(entry)))];
   }
 
-  private async kdenliveOtioFiles(folder: string): Promise<string[]> {
+  private async kdenliveSourceFiles(folder: string): Promise<string[]> {
     const results: string[] = [];
     const skipped = new Set([
       '.git', '.vite', 'fixtures', 'kdenlive-handoffs', 'node_modules', 'out', 'test-results', 'tests',
@@ -1451,24 +1548,28 @@ export class ProjectService {
         if (results.length >= 500) break;
         const entryPath = path.join(current, entry.name);
         if (entry.isDirectory() && !skipped.has(entry.name.toLowerCase())) await visit(entryPath, depth + 1);
-        else if (entry.isFile() && path.extname(entry.name).toLowerCase() === '.otio') results.push(entryPath);
+        else if (entry.isFile() && ['.kdenlive', '.otio'].includes(path.extname(entry.name).toLowerCase())) results.push(entryPath);
       }
     };
     await visit(path.resolve(folder), 0);
-    return results;
+    const nativeStems = new Set(results
+      .filter((filePath) => path.extname(filePath).toLowerCase() === '.kdenlive')
+      .map((filePath) => path.join(path.dirname(filePath), path.basename(filePath, path.extname(filePath)))));
+    return results.filter((filePath) => path.extname(filePath).toLowerCase() === '.kdenlive'
+      || !nativeStems.has(path.join(path.dirname(filePath), path.basename(filePath, path.extname(filePath)))));
   }
 
   async refreshKdenliveRoots(): Promise<KdenliveFolderScanResult> {
     const roots = await this.kdenliveRoots();
     const sources = [...new Set((await Promise.all(
-      roots.map((root) => this.kdenliveOtioFiles(root)),
+      roots.map((root) => this.kdenliveSourceFiles(root)),
     )).flat())].sort();
     const tracked: KdenliveFolderScanResult['tracked'] = [];
     const failures: KdenliveFolderScanResult['failures'] = [];
     for (const sourcePath of sources) {
       try {
         const imported = await this.importKdenliveSource(sourcePath);
-        tracked.push({ projectId: imported.status.project.id, sourcePath });
+        tracked.push({ projectId: imported.status.project.id, sourcePath: imported.sourcePath });
       } catch (error) {
         failures.push({
           sourcePath,
@@ -1544,7 +1645,10 @@ export class ProjectService {
 
   async openProjectById(projectId: string): Promise<ProjectStatus> {
     const metadata = await this.readMetadata(projectId);
-    if (metadata?.kdenlive) return (await this.scanOtioSource(projectId)).status;
+    if (metadata?.kdenlive) {
+      await this.restoreSourceBinding(projectId);
+      return (await this.scanOtioSource(projectId)).status;
+    }
     return this.openResolveProjectById(projectId);
   }
 
@@ -1684,7 +1788,7 @@ export class ProjectService {
       editor: resolve ? 'resolve' : kdenlive ? 'kdenlive' : 'remote',
       knownTimelines: [timelineName],
       ...(resolve ? { resolve } : {}),
-      sourcePath: resolve?.drpPath || resolve?.otioPath || kdenlive?.otioPath || this.projectRoot(projectId),
+      sourcePath: resolve?.drpPath || resolve?.otioPath || kdenlive?.projectPath || kdenlive?.otioPath || this.projectRoot(projectId),
       branch: status.branch,
       headCommit: status.headCommit,
       headMessage: head?.message ?? '',

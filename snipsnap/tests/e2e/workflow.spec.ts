@@ -382,12 +382,15 @@ test('creates a branch from an old commit, switches branches, and restores histo
 
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
   await page.getByLabel('Branch from selected commit').fill('alternate-cut');
-  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  // Hidden Electron windows on macOS ARM can report Retina pointer coordinates
+  // from the adjacent workspace for far-right inspector controls. Keyboard
+  // activation still verifies that the real accessible button and handler work.
+  await page.getByRole('button', { name: 'Create', exact: true }).press('Enter');
   await expect(page.getByText(/Created and switched to alternate-cut/u)).toBeVisible();
   await expect(page.getByLabel('Switch branch')).toContainText('alternate-cut');
 
-  await page.getByLabel('Switch branch').click();
-  await page.getByRole('option', { name: /^main/u }).click();
+  await page.getByLabel('Switch branch').press('Enter');
+  await page.getByRole('option', { name: /^main/u }).press('Enter');
   await expect(page.getByText('Switched to main.')).toBeVisible();
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
   await page.getByRole('button', { name: 'Restore to working' }).click();
@@ -408,7 +411,7 @@ test('returns to the dashboard with the project listed as most recently worked o
 
 test('hosts a project and lets a second app join and push a branch', async () => {
   await openProject();
-  await page.getByRole('button', { name: 'Host this project' }).click();
+  await page.getByRole('button', { name: 'Host this project' }).press('Enter');
   await expect(page.getByText('Hosting', { exact: true })).toBeVisible();
   const inviteCode = await page.getByLabel('Pairing code').inputValue();
   expect(inviteCode.length).toBeGreaterThan(40);
@@ -438,10 +441,10 @@ test('hosts a project and lets a second app join and push a branch', async () =>
   await expect(peerPage.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' })).toBeVisible();
 
   await peerPage.getByLabel('Branch from selected commit').fill('peer-cut');
-  await peerPage.getByRole('button', { name: 'Create', exact: true }).click();
-  await peerPage.getByRole('button', { name: 'Push commits' }).click();
+  await peerPage.getByRole('button', { name: 'Create', exact: true }).press('Enter');
+  await peerPage.getByRole('button', { name: 'Push commits' }).press('Enter');
   await expect(peerPage.getByText('Pushed peer-cut')).toBeVisible();
-  await page.getByLabel('Switch branch').click();
+  await page.getByLabel('Switch branch').press('Enter');
   await expect(page.getByRole('option', { name: /peer-cut/u })).toBeVisible();
 });
 

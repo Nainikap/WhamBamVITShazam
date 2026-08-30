@@ -2,9 +2,9 @@ import { _electron as electron, expect, test } from '@playwright/test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { exportKdenliveOtio, KdenliveInterchangeReportSchema } from '../../src/adapters/kdenlive';
+import { KdenliveInterchangeReportSchema } from '../../src/adapters/kdenlive';
 import { ProjectService } from '../../src/application';
-import { createDemoProject } from '../../src/domain/fixture';
+import { KDENLIVE_NATIVE_FIXTURE } from '../fixtures/kdenlive-native';
 import { packagedElectronArgs } from './electron-args';
 
 function packagedAppPath(): string {
@@ -14,17 +14,17 @@ function packagedAppPath(): string {
     : path.join(packageRoot, 'resources', 'app.asar');
 }
 
-test('imports Kdenlive OTIO, watches edits, and prepares an immutable handoff', async () => {
+test('tracks native Kdenlive saves and prepares an immutable handoff', async () => {
   test.setTimeout(180_000);
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'snipsnap-kdenlive-e2e-'));
   const dataRoot = path.join(workspace, 'data');
   const resolveRoot = path.join(workspace, 'empty-resolve');
-  const sourcePath = path.join(workspace, 'kdenlive-export.otio');
+  const sourcePath = path.join(workspace, 'Kdenlive Cut.kdenlive');
+  const generatedOtioPath = path.join(workspace, 'Kdenlive Cut.otio');
   await mkdir(dataRoot, { recursive: true });
   await mkdir(resolveRoot, { recursive: true });
 
-  const project = createDemoProject('Kdenlive Cut');
-  await writeFile(sourcePath, exportKdenliveOtio(project).contents);
+  await writeFile(sourcePath, KDENLIVE_NATIVE_FIXTURE);
   const service = new ProjectService(dataRoot);
   const imported = await service.importKdenliveSource(sourcePath);
   const projectId = imported.status.project.id;
@@ -46,9 +46,9 @@ test('imports Kdenlive OTIO, watches edits, and prepares an immutable handoff', 
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('button', { name: 'Open Kdenlive Cut' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open Kdenlive Cut' })
-      .getByText('Kdenlive OTIO')).toBeVisible();
+      .getByText('Kdenlive project')).toBeVisible();
     await page.getByRole('button', { name: 'Open Kdenlive Cut' }).click();
-    await expect(page.getByText(/Kdenlive · kdenlive-export\.otio/u)).toBeVisible();
+    await expect(page.getByText(/Kdenlive · Kdenlive Cut\.kdenlive/u)).toBeVisible();
 
     await page.getByRole('button', { name: 'Prepare for Kdenlive' }).click();
     const notice = page.getByRole('status');
@@ -63,14 +63,20 @@ test('imports Kdenlive OTIO, watches edits, and prepares an immutable handoff', 
     expect(KdenliveInterchangeReportSchema.parse(JSON.parse(await readFile(reportPath, 'utf8'))).editor)
       .toBe('kdenlive');
 
-    const edited = structuredClone(project);
-    const clip = edited.clips[0];
-    if (!clip) throw new Error('Kdenlive fixture clip is missing');
-    clip.sourceRange.duration -= 12;
-    await writeFile(sourcePath, exportKdenliveOtio(edited).contents);
-    await expect(page.getByText(/change detected in Kdenlive/u)).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: 'Apply to working timeline' }).click();
-    await expect(page.getByRole('button', { name: 'Stage', exact: true }).first()).toBeVisible();
+    await writeFile(sourcePath, KDENLIVE_NATIVE_FIXTURE.replace(
+      '  <playlist id="video-playlist">\n    <blank length="00:00:01.000"/>',
+      '  <playlist id="video-playlist">',
+    ));
+    await expect(page.getByRole('button', { name: 'Stage', exact: true }).first()).toBeVisible({ timeout: 15_000 });
+    const changes = page.getByLabel('Working changes');
+    await expect(changes.getByText('Moved clip shot.mp4 25 frames earlier')).toBeVisible();
+    await expect(changes.getByRole('button', { name: 'Stage', exact: true })).toHaveCount(1);
+    await expect(page.getByText(/Last Ctrl\+S received/u)).toBeVisible();
+    const generated = JSON.parse(await readFile(generatedOtioPath, 'utf8')) as {
+      tracks: { children: Array<{ children: Array<{ OTIO_SCHEMA: string; source_range?: { duration: { value: number } } }> }> };
+    };
+    const videoClip = generated.tracks.children[0]?.children.find(({ OTIO_SCHEMA }) => OTIO_SCHEMA === 'Clip.2');
+    expect(videoClip?.source_range?.duration.value).toBe(50);
   } finally {
     await application.close();
     await rm(workspace, { recursive: true, force: true });

@@ -1,6 +1,7 @@
 export function packagedElectronArgs(appPath: string): string[] {
   return process.platform === 'linux'
     ? [
+      ...(process.env.CI === 'true' ? ['--no-sandbox'] : []),
       '--ozone-platform=x11',
       '--disable-gpu',
       '--disable-background-timer-throttling',
