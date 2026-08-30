@@ -366,6 +366,9 @@ export function importOtio(input: string | unknown): OtioImportResult {
       );
       // A media reference names the file; the URL basename is only a fallback.
       const assetName = text(media?.name as string | undefined) || basename(targetUrl).normalize('NFC');
+      // A title or other generator has no file by nature. Recording that keeps
+      // it from being reported as footage that has gone missing.
+      const generated = !media?.target_url;
       let asset = assetsByFingerprint.get(fingerprint);
       if (!asset) {
         asset = {
@@ -375,7 +378,10 @@ export function importOtio(input: string | unknown): OtioImportResult {
           name: assetName || 'external-media',
           fingerprint,
           durationFrames: Math.max(1, duration),
-          extras: extrasOf(media as Json | undefined, MEDIA_FIELDS),
+          extras: {
+            ...extrasOf(media as Json | undefined, MEDIA_FIELDS),
+            ...(generated ? { generator: true } : {}),
+          },
         };
         assetsByFingerprint.set(fingerprint, asset);
       } else if (duration > asset.durationFrames) {
@@ -547,6 +553,10 @@ export function exportOtio(projectInput: Project, options: OtioExportOptions = {
       if (!clip) throw new Error(`Missing timeline item ${itemId}`);
       const asset = assetById.get(clip.assetId);
       if (!asset) throw new Error(`Missing asset ${clip.assetId}`);
+      const generated = asset.extras.generator === true;
+      // Our own marker is not an OTIO field, so it never reaches the file.
+      const mediaExtras = { ...asset.extras };
+      delete mediaExtras.generator;
       return withExtras(clip.extras, {
         OTIO_SCHEMA: 'Clip.2',
         name: clip.name,
@@ -556,14 +566,23 @@ export function exportOtio(projectInput: Project, options: OtioExportOptions = {
         enabled: clip.enabled,
         color: clip.color,
         media_references: {
-          DEFAULT_MEDIA: {
-            ...asset.extras,
-            OTIO_SCHEMA: 'ExternalReference.1',
-            name: asset.name,
-            target_url: options.mediaLinks?.[asset.fingerprint]
-              ?? `videogit://asset/${asset.fingerprint}/${encodeURIComponent(asset.name)}`,
-            available_range: otioRange(0, asset.durationFrames, rate),
-          },
+          // A generator has no file to point at, so it goes back out as the
+          // reference that says so rather than as a URL that resolves nowhere.
+          DEFAULT_MEDIA: generated
+            ? {
+              ...mediaExtras,
+              OTIO_SCHEMA: 'MissingReference.1',
+              name: asset.name,
+              available_range: otioRange(0, asset.durationFrames, rate),
+            }
+            : {
+              ...mediaExtras,
+              OTIO_SCHEMA: 'ExternalReference.1',
+              name: asset.name,
+              target_url: options.mediaLinks?.[asset.fingerprint]
+                ?? `videogit://asset/${asset.fingerprint}/${encodeURIComponent(asset.name)}`,
+              available_range: otioRange(0, asset.durationFrames, rate),
+            },
         },
         active_media_reference_key: 'DEFAULT_MEDIA',
         metadata: {

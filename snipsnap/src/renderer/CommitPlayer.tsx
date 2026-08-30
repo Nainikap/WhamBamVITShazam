@@ -1,5 +1,9 @@
+import { Pause, Play } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PreviewPlan, PreviewSegment } from '../preview';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { framesToTimecode } from './format';
 
 function segmentAt(plan: PreviewPlan, frame: number): { segment: PreviewSegment; index: number } | null {
@@ -122,6 +126,8 @@ export function CommitPlayer({
   const displayLabel = useMemo(() => {
     if (!active) return 'No video track in this commit';
     if (active.kind === 'gap') return 'Timeline gap';
+    // A title has no file behind it, which is not the same as one going missing.
+    if (active.isGenerator) return `${active.name} · title`;
     return active.available ? active.name : `${active.name} · media offline`;
   }, [active]);
 
@@ -164,11 +170,22 @@ export function CommitPlayer({
     }
   }
 
-  return <section className={`viewer viewer-${variant}`} aria-label={label ?? 'Commit video preview'}>
-    <div className="viewer-stage" style={{ aspectRatio: `${plan.width} / ${plan.height}` }}>
+  return <section
+    className={cn('viewer flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-black/60')}
+    aria-label={label ?? 'Commit video preview'}
+  >
+    <div
+      className={cn(
+        'relative shrink-0 overflow-hidden bg-black',
+        // A fixed box with object-contain letterboxes any aspect ratio without
+        // the stage growing past the transport underneath it.
+        variant === 'full' ? 'h-[44vh]' : 'h-[26vh]',
+      )}
+    >
       <video
         ref={videoRef}
         playsInline
+        className="h-full w-full object-contain"
         onLoadedMetadata={() => {
           const video = videoRef.current;
           if (!video || !active) return;
@@ -188,27 +205,31 @@ export function CommitPlayer({
         }}
         onEnded={advance}
       />
-      <div className="viewer-timecode">{framesToTimecode(playhead, plan.fps)}</div>
-      <div className="viewer-badge">
-        <em>{plan.commitId.slice(0, 8)}</em>
-        <span>{displayLabel}</span>
+      <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-2 rounded bg-black/70 px-2 py-1 font-mono text-[10px]">
+        <span className="text-primary">{plan.commitId.slice(0, 8)}</span>
+        <span className="max-w-[22rem] truncate text-foreground/80">{displayLabel}</span>
       </div>
-      {!canPlayMedia && <div className="viewer-overlay">
-        <span className="viewer-kicker">COMMIT {plan.commitId.slice(0, 8)}</span>
-        <strong>{displayLabel}</strong>
-        {!active?.available && active?.assetFingerprint && onRelink && <button onClick={() => {
+      <div className="pointer-events-none absolute right-2.5 top-2.5 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-foreground/80">
+        {framesToTimecode(playhead, plan.fps)}
+      </div>
+      {!canPlayMedia && <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 p-6 text-center">
+        <strong className="text-sm">{displayLabel}</strong>
+        {!active?.available && !active?.isGenerator && active?.assetFingerprint && onRelink && <Button variant="secondary" size="sm" onClick={() => {
           if (active.assetFingerprint) onRelink(active.assetFingerprint);
-        }}>Locate media</button>}
+        }}>Locate media</Button>}
       </div>}
     </div>
-    <div className="transport">
-      <button
-        className="play-button"
+
+    <div className="flex shrink-0 items-center gap-3 border-t border-border px-3 py-2">
+      <Button
+        size="icon"
+        variant="default"
         aria-label={playing ? 'Pause' : 'Play'}
         onClick={togglePlayback}
         disabled={plan.segments.length === 0}
-      >{playing ? '❚❚' : '►'}</button>
-      <span>{framesToTimecode(playhead, plan.fps)}</span>
+        className="h-7 w-7"
+      >{playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}</Button>
+      <span className="w-[4.5rem] shrink-0 font-mono text-[10px] text-muted-foreground">{framesToTimecode(playhead, plan.fps)}</span>
       <input
         aria-label="Preview playhead"
         type="range"
@@ -217,16 +238,12 @@ export function CommitPlayer({
         step="1"
         value={Math.min(playhead, Math.max(1, plan.totalFrames - 1))}
         onChange={(event) => seek(Number(event.target.value))}
+        className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
       />
-      <span>{framesToTimecode(plan.totalFrames, plan.fps)}</span>
+      <span className="w-[4.5rem] shrink-0 text-right font-mono text-[10px] text-muted-foreground">{framesToTimecode(plan.totalFrames, plan.fps)}</span>
+      {variant === 'full' && <Badge variant="outline" className="shrink-0">
+        {plan.missingAssets.length ? `${plan.missingAssets.length} offline` : 'All media linked'}
+      </Badge>}
     </div>
-    {variant === 'full' && <div className="viewer-meta">
-      <span>{plan.videoTrackName ?? 'No video track'}</span>
-      <span>{plan.width}×{plan.height}</span>
-      <span>{plan.fps.toFixed(3).replace(/\.?0+$/u, '')} fps</span>
-      <span>{plan.missingAssets.length
-        ? `${plan.missingAssets.length} media file${plan.missingAssets.length === 1 ? '' : 's'} offline`
-        : 'All media linked'}</span>
-    </div>}
   </section>;
 }

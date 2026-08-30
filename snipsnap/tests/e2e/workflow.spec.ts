@@ -164,9 +164,10 @@ test('creates a branch from an old commit, switches branches, and restores histo
   await page.getByLabel('Branch from selected commit').fill('alternate-cut');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByText(/Created and switched to alternate-cut/u)).toBeVisible();
-  await expect(page.getByLabel('Switch branch')).toHaveValue('alternate-cut');
+  await expect(page.getByLabel('Switch branch')).toContainText('alternate-cut');
 
-  await page.getByLabel('Switch branch').selectOption('main');
+  await page.getByLabel('Switch branch').click();
+  await page.getByRole('option', { name: /^main/u }).click();
   await expect(page.getByText('Switched to main.')).toBeVisible();
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
   await page.getByRole('button', { name: 'Restore to working' }).click();
@@ -219,7 +220,8 @@ test('hosts a project and lets a second app join and push a branch', async () =>
   await peerPage.getByRole('button', { name: 'Create', exact: true }).click();
   await peerPage.getByRole('button', { name: 'Push commits' }).click();
   await expect(peerPage.getByText('Pushed peer-cut')).toBeVisible();
-  await expect(page.getByLabel('Switch branch').locator('option[value="peer-cut"]')).toHaveCount(1);
+  await page.getByLabel('Switch branch').click();
+  await expect(page.getByRole('option', { name: /peer-cut/u })).toBeVisible();
 });
 
 test('scrubbing the sequence moves the video and playing moves the sequence', async () => {

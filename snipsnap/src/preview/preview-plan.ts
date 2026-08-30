@@ -9,6 +9,8 @@ export interface PreviewSegment {
   sourceStart: number;
   assetFingerprint?: string;
   assetName?: string;
+  /** True for a title or other clip with no file behind it by nature. */
+  isGenerator?: boolean;
   mediaUrl?: string;
   available: boolean;
   gainDb: number;
@@ -124,6 +126,7 @@ function buildTrack(
     const asset = assetById.get(clip.assetId);
     if (!asset) continue;
     const media = availability[asset.fingerprint];
+    const generator = asset.extras.generator === true;
     const segment: PreviewSegment = {
       id: clip.id,
       kind: 'clip',
@@ -134,6 +137,7 @@ function buildTrack(
       assetFingerprint: asset.fingerprint,
       assetName: asset.name,
       available: media?.available === true,
+      ...(generator ? { isGenerator: true } : {}),
       gainDb: clip.gainDb,
       preset: clip.preset,
       enabled: clip.enabled,
@@ -142,7 +146,7 @@ function buildTrack(
     };
     if (media?.mediaUrl) segment.mediaUrl = media.mediaUrl;
     segments.push(segment);
-    if (!segment.available) missing.set(asset.fingerprint, asset.name);
+    if (!segment.available && !generator) missing.set(asset.fingerprint, asset.name);
     timelineStart += clip.sourceRange.duration;
   }
 

@@ -18,5 +18,18 @@
     "sourceType": "module",
     "project": "./tsconfig.json"
   },
-  "ignorePatterns": [".vite", "out", "node_modules", "playwright-report", "test-results"]
+  "ignorePatterns": [
+    ".vite",
+    "out",
+    "node_modules",
+    "playwright-report",
+    "test-results"
+  ],
+  "settings": {
+    "import/resolver": {
+      "typescript": {
+        "project": "./tsconfig.json"
+      }
+    }
+  }
 }
