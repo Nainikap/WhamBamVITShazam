@@ -7,7 +7,7 @@ import { exportOtio, importOtio, type UnsupportedContent } from '../adapters/oti
 import { reduceCommand, type EditCommand } from '../commands';
 import { applySemanticHunks, semanticDiff, type SemanticHunk } from '../diff';
 import { digestText, projectDigest, ProjectSchema, type Project } from '../domain';
-import { GitRepository, KeyedMutex, type CommitInfo } from '../git';
+import { GitRepository, KeyedMutex, StaleRefError, type CommitInfo } from '../git';
 import {
   completeMerge,
   mergeThreeWay,
@@ -131,7 +131,25 @@ const ProjectMetadataSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   resolve: ResolveBindingSchema.optional(),
+  sharedFrom: z.string().min(1).max(200).optional(),
 }).strict();
+
+export const SharedProjectDescriptorSchema = z.object({
+  version: z.literal(1),
+  projectId: z.string().uuid(),
+  name: z.string().min(1).max(1_000),
+  branch: z.string().min(1).max(1_000),
+  headCommit: CommitIdSchema,
+  branches: z.array(z.object({ name: z.string().min(1), commitId: CommitIdSchema }).strict()),
+}).strict();
+export type SharedProjectDescriptor = z.infer<typeof SharedProjectDescriptorSchema>;
+
+export interface SharedPullResult {
+  status: ProjectStatus;
+  fastForwarded: string[];
+  added: string[];
+  diverged: string[];
+}
 
 /** Everything the dashboard shows about a video project without opening it. */
 export interface ProjectOverview {
@@ -142,7 +160,7 @@ export interface ProjectOverview {
   linked: boolean;
   /** False when the project has no timeline export to read yet. */
   openable: boolean;
-  kind: 'export' | 'database';
+  kind: 'export' | 'database' | 'remote';
   /** Timeline names Resolve knows about, listed even before any export. */
   knownTimelines: string[];
   resolve: ResolveBinding;
@@ -644,6 +662,196 @@ export class ProjectService {
     });
   }
 
+  async sharedProjectDescriptor(projectId: string): Promise<SharedProjectDescriptor> {
+    const status = await this.status(projectId);
+    return SharedProjectDescriptorSchema.parse({
+      version: 1,
+      projectId,
+      name: status.project.name,
+      branch: status.branch,
+      headCommit: status.headCommit,
+      branches: status.branches,
+    });
+  }
+
+  async createSharedBundle(projectId: string, destination: string): Promise<void> {
+    await this.repository(projectId).createBundle(destination);
+  }
+
+  async sharedMediaSources(projectId: string): Promise<Array<{
+    fingerprint: string;
+    fileName: string;
+    filePath: string;
+    priority: 'original';
+  }>> {
+    const [links, history] = await Promise.all([
+      this.readMediaLinks(projectId),
+      this.repository(projectId).history(500),
+    ]);
+    const names = new Map<string, string>();
+    for (const commit of history) {
+      const snapshot = await this.repository(projectId).readSnapshot(commit.id);
+      for (const asset of snapshot.assets) if (!names.has(asset.fingerprint)) names.set(asset.fingerprint, asset.name);
+    }
+    const sources: Array<{ fingerprint: string; fileName: string; filePath: string; priority: 'original' }> = [];
+    for (const [fingerprint, target] of Object.entries(links)) {
+      const filePath = this.localMediaPath(target);
+      if (!filePath) continue;
+      try {
+        await access(filePath);
+        sources.push({
+          fingerprint,
+          fileName: names.get(fingerprint) ?? path.basename(filePath),
+          filePath,
+          priority: 'original',
+        });
+      } catch {
+        // Missing host media is represented by its absence from the manifest.
+      }
+    }
+    return sources;
+  }
+
+  async importSharedProject(
+    descriptorInput: SharedProjectDescriptor,
+    bundlePath: string,
+    peerName: string,
+  ): Promise<ProjectStatus> {
+    const descriptor = SharedProjectDescriptorSchema.parse(descriptorInput);
+    return this.mutex.run(descriptor.projectId, async () => {
+      const projectRoot = this.projectRoot(descriptor.projectId);
+      if (await this.readMetadata(descriptor.projectId)) throw new Error('This shared project already exists; pull it instead');
+      await mkdir(projectRoot, { recursive: true });
+      try {
+        const repository = await GitRepository.create(path.join(projectRoot, 'repo'));
+        const remoteBranches = await repository.fetchBundle(bundlePath, 'origin');
+        if (remoteBranches.length === 0) throw new Error('The shared repository has no branches');
+        for (const branch of remoteBranches) {
+          await repository.updateRef(`refs/heads/${branch.name}`, branch.commitId, '0000000000000000000000000000000000000000');
+        }
+        const selected = remoteBranches.find(({ name }) => name === descriptor.branch) ?? remoteBranches[0];
+        if (!selected) throw new Error('The shared repository has no usable branch');
+        await repository.switchBranch(selected.name);
+        const snapshot = await repository.readSnapshot(selected.commitId);
+        if (snapshot.id !== descriptor.projectId) throw new Error('Shared project identity does not match its repository');
+        await repository.writeIndex(snapshot);
+        await this.writeWorkspace(descriptor.projectId, { version: 0, working: snapshot });
+        await atomicWriteJson(this.metadataPath(descriptor.projectId), {
+          id: descriptor.projectId,
+          name: descriptor.name,
+          sharedFrom: peerName,
+        });
+        await this.writeMediaLinks(descriptor.projectId, {});
+        return this.statusUnlocked(descriptor.projectId);
+      } catch (error) {
+        await rm(projectRoot, { recursive: true, force: true });
+        throw error;
+      }
+    });
+  }
+
+  async pullSharedBundle(projectId: string, bundlePath: string, peerName: string): Promise<SharedPullResult> {
+    return this.mutex.run(projectId, async () => {
+      const current = await this.statusUnlocked(projectId);
+      if (current.staged.length || current.unstaged.length || current.source.pending) throw new DirtyWorkspaceError();
+      const repository = this.repository(projectId);
+      const incoming = await repository.fetchBundle(bundlePath, peerName);
+      const fastForwarded: string[] = [];
+      const added: string[] = [];
+      const diverged: string[] = [];
+      for (const branch of incoming) {
+        let local: string | null = null;
+        try {
+          local = await repository.resolve(`refs/heads/${branch.name}`);
+        } catch {
+          // A newly published branch has no local ref yet.
+        }
+        if (!local) {
+          await repository.updateRef(`refs/heads/${branch.name}`, branch.commitId, '0000000000000000000000000000000000000000');
+          added.push(branch.name);
+        } else if (local === branch.commitId || await repository.isAncestor(branch.commitId, local)) {
+          // Already equal or locally ahead.
+        } else if (await repository.isAncestor(local, branch.commitId)) {
+          await repository.updateRef(`refs/heads/${branch.name}`, branch.commitId, local);
+          fastForwarded.push(branch.name);
+        } else {
+          const trackingName = `${peerName}/${branch.name}`;
+          let tracking: string | null = null;
+          try {
+            tracking = await repository.resolve(`refs/heads/${trackingName}`);
+          } catch {
+            // First divergence for this branch.
+          }
+          await repository.updateRef(
+            `refs/heads/${trackingName}`,
+            branch.commitId,
+            tracking ?? '0000000000000000000000000000000000000000',
+          );
+          diverged.push(branch.name);
+        }
+      }
+      const branch = await repository.currentBranch();
+      if (fastForwarded.includes(branch)) {
+        const snapshot = await repository.readSnapshot('HEAD');
+        await repository.writeIndex(snapshot);
+        const workspace = await this.readWorkspace(projectId);
+        await this.writeWorkspace(projectId, { version: workspace.version + 1, working: snapshot });
+      }
+      return { status: await this.statusUnlocked(projectId), fastForwarded, added, diverged };
+    });
+  }
+
+  async applySharedPush(
+    projectId: string,
+    bundlePath: string,
+    peerName: string,
+    branch: string,
+    expectedHead: string | null,
+  ): Promise<ProjectStatus> {
+    return this.mutex.run(projectId, async () => {
+      const current = await this.statusUnlocked(projectId);
+      const repository = this.repository(projectId);
+      if (current.branch === branch
+        && (current.staged.length || current.unstaged.length || current.source.pending)) throw new DirtyWorkspaceError();
+      const incoming = await repository.fetchBundle(bundlePath, peerName);
+      const proposed = incoming.find(({ name }) => name === branch);
+      if (!proposed) throw new Error(`The pushed bundle does not contain branch ${branch}`);
+      await repository.readSnapshot(proposed.commitId);
+      let actual: string | null = null;
+      try {
+        actual = await repository.resolve(`refs/heads/${branch}`);
+      } catch {
+        // New remote branch.
+      }
+      if (actual !== expectedHead) throw new StaleRefError(`refs/heads/${branch}`);
+      if (actual && !await repository.isAncestor(actual, proposed.commitId)) {
+        throw new Error('Push rejected because it is not a fast-forward; pull and merge first');
+      }
+      await repository.updateRef(
+        `refs/heads/${branch}`,
+        proposed.commitId,
+        actual ?? '0000000000000000000000000000000000000000',
+      );
+      if (current.branch === branch) {
+        const snapshot = await repository.readSnapshot(proposed.commitId);
+        await repository.writeIndex(snapshot);
+        const workspace = await this.readWorkspace(projectId);
+        await this.writeWorkspace(projectId, { version: workspace.version + 1, working: snapshot });
+      }
+      return this.statusUnlocked(projectId);
+    });
+  }
+
+  async linkSharedMedia(projectId: string, links: Record<string, string>): Promise<void> {
+    const validated = z.record(z.string().regex(/^[a-f0-9]{64}$/u), z.string().min(1)).parse(links);
+    const current = await this.readMediaLinks(projectId);
+    for (const [fingerprint, filePath] of Object.entries(validated)) {
+      await access(filePath);
+      current[fingerprint] = pathToFileURL(path.resolve(filePath)).href;
+    }
+    await this.writeMediaLinks(projectId, current);
+  }
+
   /** Resolve database backing for a project that has no standalone .drp file. */
   async resolveDatabaseBridgeSource(projectId: string): Promise<{
     databasePath: string;
@@ -1115,6 +1323,7 @@ export class ProjectService {
       reference = (await this.library.discover()).find(({ id }) => id === projectId);
     }
     if (!reference) {
+      if (await this.readMetadata(projectId)) return this.status(projectId);
       throw new Error('That Resolve project is no longer on disk. Export it again from Resolve.');
     }
     return this.openResolveProject(reference);
@@ -1255,7 +1464,7 @@ export class ProjectService {
       path: this.projectRoot(projectId),
       linked: true,
       openable: true,
-      kind: binding.drpPath ? 'export' : 'database',
+      kind: metadata?.resolve ? (binding.drpPath ? 'export' : 'database') : 'remote',
       knownTimelines: [binding.timelineName],
       resolve: binding,
       branch: status.branch,
@@ -1325,6 +1534,15 @@ export class ProjectService {
         });
       } catch {
         overviews.push(this.unlinkedOverview(reference));
+      }
+    }
+    const discoveredIds = new Set(references.map(({ id }) => id));
+    for (const project of await this.listProjects()) {
+      if (discoveredIds.has(project.id)) continue;
+      try {
+        overviews.push(await this.overview(project.id));
+      } catch {
+        // Invalid local projects stay hidden rather than breaking the dashboard.
       }
     }
     return overviews.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
