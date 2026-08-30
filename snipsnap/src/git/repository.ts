@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import nodePath from 'node:path';
 import { canonicalJson, validateProject, type Project } from '../domain';
 import { GitError, runGit } from './process';
 
@@ -62,6 +63,10 @@ function assertRevision(revision: string): void {
   }
   if (revision.startsWith('refs/tags/')) {
     assertBranchName(revision.slice('refs/tags/'.length));
+    return;
+  }
+  if (revision.startsWith('refs/remotes/')) {
+    assertBranchName(revision.slice('refs/remotes/'.length));
     return;
   }
   throw new Error(`Invalid revision: ${revision}`);
@@ -246,6 +251,42 @@ export class GitRepository {
       const [name, commitId] = line.split('\0');
       if (!name || !commitId) throw new Error('Git returned an invalid branch record');
       return { name, commitId };
+    });
+  }
+
+  /**
+   * Write a transport-neutral archive containing every branch, tag, commit,
+   * tree, and timeline blob. Footage remains outside Git and is transferred by
+   * the collaboration media service.
+   */
+  async createBundle(destination: string): Promise<void> {
+    await mkdir(nodePath.dirname(destination), { recursive: true });
+    await runGit(this.path, ['bundle', 'create', destination, '--branches', '--tags']);
+  }
+
+  /** Import peer refs without moving any local branch. */
+  async fetchBundle(bundlePath: string, peer: string): Promise<Array<{ name: string; commitId: string }>> {
+    assertBranchName(peer);
+    await runGit(this.path, [
+      'fetch', '--no-write-fetch-head', '--no-tags', bundlePath,
+      `+refs/heads/*:refs/remotes/${peer}/*`,
+      '+refs/tags/*:refs/tags/*',
+    ]);
+    return this.remoteBranches(peer);
+  }
+
+  async remoteBranches(peer: string): Promise<Array<{ name: string; commitId: string }>> {
+    assertBranchName(peer);
+    const prefix = `refs/remotes/${peer}/`;
+    const output = await runGit(this.path, [
+      'for-each-ref', '--format=%(refname)%00%(objectname)', `refs/remotes/${peer}`,
+    ]);
+    return output.stdout.trim().split('\n').filter(Boolean).map((line) => {
+      const [ref, commitId] = line.split('\0');
+      if (!ref?.startsWith(prefix) || !commitId || !OID_PATTERN.test(commitId)) {
+        throw new Error('Git returned an invalid remote branch record');
+      }
+      return { name: ref.slice(prefix.length), commitId };
     });
   }
 

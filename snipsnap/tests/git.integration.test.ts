@@ -270,6 +270,28 @@ describe('native Git repository', () => {
     expect(await repository.readSnapshot(mergeCommit)).toEqual(merged);
   });
 
+  it('moves every branch through a transport-neutral Git bundle', async () => {
+    const project = createDemoProject();
+    const initial = await repository.createInitialCommit(project, 'Import timeline');
+    await repository.createBranch('alternate', initial);
+    const clip = project.clips[0];
+    if (!clip) throw new Error('Fixture clip missing');
+    await repository.writeIndex(reduceCommand(project, { type: 'trimClip', clipId: clip.id, start: 12, duration: 96 }));
+    const main = await repository.commitIndex('Trim main', initial);
+
+    const bundle = path.join(directory, 'transfer', 'project.bundle');
+    await repository.createBundle(bundle);
+    const peer = await GitRepository.create(path.join(directory, 'peer'));
+    expect(await peer.fetchBundle(bundle, 'origin')).toEqual(expect.arrayContaining([
+      { name: 'main', commitId: main },
+      { name: 'alternate', commitId: initial },
+    ]));
+    expect(await peer.readSnapshot('refs/remotes/origin/main')).toEqual(
+      reduceCommand(project, { type: 'trimClip', clipId: clip.id, start: 12, duration: 96 }),
+    );
+    await peer.fsck();
+  });
+
   it('rejects stale compare-and-swap ref updates', async () => {
     const project = createDemoProject();
     const initial = await repository.createInitialCommit(project, 'Import timeline');
