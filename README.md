@@ -14,7 +14,7 @@ It answers questions that ordinary project files do not answer well:
 
 SnipSnap is not a video editor. It does not replace Resolve or Kdenlive, and it never puts footage
 inside Git. Git stores small, deterministic timeline snapshots; local media paths and footage stay
-outside the repository.
+outside the repository. VideoGit
 
 ## What works today
 
