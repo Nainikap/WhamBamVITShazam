@@ -66,8 +66,7 @@ timeline file.
 - Share a project with multiple running editor computers over encrypted WebRTC data channels.
 - Pull the host's latest committed Git history and transfer missing media outside Git in resumable,
   hash-verified chunks, while every editor stores its own local copy.
-- Replace the local working project with an immutable selected commit without deleting history or
-  local media.
+- Replace the local working project with the newest commit without deleting history or local media.
 
 WebRTC uses the separately deployed signaling service and may require TURN when peers cannot connect
 directly through NAT. There are no hosted accounts, durable cloud repositories, public repositories,

@@ -186,7 +186,7 @@ describe('V1 project workflow', () => {
     expect((await restarted.status(project.id)).branch).toBe('experiment');
   });
 
-  it('replaces the local project from an immutable commit without moving history or deleting media', async () => {
+  it('replaces the local project from immutable history and resets it to the newest HEAD safely', async () => {
     const project = createDemoProject('Safe local replacement');
     await service.createProject(project);
     const original = await service.status(project.id);
@@ -225,6 +225,18 @@ describe('V1 project workflow', () => {
     expect(replaced.staged).toEqual([]);
     expect(replaced.project).toEqual(project);
     expect(replaced.unstaged).not.toHaveLength(0);
+    expect(await service.resolveMediaFile(project.id, asset.fingerprint)).toBe(mediaPath);
+
+    const newest = await service.restoreRevisionToWorking(
+      project.id,
+      'HEAD',
+      replaced.workspaceVersion,
+      true,
+    );
+    expect(newest.headCommit).toBe(committed.headCommit);
+    expect(newest.project).toEqual(committed.project);
+    expect(newest.staged).toEqual([]);
+    expect(newest.unstaged).toEqual([]);
     expect(await service.resolveMediaFile(project.id, asset.fingerprint)).toBe(mediaPath);
   });
 

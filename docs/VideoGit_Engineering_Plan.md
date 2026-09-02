@@ -37,8 +37,9 @@
 > repository and local SHA-256 media store. The host remains the live source, so this is not durable
 > cloud storage or an identity/permissions system. WebRTC payloads are bounded and backpressured,
 > and existing dirty-workspace, semantic merge, checksum, and expected-old ref protections remain.
-> Replacing the local project from a selected immutable commit updates local INDEX/WORKING only after
-> explicit confirmation; it preserves Git history and media and never rewrites a native NLE project.
+> Replacing the local project from the current branch's newest immutable commit updates local
+> INDEX/WORKING only after explicit confirmation; it preserves Git history and media and never
+> rewrites a native NLE project.
 
 ---
 

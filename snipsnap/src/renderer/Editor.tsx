@@ -200,15 +200,15 @@ export function Editor() {
               size="sm"
               variant="secondary"
               className="col-span-2 min-w-0 whitespace-normal"
-              disabled={revision.commit.id === status.headCommit && !dirty}
+              disabled={!dirty}
               onClick={() => {
                 const confirmed = window.confirm(
-                  `Replace the local SnipSnap project with commit ${shortId(revision.commit.id)}? `
+                  `Replace the local SnipSnap project with newest commit ${shortId(status.headCommit)}? `
                   + 'This discards staged and working changes, but preserves Git history and local media files.',
                 );
-                if (confirmed) void store.replaceLocalProjectWithSelected();
+                if (confirmed) void store.replaceLocalProjectWithNewest();
               }}
-            >Replace the local project with the selected commit</Button>
+            >Replace the local project with the newest commit</Button>
           </div>
         </div>
       </section>

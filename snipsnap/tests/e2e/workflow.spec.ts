@@ -389,7 +389,7 @@ test('linked playback stops cleanly when the shorter commit ends', async () => {
   laterMediaTimes.forEach((time, index) => expect(time).toBeCloseTo(stoppedMediaTimes[index]?.currentTime ?? 0, 2));
 });
 
-test('creates a branch from an old commit, switches branches, and restores history safely', async () => {
+test('creates a branch from an old commit and replaces local changes with the newest commit', async () => {
   await openProject();
   await exportResolveTrim(88);
   await applyStageAndCommit('Shorten opening for main');
@@ -407,10 +407,19 @@ test('creates a branch from an old commit, switches branches, and restores histo
   await page.getByRole('option', { name: /^main/u }).press('Enter');
   await expect(page.getByText('Switched to main.')).toBeVisible();
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Replace the local project with the selected commit' }).click();
-  await expect(page.getByText(/Replaced the local project with commit [a-f0-9]{8}/u)).toBeVisible();
-  await expect(page.getByLabel('Working changes').getByText('Extended end of clip Opening by 8 frames')).toBeVisible();
+  await exportResolveTrim(80);
+  await expect(page.getByText(/change detected in Resolve/u)).toBeVisible();
+  await page.getByRole('button', { name: 'Apply to working timeline' }).click();
+  await expect(page.getByLabel('Working changes').getByText('Trimmed end of clip Opening by 8 frames')).toBeVisible();
+  page.once('dialog', (dialog) => {
+    expect(dialog.message()).toContain('newest commit');
+    return dialog.accept();
+  });
+  await page.getByRole('button', { name: 'Replace the local project with the newest commit' }).click();
+  await expect(page.getByText(/Replaced the local project with newest commit [a-f0-9]{8}/u)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Shorten opening for main' })).toBeVisible();
+  await expect(page.getByText('The latest saved Resolve timeline matches this commit.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Replace the local project with the newest commit' })).toBeDisabled();
 });
 
 test('returns to the dashboard with the project listed as most recently worked on', async () => {
