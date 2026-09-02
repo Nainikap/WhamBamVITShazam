@@ -303,12 +303,12 @@ export class WebRtcSignalingServer {
 }
 
 export class WebRtcSignalingClient {
-  private socket: Ws | null = null;
+  private socket: WebSocket | null = null;
 
   private readonly listeners = new Set<(message: Exclude<ServerSignal, RegisteredSignal>) => void>();
 
   get connected(): boolean {
-    return this.socket?.readyState === Ws.OPEN;
+    return this.socket?.readyState === WebSocket.OPEN;
   }
 
   onMessage(listener: (message: Exclude<ServerSignal, RegisteredSignal>) => void): () => void {
@@ -320,13 +320,16 @@ export class WebRtcSignalingClient {
     if (this.socket) throw new Error('WebRTC signaling client is already connected');
     const url = SignalUrlSchema.parse(urlValue);
     const registration = RegistrationSchema.parse(registrationValue);
-    const socket = new Ws(url, { perMessageDeflate: false, maxPayload: MAX_SIGNAL_BYTES });
+    // Electron's Node runtime provides the WHATWG WebSocket implementation.
+    // Keeping the client native avoids bundling ws's environment detection into
+    // the main process while the ws package remains the signaling server.
+    const socket = new WebSocket(url);
     this.socket = socket;
     return new Promise<RegisteredSignal>((resolve, reject) => {
       let settled = false;
       const timeout = setTimeout(() => {
         if (!settled) reject(new Error('Timed out connecting to the WebRTC signaling server'));
-        socket.terminate();
+        socket.close();
       }, SIGNAL_TIMEOUT_MS);
       const finishError = (error: Error) => {
         if (!settled) {
@@ -335,11 +338,11 @@ export class WebRtcSignalingClient {
           reject(error);
         }
       };
-      socket.once('open', () => socket.send(JSON.stringify(registration)));
-      socket.on('message', (data, binary) => {
+      socket.addEventListener('open', () => socket.send(JSON.stringify(registration)), { once: true });
+      socket.addEventListener('message', ({ data }) => {
         try {
-          if (binary) throw new Error('Signaling server returned a binary message');
-          const message = ServerSignalSchema.parse(JSON.parse(signalText(data)) as unknown);
+          if (typeof data !== 'string') throw new Error('Signaling server returned a binary message');
+          const message = ServerSignalSchema.parse(JSON.parse(data) as unknown);
           if (message.type === 'registered') {
             if (!settled) {
               settled = true;
@@ -357,14 +360,14 @@ export class WebRtcSignalingClient {
           finishError(error instanceof Error ? error : new Error('Invalid signaling response'));
         }
       });
-      socket.once('error', (error) => finishError(error));
-      socket.once('close', () => finishError(new Error('WebRTC signaling connection closed')));
+      socket.addEventListener('error', () => finishError(new Error('Could not connect to the WebRTC signaling server')), { once: true });
+      socket.addEventListener('close', () => finishError(new Error('WebRTC signaling connection closed')), { once: true });
     });
   }
 
   send(messageValue: Exclude<ClientSignal, SignalRegistration>): void {
     const message = ClientSignalSchema.parse(messageValue);
-    if (!this.socket || this.socket.readyState !== Ws.OPEN) throw new Error('WebRTC signaling is disconnected');
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) throw new Error('WebRTC signaling is disconnected');
     this.socket.send(JSON.stringify(message));
   }
 
@@ -372,6 +375,6 @@ export class WebRtcSignalingClient {
     const socket = this.socket;
     this.socket = null;
     if (!socket) return;
-    if (socket.readyState === Ws.CONNECTING || socket.readyState === Ws.OPEN) socket.close();
+    if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) socket.close();
   }
 }

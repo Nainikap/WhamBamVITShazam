@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { WebRtcSignalingServer } from '../../src/webrtc';
 import { packagedElectronArgs } from './electron-args';
 
 let application: ElectronApplication | undefined;
@@ -12,6 +13,8 @@ let dataRoot: string;
 let resolveRoot: string;
 let otioPath: string;
 let browserRenderedMedia: string | undefined;
+let signaling: WebRtcSignalingServer;
+let signalingUrl: string;
 let sourceDocument: {
   tracks: {
     children: Array<{
@@ -26,6 +29,15 @@ let sourceDocument: {
 };
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
+
+test.beforeAll(async () => {
+  signaling = new WebRtcSignalingServer({ host: '127.0.0.1', advertisedHost: '127.0.0.1' });
+  ({ url: signalingUrl } = await signaling.listen());
+});
+
+test.afterAll(async () => {
+  await signaling.close();
+});
 
 /** A short, deterministic clip so preview and scrubbing run against real media. */
 function renderTestMedia(target: string): boolean {
@@ -109,6 +121,7 @@ test.beforeEach(async ({ browserName }, testInfo) => {
       ...process.env,
       SNIPSNAP_DATA_ROOT: dataRoot,
       SNIPSNAP_RESOLVE_ROOT: resolveRoot,
+      SNIPSNAP_SIGNALING_URL: signalingUrl,
       // Keep the machine's own Resolve database out of the fixture.
       SNIPSNAP_RESOLVE_DATABASE: path.join(resolveRoot, 'no-database'),
     },
@@ -428,6 +441,7 @@ test('hosts a project and lets a second app join and push a branch', async () =>
       ...process.env,
       SNIPSNAP_DATA_ROOT: peerRoot,
       SNIPSNAP_RESOLVE_ROOT: peerResolveRoot,
+      SNIPSNAP_SIGNALING_URL: signalingUrl,
       SNIPSNAP_RESOLVE_DATABASE: path.join(peerResolveRoot, 'no-database'),
     },
   });

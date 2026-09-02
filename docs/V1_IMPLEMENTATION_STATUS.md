@@ -32,11 +32,11 @@ branches, preserves divergence under peer-qualified branches, and Push rejects s
 non-fast-forward updates.
 
 The signaling service relays only room membership and WebRTC session descriptions; project bytes use
-authenticated, bounded RTCDataChannel frames. An embedded signaller supports reachable peers, while
-a deployable WSS service and optional STUN/TURN configuration support cross-network ICE. This is not
-a durable hosted collaboration system: the host must remain online, and there are no accounts,
-permissions, cloud project storage, discovery, FFmpeg proxy generation, background queue, or upload
-of newly introduced peer media during Push.
+authenticated, bounded RTCDataChannel frames. A deployable WSS service and optional STUN/TURN
+configuration support cross-network ICE; the desktop opens no LAN listener. This is not a durable
+hosted collaboration system: the host must remain online, and there are no accounts, permissions,
+cloud project storage, discovery, FFmpeg proxy generation, background queue, or upload of newly
+introduced peer media during Push.
 
 An approved V2 Kdenlive native-save slice lets a saved `.kdenlive` project become a watched SnipSnap project and
 prepares any immutable commit for Kdenlive through an atomic OTIO handoff. Every handoff includes a

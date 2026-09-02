@@ -41,7 +41,7 @@ portable editing decisions, and previews immutable commits from media linked on 
 computer. Native editor files, local media paths, and footage remain outside Git.
 
 The desktop app also supports live host/join/pull/push between multiple running SnipSnap instances
-over authenticated WebRTC data channels. Signaling can be embedded or deployed separately, and TURN
-can relay WebRTC traffic when configured. Project history and media remain local; the signaling
-service does not provide identities, permissions, durable repositories, review requests, or cloud
-media storage.
+over authenticated WebRTC data channels. Signaling is deployed separately, and TURN can relay WebRTC
+traffic when configured. Project history and media remain local; the desktop opens no LAN listener,
+and the signaling service does not provide identities, permissions, durable repositories, review
+requests, or cloud media storage.

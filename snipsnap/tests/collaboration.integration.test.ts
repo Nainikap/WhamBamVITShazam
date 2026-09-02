@@ -119,4 +119,20 @@ describe('WebRTC collaboration', () => {
     expect(secondPulled.pull?.fastForwarded).toContain('main');
     expect(secondPulled.status.headCommit).toBe(hostStatus.headCommit);
   }, 120_000);
+
+  it('requires the deployed signaling endpoint instead of opening a LAN listener', async () => {
+    await hostRtc.close();
+    hostRtc = new WebRtcCollaborationService(path.join(root, 'host'), host);
+    const project = createDemoProject();
+    await host.createProject(project, 'Import local signaling cut');
+    const configured = process.env.SNIPSNAP_SIGNALING_URL;
+    delete process.env.SNIPSNAP_SIGNALING_URL;
+
+    try {
+      await expect(hostRtc.startHosting(project.id)).rejects.toThrow(/signaling is not configured/u);
+    } finally {
+      if (configured === undefined) delete process.env.SNIPSNAP_SIGNALING_URL;
+      else process.env.SNIPSNAP_SIGNALING_URL = configured;
+    }
+  });
 });

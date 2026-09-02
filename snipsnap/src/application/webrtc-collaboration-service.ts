@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { hostname, networkInterfaces } from 'node:os';
+import { hostname } from 'node:os';
 import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { RTCPeerConnection, type RTCDataChannel } from 'werift';
@@ -9,8 +9,6 @@ import {
   MAX_WEBRTC_RPC_BODY_BYTES,
   WebRtcRpcChannel,
   WebRtcSignalingClient,
-  WebRtcSignalingServer,
-  parseIceServers,
   type ServerSignal,
   type WebRtcIceServer,
 } from '../webrtc';
@@ -93,7 +91,6 @@ interface HostSession {
   signalingUrl: string;
   hostName: string;
   signal: WebRtcSignalingClient;
-  signalServer?: WebRtcSignalingServer;
   iceServers: WebRtcIceServer[];
   peers: Map<string, HostPeer>;
   manifest?: SharedMediaManifest;
@@ -109,11 +106,8 @@ interface PeerSession {
 }
 
 export interface WebRtcCollaborationOptions {
-  /** Public WSS endpoint. Omit to run an embedded signaling-only server. */
+  /** Public WSS endpoint for the deployed signaling-only service. */
   signalingUrl?: string;
-  iceServers?: WebRtcIceServer[];
-  embeddedHost?: string;
-  embeddedAdvertisedHost?: string;
 }
 
 function peerName(value: string): string {
@@ -131,15 +125,6 @@ function decodeInvite(code: string): Invite {
   } catch {
     throw new Error('That WebRTC pairing code is invalid');
   }
-}
-
-function privateIpv4(): string {
-  const candidates = Object.values(networkInterfaces()).flatMap((entries) => entries ?? [])
-    .filter((entry) => entry.family === 'IPv4' && !entry.internal)
-    .map(({ address }) => address);
-  return candidates.find((address) => /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./u.test(address))
-    ?? candidates[0]
-    ?? '127.0.0.1';
 }
 
 function accessToken(secret: Buffer, roomId: string): string {
@@ -229,20 +214,12 @@ export class WebRtcCollaborationService {
     this.progressChanged(projectId, value);
   }
 
-  private configuredIceServers(): WebRtcIceServer[] {
-    return IceServersSchema.parse(this.options.iceServers ?? parseIceServers());
-  }
-
-  private async signalingEndpoint(): Promise<{ url: string; server?: WebRtcSignalingServer }> {
+  private signalingEndpoint(): string {
     const configured = this.options.signalingUrl ?? process.env.SNIPSNAP_SIGNALING_URL;
-    if (configured) return { url: SignalUrlSchema.parse(configured) };
-    const server = new WebRtcSignalingServer({
-      host: this.options.embeddedHost ?? '0.0.0.0',
-      advertisedHost: this.options.embeddedAdvertisedHost ?? privateIpv4(),
-      iceServers: this.configuredIceServers(),
-    });
-    const { url } = await server.listen();
-    return { url, server };
+    if (!configured) {
+      throw new Error('WebRTC signaling is not configured. Set SNIPSNAP_SIGNALING_URL to the deployed WSS endpoint.');
+    }
+    return SignalUrlSchema.parse(configured);
   }
 
   async startHosting(projectId: string): Promise<CollaborationStatus> {
@@ -251,24 +228,23 @@ export class WebRtcCollaborationService {
     const secret = randomBytes(32);
     const roomId = randomUUID();
     const hostName = peerName(hostname());
-    const endpoint = await this.signalingEndpoint();
+    const signalingUrl = this.signalingEndpoint();
     const signal = new WebRtcSignalingClient();
     const session: HostSession = {
       projectId,
       secret,
       roomId,
       inviteCode: '',
-      signalingUrl: endpoint.url,
+      signalingUrl,
       hostName,
       signal,
-      ...(endpoint.server ? { signalServer: endpoint.server } : {}),
       iceServers: [],
       peers: new Map(),
       mediaPaths: new Map(),
     };
     signal.onMessage((message) => this.handleHostSignal(session, message));
     try {
-      const registered = await signal.connect(endpoint.url, {
+      const registered = await signal.connect(signalingUrl, {
         type: 'register',
         role: 'host',
         roomId,
@@ -278,7 +254,7 @@ export class WebRtcCollaborationService {
       session.iceServers = registered.iceServers;
       session.inviteCode = encodeInvite({
         version: 2,
-        signalingUrl: endpoint.url,
+        signalingUrl,
         roomId,
         secret: secret.toString('base64url'),
         projectId,
@@ -288,7 +264,6 @@ export class WebRtcCollaborationService {
       return this.status(projectId);
     } catch (error) {
       signal.close();
-      if (endpoint.server) await endpoint.server.close();
       throw error;
     }
   }
@@ -344,7 +319,6 @@ export class WebRtcCollaborationService {
     if (!session) return;
     for (const peerId of [...session.peers.keys()]) this.removeHostPeer(session, peerId);
     session.signal.close();
-    if (session.signalServer) await session.signalServer.close();
   }
 
   private async hostManifest(session: HostSession, refresh = false): Promise<SharedMediaManifest> {

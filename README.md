@@ -69,9 +69,10 @@ timeline file.
 - Replace the local working project with an immutable selected commit without deleting history or
   local media.
 
-WebRTC uses a signaling service and may require TURN when peers cannot connect directly through NAT.
-There are no hosted accounts, durable cloud repositories, public repositories, access roles, or pull
-requests. See the [WebRTC collaboration and deployment guide](docs/WEBRTC_COLLABORATION.md).
+WebRTC uses the separately deployed signaling service and may require TURN when peers cannot connect
+directly through NAT. There are no hosted accounts, durable cloud repositories, public repositories,
+access roles, or pull requests. See the
+[WebRTC collaboration and deployment guide](docs/WEBRTC_COLLABORATION.md).
 
 ## Typical workflow
 
@@ -226,9 +227,10 @@ portable through OTIO.
 
 On the computer that owns the project:
 
-1. Open the project and choose **Share via WebRTC**.
-2. Send the pairing code to every project editor over a trusted channel.
-3. Keep SnipSnap open during joins, pulls, and pushes.
+1. Configure the deployed `SNIPSNAP_SIGNALING_URL` described in the WebRTC guide.
+2. Open the project and choose **Share via WebRTC**.
+3. Send the pairing code to every project editor over a trusted channel.
+4. Keep SnipSnap open during joins, pulls, and pushes.
 
 On the collaborator's computer:
 
@@ -238,10 +240,9 @@ On the collaborator's computer:
 4. Choose **Pull latest** whenever the host publishes a newer committed version.
 5. Commit on a branch and push the history back to the host.
 
-The default embedded signaller is suitable for reachable peers. Cross-network deployments should use
-the standalone WSS signaling image plus STUN/TURN configuration described in the
-[WebRTC guide](docs/WEBRTC_COLLABORATION.md). This remains live peer sharing, not durable hosted
-storage; the proposed durable architecture is described in the
+The desktop app does not open a LAN listener. Use the standalone WSS signaling image plus STUN/TURN
+configuration described in the [WebRTC guide](docs/WEBRTC_COLLABORATION.md). This remains live peer
+sharing, not durable hosted storage; the proposed durable architecture is described in the
 [hosted collaboration plan](docs/HOSTED_COLLABORATION_PLAN.md).
 
 ## Platform notes

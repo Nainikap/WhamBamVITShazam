@@ -201,9 +201,9 @@ metadata, so the hub must reconcile into stable canonical identities before diff
 
 ### WebRTC/media
 
-- An embedded signaller keeps reachable-peer demos self-contained. Cross-network use requires the
-  standalone WSS deployment and usually a configured TURN service; there is no cloud auth,
-  permissions, discovery, durable storage, or hosted review workflow.
+- The desktop opens no LAN listener. Collaboration requires the standalone WSS deployment and
+  usually a configured TURN service; there is no cloud auth, permissions, discovery, durable
+  storage, or hosted review workflow.
 - Git bundle request/response bodies are capped at 64 MiB and held in memory.
 - Pull downloads host media. Push sends Git history only; newly introduced media on the peer is not
   uploaded to the host.

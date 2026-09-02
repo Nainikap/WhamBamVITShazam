@@ -31,7 +31,7 @@
 
 > **Approved V2 WebRTC peer-transfer slice (updated 2026-09-02):** The earlier same-network HTTP
 > transfer is replaced by authenticated WebRTC data channels. A signaling-only WebSocket service
-> may be embedded for reachable peers or deployed behind WSS with STUN/TURN for cross-network ICE.
+> is deployed behind WSS with STUN/TURN for cross-network ICE; the desktop opens no LAN listener.
 > Signaling must never carry or store project data. One host may serve multiple connected editors;
 > each editor can pull the host's latest committed refs and missing media into the existing local Git
 > repository and local SHA-256 media store. The host remains the live source, so this is not durable

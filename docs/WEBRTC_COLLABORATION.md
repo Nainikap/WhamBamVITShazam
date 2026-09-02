@@ -30,25 +30,23 @@ Git and SHA-256 media checks before local publication.
 
 ## Signaling deployment
 
-For a local/offline demonstration, **Share via WebRTC** starts an embedded signaling-only WebSocket
-server. Project bytes still use WebRTC, but editors must be able to reach the host's signaling
-address.
-
-For editors on different networks, deploy the standalone signaling image behind a TLS reverse proxy:
+Deploy the standalone signaling image behind a TLS reverse proxy before using **Share via WebRTC**:
 
 ```bash
 docker build -f snipsnap/webrtc-signaling.Dockerfile -t snipsnap-signaling snipsnap
 docker run --rm -p 8080:8080 snipsnap-signaling
 ```
 
-Expose port 8080 as `wss://signal.example.com/signal`, then start each desktop app with:
+Expose port 8080 as `wss://signal.example.com/signal`, then start every desktop app with:
 
 ```bash
 SNIPSNAP_SIGNALING_URL=wss://signal.example.com/signal npm start
 ```
 
 The container exposes `GET /healthz` for deployment health checks. Production signaling must use
-WSS; TLS can terminate at the platform load balancer or reverse proxy.
+WSS; TLS can terminate at the platform load balancer or reverse proxy. The desktop app deliberately
+does not open a LAN signaling listener. If `SNIPSNAP_SIGNALING_URL` is absent, sharing fails with an
+actionable configuration error rather than silently falling back to LAN transport.
 
 Signaling alone does not guarantee that every NAT/firewall pair can establish a direct connection.
 Configure a STUN/TURN service on the signaling deployment when internet reliability is required:
