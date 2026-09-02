@@ -21,6 +21,9 @@ export default defineConfig({
   },
   build: {
     // node:sqlite is newer than Vite's built-in module list, so name it here.
-    rollupOptions: { external: ['node:sqlite'] },
+    // ws loads its native accelerators inside try/catch blocks and falls back to
+    // JavaScript when they are absent. Keeping them external preserves that
+    // optional runtime behavior instead of Vite emitting a startup-time throw.
+    rollupOptions: { external: ['node:sqlite', 'bufferutil', 'utf-8-validate'] },
   },
 });
