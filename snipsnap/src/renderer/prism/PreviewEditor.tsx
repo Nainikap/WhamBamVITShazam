@@ -43,7 +43,7 @@ export function PreviewEditor() {
         </div>
         <div className="vg-editor-actions">
           <button type="button">See diff</button>
-          <button type="button">Restore to working</button>
+          <button type="button">Replace local project</button>
         </div>
       </div>
 

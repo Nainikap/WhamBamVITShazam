@@ -45,7 +45,7 @@ function JoinDialog({ open, busy, onOpenChange, onJoin }: {
         <DialogHeader>
           <DialogTitle>Join a shared project</DialogTitle>
           <DialogDescription>
-            Paste the pairing code from your collaborator. SnipSnap securely copies the complete Git history and missing footage.
+            Paste the WebRTC pairing code from the project host. SnipSnap receives Git history and missing footage directly, then stores both locally.
           </DialogDescription>
         </DialogHeader>
         <label className="grid gap-2">
@@ -64,7 +64,7 @@ function JoinDialog({ open, busy, onOpenChange, onJoin }: {
         <DialogFooter>
           <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button disabled={busy || !inviteCode.trim()}>
-            <Network />{busy ? 'Joining…' : 'Join and download'}
+            <Network />{busy ? 'Joining…' : 'Join over WebRTC'}
           </Button>
         </DialogFooter>
       </form>

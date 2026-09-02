@@ -186,6 +186,48 @@ describe('V1 project workflow', () => {
     expect((await restarted.status(project.id)).branch).toBe('experiment');
   });
 
+  it('replaces the local project from an immutable commit without moving history or deleting media', async () => {
+    const project = createDemoProject('Safe local replacement');
+    await service.createProject(project);
+    const original = await service.status(project.id);
+    const [first, second] = project.clips;
+    const asset = project.assets[0];
+    if (!first || !second || !asset) throw new Error('Fixture is incomplete');
+    const mediaPath = path.join(root, 'local-camera.mov');
+    await writeFile(mediaPath, 'local-media-must-survive');
+    await service.linkMedia(project.id, asset.fingerprint, mediaPath);
+
+    let status = await service.edit(project.id, {
+      type: 'setClipPreset', clipId: first.id, preset: 'warm',
+    }, original.workspaceVersion);
+    status = await stageAll(project.id);
+    const committed = await service.commit(project.id, 'Warm current cut', status.headCommit, status.indexDigest);
+    status = await service.edit(project.id, {
+      type: 'setClipGain', clipId: second.id, gainDb: -6,
+    }, committed.workspaceVersion);
+    status = await stageAll(project.id);
+
+    await expect(service.restoreRevisionToWorking(
+      project.id,
+      original.headCommit,
+      status.workspaceVersion,
+      false,
+    )).rejects.toBeInstanceOf(DirtyWorkspaceError);
+
+    const replaced = await service.restoreRevisionToWorking(
+      project.id,
+      original.headCommit,
+      status.workspaceVersion,
+      true,
+    );
+    expect(replaced.headCommit).toBe(committed.headCommit);
+    expect(replaced.history.map(({ message }) => message)).toEqual(['Warm current cut', 'Import timeline']);
+    expect(replaced.staged).toEqual([]);
+    expect(replaced.project).toEqual(project);
+    expect(replaced.unstaged).not.toHaveLength(0);
+    expect(await service.resolveMediaFile(project.id, asset.fingerprint)).toBe(mediaPath);
+  });
+
   it('creates a real two-parent commit for independent branch edits', async () => {
     const project = createDemoProject();
     await service.createProject(project);

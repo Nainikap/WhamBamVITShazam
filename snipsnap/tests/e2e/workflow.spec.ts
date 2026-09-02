@@ -394,8 +394,9 @@ test('creates a branch from an old commit, switches branches, and restores histo
   await page.getByRole('option', { name: /^main/u }).press('Enter');
   await expect(page.getByText('Switched to main.')).toBeVisible();
   await page.getByRole('button', { name: 'View commit Import Resolve Basic Cut from Resolve' }).click();
-  await page.getByRole('button', { name: 'Restore to working' }).click();
-  await expect(page.getByText(/Restored [a-f0-9]{8} into the working timeline/u)).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Replace the local project with the selected commit' }).click();
+  await expect(page.getByText(/Replaced the local project with commit [a-f0-9]{8}/u)).toBeVisible();
   await expect(page.getByLabel('Working changes').getByText('Extended end of clip Opening by 8 frames')).toBeVisible();
 });
 
@@ -412,8 +413,8 @@ test('returns to the dashboard with the project listed as most recently worked o
 
 test('hosts a project and lets a second app join and push a branch', async () => {
   await openProject();
-  await page.getByRole('button', { name: 'Host this project' }).press('Enter');
-  await expect(page.getByText('Hosting', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Share via WebRTC' }).press('Enter');
+  await expect(page.getByText('WebRTC host', { exact: true })).toBeVisible();
   const inviteCode = await page.getByLabel('Pairing code').inputValue();
   expect(inviteCode.length).toBeGreaterThan(40);
 
@@ -435,7 +436,7 @@ test('hosts a project and lets a second app join and push a branch', async () =>
   await peerPage.getByRole('button', { name: 'Continue' }).click();
   await peerPage.getByRole('button', { name: 'Join shared project' }).click();
   await peerPage.getByLabel('Pairing code').fill(inviteCode);
-  await peerPage.getByRole('button', { name: 'Join and download' }).click();
+  await peerPage.getByRole('button', { name: 'Join over WebRTC' }).click();
 
   await expect(peerPage.getByLabel('Commit history')).toBeVisible();
   await expect(peerPage.getByText('Connected', { exact: true })).toBeVisible();

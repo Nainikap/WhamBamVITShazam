@@ -29,6 +29,17 @@
 > Git source of truth; native effect/composition fidelity and baked cross-editor renders remain out
 > of scope.
 
+> **Approved V2 WebRTC peer-transfer slice (updated 2026-09-02):** The earlier same-network HTTP
+> transfer is replaced by authenticated WebRTC data channels. A signaling-only WebSocket service
+> may be embedded for reachable peers or deployed behind WSS with STUN/TURN for cross-network ICE.
+> Signaling must never carry or store project data. One host may serve multiple connected editors;
+> each editor can pull the host's latest committed refs and missing media into the existing local Git
+> repository and local SHA-256 media store. The host remains the live source, so this is not durable
+> cloud storage or an identity/permissions system. WebRTC payloads are bounded and backpressured,
+> and existing dirty-workspace, semantic merge, checksum, and expected-old ref protections remain.
+> Replacing the local project from a selected immutable commit updates local INDEX/WORKING only after
+> explicit confirmation; it preserves Git history and media and never rewrites a native NLE project.
+
 ---
 
 ## 1. Recommended architecture (the decision)

@@ -5,7 +5,8 @@ implementation. The authoritative V1 source remains `VideoGit_Engineering_Plan.m
 
 ## Decision
 
-Build a durable hosted remote, not a WebRTC replacement for the current LAN peer.
+The desktop live-peer path now uses WebRTC instead of the earlier LAN HTTP transfer. A future hosted
+product must still build a durable remote rather than treating that WebRTC path as storage.
 
 The hosted product should have three independent data planes:
 
@@ -13,10 +14,12 @@ The hosted product should have three independent data planes:
 2. object storage for originals, proxies, thumbnails, and waveforms;
 3. PostgreSQL metadata for users, organizations, access, reviews, asset policy, and audit events.
 
-WebRTC can later accelerate an active session or carry presence/screen-share traffic. It must not be
-the source of truth. WebRTC still needs signaling, and most real deployments need TURN relay when a
-direct connection cannot be established. It also requires both peers to be online and provides no
-durable repository, permissions, discovery, or disaster recovery. The official WebRTC documentation
+WebRTC now accelerates active project transfer and can later carry presence/screen-share traffic. It
+must not be the durable source of truth. WebRTC still needs signaling, and most real deployments need
+TURN relay when a direct connection cannot be established. It also requires both peers to be online
+and provides no durable repository, permissions, discovery, or disaster recovery. The desktop
+implementation and deployment boundary are documented in
+[`WEBRTC_COLLABORATION.md`](./WEBRTC_COLLABORATION.md). The official WebRTC documentation
 describes both the separate signaling requirement and the common need for TURN:
 [peer connections](https://webrtc.org/getting-started/peer-connections) and
 [TURN servers](https://webrtc.org/getting-started/turn-server).

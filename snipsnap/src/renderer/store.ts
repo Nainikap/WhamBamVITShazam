@@ -52,7 +52,7 @@ interface AppStore {
   loadRevision(revision: string, parentIndex?: number): Promise<void>;
   createBranchFromSelected(name: string): Promise<void>;
   checkout(branch: string, discard: boolean): Promise<void>;
-  restoreSelected(discard: boolean): Promise<void>;
+  replaceLocalProjectWithSelected(): Promise<void>;
   openDiff(base: string, head: string): Promise<void>;
   openWorkspaceDiff(scope: WorkspaceComparisonScope): Promise<void>;
   closeDiff(): void;
@@ -307,14 +307,22 @@ export const useAppStore = create<AppStore>((set, get) => {
       // Join, pull, and push refresh their peer state in the invoking action.
       // Only a host receives repository changes initiated by another window.
       if (get().currentProjectId !== projectId || collaboration.mode !== 'hosting') return;
-      void run(async () => {
-        await refresh(projectId, get().selectedRevision?.commit.id);
+      void window.snipsnap.status(projectId).then(async (latest) => {
+        const known = get().status;
+        const refs = (value: ProjectStatus) => value.branches.map(({ name, commitId }) => `${name}:${commitId}`).sort().join('|');
+        if (!known || (latest.headCommit === known.headCommit && refs(latest) === refs(known))) return;
+        const selectedRevision = await window.snipsnap.revisionDetails(
+          projectId,
+          get().selectedRevision?.commit.id ?? latest.headCommit,
+        );
         set({
+          status: latest,
+          selectedRevision,
           overviews: await window.snipsnap.listOverviews(),
           ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
-          notice: 'A peer pushed new commits. The project history is up to date.',
+          notice: 'An editor pushed new commits. The project history is up to date.',
         });
-      });
+      }).catch((error: unknown) => set({ error: errorMessage(error) }));
     }),
 
     stopResolveSync: () => run(async () => {
@@ -425,7 +433,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       await refreshComparison(projectId);
     }),
 
-    restoreSelected: (discard) => run(async () => {
+    replaceLocalProjectWithSelected: () => run(async () => {
       const { currentProjectId, status, selectedRevision } = get();
       if (!currentProjectId || !status || !selectedRevision) return;
       set({
@@ -433,10 +441,10 @@ export const useAppStore = create<AppStore>((set, get) => {
           currentProjectId,
           selectedRevision.commit.id,
           status.workspaceVersion,
-          discard,
+          true,
         ),
         ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
-        notice: `Restored ${selectedRevision.commit.id.slice(0, 8)} into the working timeline.`,
+        notice: `Replaced the local project with commit ${selectedRevision.commit.id.slice(0, 8)}. Git history and local media were preserved.`,
       });
     }),
 
@@ -546,7 +554,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       const projectId = get().currentProjectId;
       if (!projectId) return;
       const collaboration = await window.snipsnap.collaborationStartHost(projectId);
-      set({ collaboration, notice: 'Hosting on your local network. Send the pairing code to your collaborator.' });
+      set({ collaboration, notice: 'WebRTC sharing is ready. Send the pairing code to every editor on this project.' });
     }),
 
     stopHosting: () => run(async () => {
@@ -574,7 +582,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         route: { name: 'editor', projectId },
         diffOpen: false,
         comparison: null,
-        notice: `Joined ${collaboration.peerName ?? 'shared project'} with ${result.media.completedFiles} media file${result.media.completedFiles === 1 ? '' : 's'} ready.`,
+        notice: `Joined ${collaboration.peerName ?? 'shared project'} over WebRTC with ${result.media.completedFiles} local media file${result.media.completedFiles === 1 ? '' : 's'} ready.`,
       });
     }),
 
@@ -592,7 +600,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         selectedRevision,
         collaboration,
         overviews: await window.snipsnap.listOverviews(),
-        notice: `Pulled ${updatedBranches} updated branch${updatedBranches === 1 ? '' : 'es'} and verified ${result.media.completedFiles} media file${result.media.completedFiles === 1 ? '' : 's'}.`,
+        notice: `Pulled the latest project: ${updatedBranches} updated branch${updatedBranches === 1 ? '' : 'es'} and ${result.media.completedFiles} verified local media file${result.media.completedFiles === 1 ? '' : 's'}.`,
       });
       await refreshComparison(projectId);
     }),

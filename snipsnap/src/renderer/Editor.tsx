@@ -199,13 +199,16 @@ export function Editor() {
             <Button
               size="sm"
               variant="secondary"
-              className="min-w-0"
-              disabled={revision.commit.id === status.headCommit}
+              className="col-span-2 min-w-0 whitespace-normal"
+              disabled={revision.commit.id === status.headCommit && !dirty}
               onClick={() => {
-                const discard = dirty && window.confirm('Replace the staged and working timeline with this commit?');
-                if (!dirty || discard) void store.restoreSelected(discard);
+                const confirmed = window.confirm(
+                  `Replace the local SnipSnap project with commit ${shortId(revision.commit.id)}? `
+                  + 'This discards staged and working changes, but preserves Git history and local media files.',
+                );
+                if (confirmed) void store.replaceLocalProjectWithSelected();
               }}
-            >Restore to working</Button>
+            >Replace the local project with the selected commit</Button>
           </div>
         </div>
       </section>
@@ -387,19 +390,26 @@ export function Editor() {
         <PanelHeading
           title="Collaborate"
           action={<Badge variant={collaboration.connected ? 'added' : 'outline'}>
-            {collaboration.mode === 'hosting' ? 'Hosting' : collaboration.mode === 'peer' ? 'Connected' : 'Local'}
+            {collaboration.mode === 'hosting'
+              ? 'WebRTC host'
+              : collaboration.mode === 'peer'
+                ? collaboration.connected ? 'Connected' : 'Offline'
+                : 'Local'}
           </Badge>}
         />
         <div className="flex flex-col gap-3 p-3">
           {collaboration.mode === 'none' && <>
             <p className="text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-              Share every commit, branch, tag, diff, and missing media with another SnipSnap computer on this network.
+              Share commits and missing media directly with every project editor over encrypted WebRTC. Files stay on editor computers.
             </p>
-            <Button className="w-full" onClick={() => void store.startHosting()}><Network />Host this project</Button>
+            <Button className="w-full" onClick={() => void store.startHosting()}><Network />Share via WebRTC</Button>
           </>}
 
           {collaboration.mode === 'hosting' && <>
-            <span className="truncate font-mono text-[10px] text-muted-foreground">Listening at {collaboration.address}</span>
+            <span className="truncate font-mono text-[10px] text-muted-foreground">Signaling through {collaboration.address}</span>
+            <span className="text-[10px] text-muted-foreground">
+              {collaboration.peerCount ?? 0} editor{collaboration.peerCount === 1 ? '' : 's'} connected
+            </span>
             <label className="grid gap-1.5">
               <span className="font-mono text-[9px] tracking-widest text-muted-foreground">Pairing code</span>
               <textarea
@@ -417,13 +427,13 @@ export function Editor() {
               <Button size="sm" variant="secondary" onClick={() => void store.stopHosting()}><Square />Stop</Button>
             </div>
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              Keep SnipSnap open while your collaborator joins, pulls, or pushes.
+              Keep SnipSnap open while editors join, pull the latest project, or push commits. The signaling server never stores project files.
             </p>
           </>}
 
           {collaboration.mode === 'peer' && <>
             <div className="flex min-w-0 flex-col">
-              <strong className="truncate text-xs">{collaboration.peerName ?? 'LAN host'}</strong>
+              <strong className="truncate text-xs">{collaboration.peerName ?? 'WebRTC host'}</strong>
               <span className="truncate font-mono text-[10px] text-muted-foreground">{collaboration.address}</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -436,7 +446,7 @@ export function Editor() {
                       className="w-full"
                       disabled={dirty}
                       onClick={() => void store.pullProject()}
-                    ><Download />Pull</Button>
+                    ><Download />Pull latest</Button>
                   </span>
                 </TooltipTrigger>
                 {dirty && <TooltipContent>Commit or discard local changes before pulling</TooltipContent>}

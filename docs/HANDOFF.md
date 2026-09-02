@@ -132,7 +132,7 @@ metadata, so the hub must reconcile into stable canonical identities before diff
 - The left panel shows staged/unstaged changes and commit history. Selecting a commit expands its
   semantic changes; selecting it again closes the disclosure.
 - **All changes** opens the complete parent comparison. Each individual hunk can focus the diff.
-- The right inspector exposes LAN state, branch switch/create, merge, timeline facts, and a compact
+- The right inspector exposes WebRTC peer state, branch switch/create, merge, timeline facts, and a compact
   coloured commit graph.
 - `CommitPlayer` uses source media ranges, captions, audio volume, and `none/warm/cool/mono` CSS
   presets. Space toggles playback when the video surface has focus.
@@ -144,11 +144,13 @@ metadata, so the hub must reconcile into stable canonical identities before diff
 - The dashboard intro uses a vendored Vercel/vgpu WebGPU prism with the retained MIT license. The
   project view unmounts that GPU stage.
 
-### LAN demo
+### WebRTC peer transfer
 
-- One app can host a project and produce a pairing code; a second can join, pull, and push.
-- Requests use a random 256-bit pairing secret, HMAC authentication, timestamps/nonces, and
-  AES-256-GCM encrypted bodies.
+- One app can host a project and produce a pairing code; multiple editors can join, pull the latest
+  committed refs/media, and push.
+- A signaling-only WebSocket server introduces peers. Project bytes cross WebRTC data channels in
+  bounded, backpressured frames and remain in each editor's local Git repository/media CAS.
+- WebRTC DTLS plus a random 256-bit pairing secret and AES-256-GCM protect application bodies.
 - Git bundles carry every branch/tag/commit/tree. Fetched peer tags are namespaced rather than
   overwriting local tags.
 - Media transfers outside Git in 8 MiB chunks with chunk and whole-file SHA-256, persisted resume
@@ -197,10 +199,11 @@ metadata, so the hub must reconcile into stable canonical identities before diff
   adapter may be useful later for Kdenlive-specific fidelity, but MLT should not replace
   canonical JSON as Git source of truth.
 
-### LAN/media
+### WebRTC/media
 
-- Same-network reachability only: no NAT traversal, discovery, relay, cloud auth, permissions, or
-  hosted review workflow.
+- An embedded signaller keeps reachable-peer demos self-contained. Cross-network use requires the
+  standalone WSS deployment and usually a configured TURN service; there is no cloud auth,
+  permissions, discovery, durable storage, or hosted review workflow.
 - Git bundle request/response bodies are capped at 64 MiB and held in memory.
 - Pull downloads host media. Push sends Git history only; newly introduced media on the peer is not
   uploaded to the host.
@@ -229,7 +232,7 @@ Current audit results before the documentation edit:
 Earlier validation on the same implementation baseline also passed packaging and 18 packaged
 Electron E2E journeys, including responsive layouts, Resolve refresh, commit diff focus, linked
 playback termination, historical branching/restore, clean/conflicting/multi-contributor merges,
-blade-cut naming, playback/scrubbing, and two-instance LAN join/push. Re-run E2E after material UI,
+blade-cut naming, playback/scrubbing, and two-instance WebRTC join/push. Re-run E2E after material UI,
 IPC, preview, Resolve, or collaboration changes rather than treating this paragraph as permanent.
 
 Official full gate:

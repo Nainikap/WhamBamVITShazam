@@ -58,18 +58,20 @@ The underlying project repository contains normal Git objects, commits, parents,
 and tags. SnipSnap performs timeline-aware staging and merging itself; Git never text-merges the
 timeline file.
 
-### Preview and local collaboration
+### Preview and WebRTC collaboration
 
 - Preview an immutable commit from media linked on the current computer.
 - Compare revisions with a shared playhead and timeline view.
 - Relink missing footage without changing committed history.
-- Host a project to another SnipSnap computer on the same local network.
-- Pull and push Git history and transfer missing media outside Git in encrypted, resumable,
-  hash-verified chunks.
+- Share a project with multiple running editor computers over encrypted WebRTC data channels.
+- Pull the host's latest committed Git history and transfer missing media outside Git in resumable,
+  hash-verified chunks, while every editor stores its own local copy.
+- Replace the local working project with an immutable selected commit without deleting history or
+  local media.
 
-Local-network collaboration is intentionally limited: both computers must be directly reachable.
-There are no hosted accounts, public repositories, access roles, pull requests, internet relays, or
-NAT traversal yet.
+WebRTC uses a signaling service and may require TURN when peers cannot connect directly through NAT.
+There are no hosted accounts, durable cloud repositories, public repositories, access roles, or pull
+requests. See the [WebRTC collaboration and deployment guide](docs/WEBRTC_COLLABORATION.md).
 
 ## Typical workflow
 
@@ -220,23 +222,27 @@ sequences, generators, and speed effects remain in the `.kdenlive` file but are 
 portable timeline data. Resolve Color graphs, Fusion graphs, and plugin state are likewise not
 portable through OTIO.
 
-## Local-network collaboration
+## WebRTC collaboration
 
 On the computer that owns the project:
 
-1. Open the project and choose **Host this project**.
-2. Send the pairing code to the collaborator over a trusted channel.
+1. Open the project and choose **Share via WebRTC**.
+2. Send the pairing code to every project editor over a trusted channel.
 3. Keep SnipSnap open during joins, pulls, and pushes.
 
 On the collaborator's computer:
 
-1. Choose **Join** and enter the pairing code.
+1. Choose **Join** and enter the WebRTC pairing code.
 2. SnipSnap imports the advertised branches, tags, and commits.
 3. Missing media downloads outside Git and is verified before publication.
-4. Commit on a branch and push the history back to the host.
+4. Choose **Pull latest** whenever the host publishes a newer committed version.
+5. Commit on a branch and push the history back to the host.
 
-This is a same-network workflow, not a hosted GitHub-style service. The proposed hosted architecture
-is described in [the hosted collaboration plan](docs/HOSTED_COLLABORATION_PLAN.md).
+The default embedded signaller is suitable for reachable peers. Cross-network deployments should use
+the standalone WSS signaling image plus STUN/TURN configuration described in the
+[WebRTC guide](docs/WEBRTC_COLLABORATION.md). This remains live peer sharing, not durable hosted
+storage; the proposed durable architecture is described in the
+[hosted collaboration plan](docs/HOSTED_COLLABORATION_PLAN.md).
 
 ## Platform notes
 
@@ -314,6 +320,7 @@ not require personal footage or a user's Git configuration.
 
 - [Kdenlive integration and fidelity](docs/KDENLIVE_INTEGRATION.md)
 - [Resolve integration scripts](resolve/README.md)
+- [WebRTC collaboration and signaling deployment](docs/WEBRTC_COLLABORATION.md)
 - [Hosted collaboration plan](docs/HOSTED_COLLABORATION_PLAN.md)
 - [Documentation index](docs/README.md)
 - [Contributor handoff](docs/HANDOFF.md)

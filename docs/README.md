@@ -12,6 +12,8 @@ to connect Resolve or Kdenlive, and how to run the test suite.
   installation, export locations, and the manual fallback.
 - [Hosted collaboration plan](HOSTED_COLLABORATION_PLAN.md) reasons through a future durable remote
   service. It is a plan, not behavior present in the desktop app.
+- [WebRTC collaboration](WEBRTC_COLLABORATION.md) documents live multi-editor peer transfer,
+  signaling deployment, TURN configuration, and local storage guarantees.
 - [Studio Graphite design system](SnipSnap_Studio_Graphite_Design_System.md) records the interface
   language and visual constraints.
 - [Contributor handoff](HANDOFF.md) records implementation context for continuing engineering work.
@@ -38,6 +40,8 @@ Resolve and Kdenlive remain the editors. SnipSnap detects their saved timeline s
 portable editing decisions, and previews immutable commits from media linked on the current
 computer. Native editor files, local media paths, and footage remain outside Git.
 
-The desktop app also supports direct same-network host/join/pull/push between two running SnipSnap
-instances. It does not currently provide hosted identities, public repositories, permissions,
-review requests, internet relays, or cloud media storage.
+The desktop app also supports live host/join/pull/push between multiple running SnipSnap instances
+over authenticated WebRTC data channels. Signaling can be embedded or deployed separately, and TURN
+can relay WebRTC traffic when configured. Project history and media remain local; the signaling
+service does not provide identities, permissions, durable repositories, review requests, or cloud
+media storage.
