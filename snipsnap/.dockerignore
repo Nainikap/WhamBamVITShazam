@@ -1,0 +1,8 @@
+.git
+.signaling
+.vite
+node_modules
+out
+playwright-report
+test-results
+tests

@@ -87,6 +87,7 @@ typings/
 
 # Vite
 .vite/
+.signaling/
 
 # Sparse clone used only to vendor the vgpu.sh hero.
 .vendor-vgpu/

@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import started from 'electron-squirrel-startup';
 import {
-  LanCollaborationService,
+  WebRtcCollaborationService,
   ProjectService,
   ResolveBridgeService,
   SourceWatchService,
@@ -191,7 +191,7 @@ function resolveSaveBridgePath(): string {
 }
 
 const resolveBridge = new ResolveBridgeService(projects, resolveSaveBridgePath(), notifySourceChanged);
-const collaboration = new LanCollaborationService(
+const collaboration = new WebRtcCollaborationService(
   dataRoot,
   projects,
   notifyCollaborationChanged,
@@ -476,6 +476,6 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   sourceWatcher.close();
   resolveBridge.close();
-  void collaboration.stopHosting();
+  void collaboration.close();
   if (process.platform !== 'darwin') app.quit();
 });

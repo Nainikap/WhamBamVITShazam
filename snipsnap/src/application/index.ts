@@ -7,5 +7,5 @@ export * from './storage';
 export * from './media-probe';
 export * from './media-transfer';
 export * from './kdenlive-launcher';
-export * from './lan-collaboration-service';
+export * from './webrtc-collaboration-service';
 export * from './resolve-database';
