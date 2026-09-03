@@ -2,6 +2,7 @@ import { Copy, Download, GitBranch, GitMerge, Network, SplitSquareHorizontal, Sq
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { CollaborationStatus } from '../application';
 import type { SemanticHunk } from '../diff';
+import { projectDigest } from '../domain';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -98,6 +99,7 @@ export function Editor() {
 
   const fps = revision.preview.fps;
   const dirty = status.staged.length > 0 || status.unstaged.length > 0 || Boolean(status.source.pending);
+  const selectedMatchesWorking = revision.preview.snapshotDigest === projectDigest(status.project);
   const canCommit = status.staged.length > 0;
   const canDiff = status.history.length > 1;
   const diffOpen = store.diffOpen && Boolean(store.comparison);
@@ -200,15 +202,15 @@ export function Editor() {
               size="sm"
               variant="secondary"
               className="col-span-2 min-w-0 whitespace-normal"
-              disabled={!dirty}
+              disabled={selectedMatchesWorking}
               onClick={() => {
                 const confirmed = window.confirm(
-                  `Replace the local SnipSnap project with newest commit ${shortId(status.headCommit)}? `
+                  `Replace the local SnipSnap project with selected commit ${shortId(revision.commit.id)}? `
                   + 'This discards staged and working changes, but preserves Git history and local media files.',
                 );
-                if (confirmed) void store.replaceLocalProjectWithNewest();
+                if (confirmed) void store.replaceLocalProjectWithSelected();
               }}
-            >Replace the local project with the newest commit</Button>
+            >Replace the local project with the selected commit</Button>
           </div>
         </div>
       </section>

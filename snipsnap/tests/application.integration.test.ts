@@ -227,10 +227,17 @@ describe('V1 project workflow', () => {
     expect(replaced.unstaged).not.toHaveLength(0);
     expect(await service.resolveMediaFile(project.id, asset.fingerprint)).toBe(mediaPath);
 
-    const newest = await service.restoreRevisionToWorking(
+    const restarted = new ProjectService(root);
+    const persisted = await restarted.status(project.id);
+    expect(persisted.project).toEqual(project);
+    expect(persisted.headCommit).toBe(committed.headCommit);
+    expect(persisted.staged).toEqual([]);
+    expect(await restarted.resolveMediaFile(project.id, asset.fingerprint)).toBe(mediaPath);
+
+    const newest = await restarted.restoreRevisionToWorking(
       project.id,
       'HEAD',
-      replaced.workspaceVersion,
+      persisted.workspaceVersion,
       true,
     );
     expect(newest.headCommit).toBe(committed.headCommit);

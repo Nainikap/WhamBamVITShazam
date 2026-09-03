@@ -52,7 +52,7 @@ interface AppStore {
   loadRevision(revision: string, parentIndex?: number): Promise<void>;
   createBranchFromSelected(name: string): Promise<void>;
   checkout(branch: string, discard: boolean): Promise<void>;
-  replaceLocalProjectWithNewest(): Promise<void>;
+  replaceLocalProjectWithSelected(): Promise<void>;
   openDiff(base: string, head: string): Promise<void>;
   openWorkspaceDiff(scope: WorkspaceComparisonScope): Promise<void>;
   closeDiff(): void;
@@ -433,21 +433,22 @@ export const useAppStore = create<AppStore>((set, get) => {
       await refreshComparison(projectId);
     }),
 
-    replaceLocalProjectWithNewest: () => run(async () => {
-      const { currentProjectId, status } = get();
-      if (!currentProjectId || !status) return;
+    replaceLocalProjectWithSelected: () => run(async () => {
+      const { currentProjectId, status, selectedRevision } = get();
+      if (!currentProjectId || !status || !selectedRevision) return;
+      const revision = selectedRevision.commit.id;
       const next = await window.snipsnap.restoreRevision(
         currentProjectId,
-        'HEAD',
+        revision,
         status.workspaceVersion,
         true,
       );
-      const selectedRevision = await window.snipsnap.revisionDetails(currentProjectId, next.headCommit);
+      const restoredRevision = await window.snipsnap.revisionDetails(currentProjectId, revision);
       set({
         status: next,
-        selectedRevision,
+        selectedRevision: restoredRevision,
         ...(get().comparison?.kind === 'workspace' ? { comparison: null, diffOpen: false } : {}),
-        notice: `Replaced the local project with newest commit ${next.headCommit.slice(0, 8)}. Git history and local media were preserved.`,
+        notice: `Replaced the local project with selected commit ${revision.slice(0, 8)}. Git history and local media were preserved.`,
       });
     }),
 

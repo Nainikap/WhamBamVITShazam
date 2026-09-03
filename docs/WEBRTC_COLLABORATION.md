@@ -69,10 +69,9 @@ See the official WebRTC documentation for the separate
 
 ## Replacing the local project
 
-When the working project differs from `HEAD`, **Replace the local project with the newest commit** is
-available. After confirmation, SnipSnap resolves the current branch's `HEAD` at execution time,
-discards staged and working timeline changes, and copies that newest canonical snapshot into the
+When the working project differs from the commit selected in history, **Replace the local project
+with the selected commit** is available. After confirmation, SnipSnap resolves that immutable commit,
+discards staged and working timeline changes, and copies the selected canonical snapshot into the
 local working project. The current branch and Git history remain intact, and media files are not
 deleted or downloaded again. This action intentionally does not modify a native `.drp` or
-`.kdenlive` file; editor-native project mutation remains outside SnipSnap's safe interchange
-boundary.
+`.kdenlive` file; editor-native project mutation remains outside SnipSnap's safe interchange boundary.
