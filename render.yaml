@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: snipsnap-webrtc-signaling
+    runtime: docker
+    plan: free
+    branch: fix
+    rootDir: snipsnap
+    dockerfilePath: ./webrtc-signaling.Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: SNIPSNAP_ICE_SERVERS_JSON
+        value: '[{"urls":"stun:stun.l.google.com:19302"}]'

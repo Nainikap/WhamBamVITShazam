@@ -14,7 +14,7 @@ describe('WebRTC collaboration', () => {
   let hostRtc: WebRtcCollaborationService;
   let peerRtc: WebRtcCollaborationService;
   let secondPeerRtc: WebRtcCollaborationService;
-  let signaling: WebRtcSignalingServer;
+  let signaling: WebRtcSignalingServer | null;
   let previousResolveDatabase: string | undefined;
 
   beforeEach(async () => {
@@ -24,8 +24,12 @@ describe('WebRTC collaboration', () => {
     host = new ProjectService(path.join(root, 'host'));
     peer = new ProjectService(path.join(root, 'peer'));
     secondPeer = new ProjectService(path.join(root, 'second-peer'));
-    signaling = new WebRtcSignalingServer({ host: '127.0.0.1', advertisedHost: '127.0.0.1' });
-    const { url } = await signaling.listen();
+    const deployedSignalingUrl = process.env.SNIPSNAP_TEST_SIGNALING_URL;
+    signaling = deployedSignalingUrl
+      ? null
+      : new WebRtcSignalingServer({ host: '127.0.0.1', advertisedHost: '127.0.0.1' });
+    const url = deployedSignalingUrl ?? (await signaling?.listen())?.url;
+    if (!url) throw new Error('Could not resolve the WebRTC signaling endpoint');
     hostRtc = new WebRtcCollaborationService(path.join(root, 'host'), host, undefined, undefined, { signalingUrl: url });
     peerRtc = new WebRtcCollaborationService(path.join(root, 'peer'), peer);
     secondPeerRtc = new WebRtcCollaborationService(path.join(root, 'second-peer'), secondPeer);
@@ -33,7 +37,7 @@ describe('WebRTC collaboration', () => {
 
   afterEach(async () => {
     await Promise.all([hostRtc.close(), peerRtc.close(), secondPeerRtc.close()]);
-    await signaling.close();
+    await signaling?.close();
     await rm(root, { recursive: true, force: true });
     if (previousResolveDatabase === undefined) delete process.env.SNIPSNAP_RESOLVE_DATABASE;
     else process.env.SNIPSNAP_RESOLVE_DATABASE = previousResolveDatabase;
